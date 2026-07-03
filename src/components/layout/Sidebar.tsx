@@ -1,8 +1,8 @@
 'use client';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, MoreHorizontal } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, MoreHorizontal, X } from 'lucide-react';
 import { db } from '@/lib/db';
 
 interface SidebarProps {
@@ -13,6 +13,8 @@ export function Sidebar({ role }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [isTeamLead, setIsTeamLead] = useState(false);
+  const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const email = localStorage.getItem('user_email');
@@ -22,6 +24,19 @@ export function Sidebar({ role }: SidebarProps) {
       setIsTeamLead(!!(profile?.isTeamLead && (profile.leadTeams?.length ?? 0) > 0));
     }
   }, []);
+
+  // Click outside listener for mobile more drawer
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setIsMobileMoreOpen(false);
+      }
+    };
+    if (isMobileMoreOpen) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [isMobileMoreOpen]);
 
   const handleSignOut = () => {
     localStorage.removeItem('user_role');
@@ -71,8 +86,10 @@ export function Sidebar({ role }: SidebarProps) {
   const policyHref = role === 'admin' ? '/admin/policy' : role === 'hr' ? '/hr/policy' : '/employee/policy';
   const isPolicyActive = pathname === policyHref;
 
-  // Pick top 4 links for mobile quick tab layout
+  // Bottom Mobile Bar: Main 4 links
   const mobileQuickLinks = links.slice(0, 4);
+  // Rest of the links go inside "More" panel
+  const mobileMoreLinks = links.slice(4);
 
   return (
     <>
@@ -142,28 +159,78 @@ export function Sidebar({ role }: SidebarProps) {
               }`}
             >
               <Icon className="h-5 w-5 shrink-0" />
-              <span className="text-[9px] font-bold tracking-tight">{item.name.split(' ')[0]}</span>
+              <span className="text-[9px] font-bold tracking-tight">{item.name.replace('Management', '').replace('Dashboard', '').trim()}</span>
             </Link>
           );
         })}
-        {/* Policy Handbook Mobile Tab */}
-        <Link
-          href={policyHref}
-          className={`flex flex-col items-center gap-1 active:scale-90 transition-transform duration-100 ${
-            isPolicyActive ? 'text-orange-600' : 'text-slate-450 hover:text-slate-600'
+
+        {/* More Button to trigger popover drawer */}
+        <button
+          onClick={() => setIsMobileMoreOpen(prev => !prev)}
+          className={`flex flex-col items-center gap-1 active:scale-90 transition-transform duration-100 relative ${
+            isMobileMoreOpen ? 'text-orange-600' : 'text-slate-450'
           }`}
         >
-          <BookOpen className="h-5 w-5 shrink-0" />
-          <span className="text-[9px] font-bold tracking-tight">Handbook</span>
-        </Link>
-        {/* Sign Out Action Button */}
-        <button
-          onClick={handleSignOut}
-          className="flex flex-col items-center gap-1 active:scale-90 transition-transform duration-100 text-slate-450 hover:text-rose-600"
-        >
-          <LogOut className="h-5 w-5 shrink-0" />
-          <span className="text-[9px] font-bold tracking-tight">Exit</span>
+          <MoreHorizontal className="h-5 w-5 shrink-0" />
+          <span className="text-[9px] font-bold tracking-tight">More</span>
         </button>
+
+        {/* Drawer overlay for additional options */}
+        {isMobileMoreOpen && (
+          <div 
+            ref={moreMenuRef}
+            className="absolute bottom-16 right-4 left-4 bg-white/95 backdrop-blur-md border border-slate-200 shadow-2xl rounded-2xl p-4 space-y-1 animate-in slide-in-from-bottom-5 duration-200 z-50 max-h-[300px] overflow-y-auto"
+          >
+            <div className="flex justify-between items-center pb-2 mb-2 border-b border-slate-100">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">More Actions</span>
+              <button onClick={() => setIsMobileMoreOpen(false)} className="p-1 hover:bg-slate-100 rounded-full text-slate-400">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* List remaining navigation options */}
+            {mobileMoreLinks.map(item => {
+              const isActive = pathname === item.href;
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  onClick={() => setIsMobileMoreOpen(false)}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                    isActive 
+                      ? 'bg-orange-50 text-orange-700' 
+                      : 'text-slate-650 hover:bg-slate-50'
+                  }`}
+                >
+                  <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-orange-700' : 'text-slate-400'}`} />
+                  {item.name}
+                </Link>
+              );
+            })}
+
+            {/* Policy Handbook Link inside More drawer */}
+            <Link
+              href={policyHref}
+              onClick={() => setIsMobileMoreOpen(false)}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                isPolicyActive ? 'bg-orange-50 text-orange-700' : 'text-slate-650 hover:bg-slate-55'
+              }`}
+            >
+              <BookOpen className={`h-4 w-4 shrink-0 ${isPolicyActive ? 'text-orange-700' : 'text-slate-400'}`} />
+              Policy Handbook
+            </Link>
+
+            {/* Sign Out Option */}
+            <button
+              onClick={() => { setIsMobileMoreOpen(false); handleSignOut(); }}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 border-t border-slate-100 mt-2"
+            >
+              <LogOut className="h-4 w-4 shrink-0 text-rose-500" />
+              Sign Out
+            </button>
+          </div>
+        )}
       </div>
     </>
   );
