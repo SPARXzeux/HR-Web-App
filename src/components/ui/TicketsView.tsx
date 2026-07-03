@@ -253,6 +253,9 @@ export function TicketsView({ role }: TicketsViewProps) {
                   else if (role === 'admin' && rep.senderRole === 'admin') isSenderSelf = true;
                   else if ((role === 'employee' || role === 'team_lead') && (rep.senderRole === 'employee' || rep.senderRole === 'team_lead')) isSenderSelf = true;
 
+                  const isAdminViewer = role === 'admin';
+                  const isHrSender = rep.senderRole === 'hr';
+
                   return (
                     <div 
                       key={rep.id} 
@@ -261,20 +264,38 @@ export function TicketsView({ role }: TicketsViewProps) {
                       }`}
                     >
                       <div className={`h-7 w-7 rounded-full flex items-center justify-center font-bold text-xs uppercase flex-shrink-0 ${
-                        isSenderSelf ? 'bg-orange-100 text-orange-700' : 'bg-slate-200 text-slate-750'
+                        isSenderSelf 
+                          ? 'bg-orange-100 text-orange-700' 
+                          : isAdminViewer && isHrSender
+                            ? 'bg-orange-200 text-orange-850 border border-orange-300'
+                            : 'bg-slate-200 text-slate-750'
                       }`}>
                         {rep.senderName[0]}
                       </div>
                       <div className={`rounded-2xl p-3 shadow-sm text-xs ${
                         isSenderSelf 
                           ? 'bg-orange-600 text-white rounded-tr-none' 
-                          : 'bg-white border border-slate-200 text-slate-850 rounded-tl-none'
+                          : isAdminViewer && isHrSender
+                            ? 'bg-orange-50/80 border-2 border-orange-300/80 text-slate-850 rounded-tl-none shadow-orange-100/50'
+                            : 'bg-white border border-slate-200 text-slate-850 rounded-tl-none'
                       }`}>
-                        <p className={`font-bold text-[10px] mb-0.5 ${isSenderSelf ? 'text-orange-200' : 'text-slate-550'}`}>
-                          {rep.senderName} ({rep.senderRole.toUpperCase()})
+                        <p className={`font-bold text-[10px] mb-0.5 ${
+                          isSenderSelf 
+                            ? 'text-orange-200' 
+                            : isAdminViewer && isHrSender 
+                              ? 'text-orange-800' 
+                              : 'text-slate-550'
+                        }`}>
+                          {rep.senderName} ({rep.senderRole.toUpperCase()}) {isAdminViewer && isHrSender && '★'}
                         </p>
                         <p className="font-medium leading-relaxed">{rep.message}</p>
-                        <span className={`block text-[9px] mt-1 text-right ${isSenderSelf ? 'text-orange-200' : 'text-slate-400'}`}>
+                        <span className={`block text-[9px] mt-1 text-right ${
+                          isSenderSelf 
+                            ? 'text-orange-200' 
+                            : isAdminViewer && isHrSender
+                              ? 'text-orange-700/80'
+                              : 'text-slate-400'
+                        }`}>
                           {rep.timestamp}
                         </span>
                       </div>
