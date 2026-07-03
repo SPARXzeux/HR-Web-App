@@ -14,6 +14,7 @@ export function Sidebar({ role }: SidebarProps) {
   const router = useRouter();
   const [isTeamLead, setIsTeamLead] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [platform, setPlatform] = useState<'ios' | 'android'>('ios');
   const drawerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -22,6 +23,25 @@ export function Sidebar({ role }: SidebarProps) {
       const employees = db.getEmployees();
       const profile = employees.find(e => e.email === email);
       setIsTeamLead(!!(profile?.isTeamLead && (profile.leadTeams?.length ?? 0) > 0));
+    }
+
+    // Dynamic OS Platform Detection for iOS vs Android
+    const ua = navigator.userAgent.toLowerCase();
+    if (/iphone|ipad|ipod/.test(ua)) {
+      setPlatform('ios');
+      document.body.classList.add('platform-ios');
+      document.body.classList.remove('platform-android');
+    } else if (/android/.test(ua)) {
+      setPlatform('android');
+      document.body.classList.add('platform-android');
+      document.body.classList.remove('platform-ios');
+    } else {
+      // Desktop Developer Emulation check (Chrome devtools overrides userAgent on devices)
+      if (ua.includes('android')) {
+        setPlatform('android');
+      } else {
+        setPlatform('ios'); // default fallback
+      }
     }
   }, []);
 
@@ -86,11 +106,11 @@ export function Sidebar({ role }: SidebarProps) {
   const policyHref = role === 'admin' ? '/admin/policy' : role === 'hr' ? '/hr/policy' : '/employee/policy';
   const isPolicyActive = pathname === policyHref;
 
-  // Bottom Mobile Bar: Keep most used tabs (Dashboard, Tasks, Leaves, Tickets)
+  // Mobile bar tabs mapping
   const getMobileQuickLinks = () => {
     if (role === 'hr') {
       return [
-        { name: 'HR Dashboard', href: '/hr', icon: LayoutDashboard },
+        { name: 'Home', href: '/hr', icon: LayoutDashboard },
         { name: 'Tasks', href: '/hr/tasks', icon: ClipboardList },
         { name: 'Leaves', href: '/hr/leaves', icon: Clock },
         { name: 'Tickets', href: '/hr/tickets', icon: HelpCircle },
@@ -104,7 +124,6 @@ export function Sidebar({ role }: SidebarProps) {
         { name: 'Tickets', href: '/admin/tickets', icon: HelpCircle },
       ];
     }
-    // Employee
     return [
       { name: 'Dashboard', href: '/employee', icon: LayoutDashboard },
       { name: 'Leaves', href: '/employee/leaves', icon: Clock },
@@ -114,11 +133,7 @@ export function Sidebar({ role }: SidebarProps) {
   };
 
   const mobileQuickLinks = getMobileQuickLinks();
-
-  // All links not included in the quick bottom bar go into the Left Side Menu Drawer
-  const mobileSideLinks = links.filter(link => 
-    !mobileQuickLinks.some(quick => quick.href === link.href)
-  );
+  const mobileSideLinks = links.filter(link => !mobileQuickLinks.some(quick => quick.href === link.href));
 
   return (
     <>
@@ -174,58 +189,119 @@ export function Sidebar({ role }: SidebarProps) {
         </div>
       </aside>
 
-      {/* iOS/Android Native-style Translucent Bottom Navigation Bar */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/80 backdrop-blur-lg border-t border-slate-200/60 pb-safe shadow-lg flex justify-around items-center pt-2.5 pb-3.5 px-2">
-        {mobileQuickLinks.map(item => {
-          const isActive = pathname === item.href;
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={`flex flex-col items-center gap-1 active:scale-90 transition-transform duration-100 relative ${
-                isActive ? 'text-orange-600' : 'text-slate-450 hover:text-slate-600'
-              }`}
-            >
-              <Icon className="h-5 w-5 shrink-0" />
-              <span className="text-[9px] font-bold tracking-tight">{item.name}</span>
-            </Link>
-          );
-        })}
-
-        {/* Menu Tab button to open side drawer */}
-        <button
-          onClick={() => setIsMobileMenuOpen(true)}
-          className={`flex flex-col items-center gap-1 active:scale-90 transition-transform duration-100 relative ${
-            isMobileMenuOpen ? 'text-orange-600' : 'text-slate-450'
-          }`}
+      {/* iOS vs Android Responsive Bottom Tab Bar */}
+      {platform === 'ios' ? (
+        /* iOS Style: Translucent frosted glass tab bar, thin lines, SF Symbols feel */
+        <div 
+          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/70 backdrop-blur-xl border-t border-slate-200/40 pb-safe shadow-sm flex justify-around items-center pt-2 pb-3 px-3"
+          style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif' }}
         >
-          <Menu className="h-5 w-5 shrink-0" />
-          <span className="text-[9px] font-bold tracking-tight">Menu</span>
-        </button>
-      </div>
+          {mobileQuickLinks.map(item => {
+            const isActive = pathname === item.href;
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={`flex flex-col items-center gap-1 active:opacity-40 transition-opacity duration-75 relative ${
+                  isActive ? 'text-orange-600' : 'text-slate-400'
+                }`}
+              >
+                <Icon className="h-5.5 w-5.5 shrink-0" strokeWidth={isActive ? 2.5 : 2} />
+                <span className="text-[9px] font-medium tracking-tight">{item.name}</span>
+              </Link>
+            );
+          })}
+          <button
+            onClick={() => setIsMobileMenuOpen(true)}
+            className={`flex flex-col items-center gap-1 active:opacity-40 transition-opacity duration-75 relative ${
+              isMobileMenuOpen ? 'text-orange-600' : 'text-slate-400'
+            }`}
+          >
+            <Menu className="h-5.5 w-5.5 shrink-0" strokeWidth={2} />
+            <span className="text-[9px] font-medium tracking-tight">Menu</span>
+          </button>
+        </div>
+      ) : (
+        /* Android Style: Material Design 3 Solid Tab Bar, Active Highlight Indicator Pills, MD Typography */
+        <div 
+          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900 border-t border-slate-800 pb-safe shadow-lg flex justify-around items-center pt-3 pb-4 px-1"
+          style={{ fontFamily: 'Roboto, "Noto Sans", sans-serif' }}
+        >
+          {mobileQuickLinks.map(item => {
+            const isActive = pathname === item.href;
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform duration-100 relative"
+              >
+                <div className={`px-5 py-1 rounded-full flex items-center justify-center transition-all ${
+                  isActive ? 'bg-orange-600 text-white shadow' : 'bg-transparent text-slate-400'
+                }`}>
+                  <Icon className="h-5 w-5 shrink-0" />
+                </div>
+                <span className={`text-[10px] tracking-wide font-medium ${isActive ? 'text-white font-bold' : 'text-slate-455'}`}>
+                  {item.name}
+                </span>
+              </Link>
+            );
+          })}
+          <button
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform duration-100 relative"
+          >
+            <div className={`px-5 py-1 rounded-full flex items-center justify-center transition-all ${
+              isMobileMenuOpen ? 'bg-orange-600 text-white shadow' : 'bg-transparent text-slate-400'
+            }`}>
+              <Menu className="h-5 w-5 shrink-0" />
+            </div>
+            <span className={`text-[10px] tracking-wide font-medium ${isMobileMenuOpen ? 'text-white font-bold' : 'text-slate-455'}`}>
+              Menu
+            </span>
+          </button>
+        </div>
+      )}
 
-      {/* Mobile Slide-Out Side Menu Drawer (Left Side Menu) */}
+      {/* Mobile Drawer (Left Slide-Out) Styled by Platform */}
       {isMobileMenuOpen && (
         <div className="md:hidden fixed inset-0 z-50 flex">
-          {/* Backdrop Blur Overlay */}
           <div 
             className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm animate-in fade-in duration-200"
             onClick={() => setIsMobileMenuOpen(false)}
           />
 
-          {/* Left Drawer Content */}
           <div 
             ref={drawerRef}
-            className="relative flex flex-col w-64 max-w-xs bg-white h-full shadow-2xl p-5 border-r border-slate-200 animate-in slide-in-from-left duration-200 z-50 justify-between"
+            className={`relative flex flex-col w-64 max-w-xs h-full shadow-2xl p-5 z-50 justify-between animate-in slide-in-from-left duration-200 ${
+              platform === 'ios'
+                ? 'bg-white/95 backdrop-blur-md border-r border-slate-200/50 rounded-r-2xl'
+                : 'bg-slate-900 border-r border-slate-800 text-white'
+            }`}
+            style={{ 
+              fontFamily: platform === 'ios' 
+                ? '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif' 
+                : 'Roboto, sans-serif'
+            }}
           >
             <div className="space-y-6">
               {/* Header */}
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                <div className="font-bold text-lg text-orange-600 tracking-tight">DelCargo Menu</div>
+              <div className={`flex items-center justify-between pb-4 border-b ${
+                platform === 'ios' ? 'border-slate-100' : 'border-slate-800'
+              }`}>
+                <div className={`font-bold text-lg tracking-tight ${
+                  platform === 'ios' ? 'text-orange-600' : 'text-orange-500'
+                }`}>
+                  DelCargo Menu
+                </div>
                 <button 
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="p-1 rounded-lg text-slate-400 hover:bg-slate-50 hover:text-slate-700 transition-colors"
+                  className={`p-1 rounded-full transition-colors ${
+                    platform === 'ios' 
+                      ? 'text-slate-400 hover:bg-slate-100 hover:text-slate-700' 
+                      : 'text-slate-500 hover:bg-slate-800 hover:text-white'
+                  }`}
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -241,13 +317,21 @@ export function Sidebar({ role }: SidebarProps) {
                       key={item.name}
                       href={item.href}
                       onClick={() => setIsMobileMenuOpen(false)}
-                      className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all duration-150 ${
+                      className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
                         isActive 
-                          ? 'bg-orange-50 text-orange-700' 
-                          : 'text-slate-650 hover:bg-slate-50'
+                          ? platform === 'ios'
+                            ? 'bg-orange-50 text-orange-700'
+                            : 'bg-orange-600 text-white'
+                          : platform === 'ios'
+                            ? 'text-slate-650 hover:bg-slate-50'
+                            : 'text-slate-300 hover:bg-slate-800'
                       }`}
                     >
-                      <Icon className={`h-4.5 w-4.5 shrink-0 ${isActive ? 'text-orange-700' : 'text-slate-400'}`} />
+                      <Icon className={`h-4.5 w-4.5 shrink-0 ${
+                        isActive 
+                          ? 'text-inherit' 
+                          : platform === 'ios' ? 'text-slate-400' : 'text-slate-500'
+                      }`} />
                       {item.name}
                     </Link>
                   );
@@ -257,18 +341,30 @@ export function Sidebar({ role }: SidebarProps) {
                 <Link
                   href={policyHref}
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all duration-150 ${
-                    isPolicyActive ? 'bg-orange-50 text-orange-700' : 'text-slate-650 hover:bg-slate-50'
+                  className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                    isPolicyActive 
+                      ? platform === 'ios'
+                        ? 'bg-orange-50 text-orange-700'
+                        : 'bg-orange-600 text-white'
+                      : platform === 'ios'
+                        ? 'text-slate-650 hover:bg-slate-50'
+                        : 'text-slate-300 hover:bg-slate-800'
                   }`}
                 >
-                  <BookOpen className={`h-4.5 w-4.5 shrink-0 ${isPolicyActive ? 'text-orange-700' : 'text-slate-400'}`} />
+                  <BookOpen className={`h-4.5 w-4.5 shrink-0 ${
+                    isPolicyActive 
+                      ? 'text-inherit' 
+                      : platform === 'ios' ? 'text-slate-400' : 'text-slate-500'
+                  }`} />
                   Policy Handbook
                 </Link>
               </nav>
             </div>
 
             {/* Bottom Actions inside side menu */}
-            <div className="pt-4 border-t border-slate-100">
+            <div className={`pt-4 border-t ${
+              platform === 'ios' ? 'border-slate-100' : 'border-slate-800'
+            }`}>
               <button
                 onClick={() => { setIsMobileMenuOpen(false); handleSignOut(); }}
                 className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors"
