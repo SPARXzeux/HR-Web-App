@@ -220,20 +220,39 @@ export function TicketsView({ role }: TicketsViewProps) {
               {/* Chat replies log */}
               <div className="flex-1 p-5 space-y-4 max-h-[300px] overflow-y-auto bg-slate-50/30">
                 {/* Employee Description */}
-                <div className="flex items-start gap-2.5 max-w-[85%]">
-                  <div className="h-7 w-7 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs uppercase flex-shrink-0">
-                    {selectedTicket.employeeName[0]}
-                  </div>
-                  <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-none p-3 shadow-sm text-xs">
-                    <p className="font-bold text-slate-800 text-[10px] mb-0.5">{selectedTicket.employeeName} (Author)</p>
-                    <p className="text-slate-750 font-medium leading-relaxed">{selectedTicket.description}</p>
-                    <span className="block text-[9px] text-slate-400 font-semibold mt-1 text-right">{selectedTicket.createdAt}</span>
-                  </div>
-                </div>
+                {(() => {
+                  const isAuthorSelf = role === 'employee' || role === 'team_lead';
+                  return (
+                    <div className={`flex items-start gap-2.5 max-w-[85%] ${isAuthorSelf ? 'ml-auto flex-row-reverse' : ''}`}>
+                      <div className={`h-7 w-7 rounded-full flex items-center justify-center font-bold text-xs uppercase flex-shrink-0 ${
+                        isAuthorSelf ? 'bg-orange-100 text-orange-700' : 'bg-slate-200 text-slate-700'
+                      }`}>
+                        {selectedTicket.employeeName[0]}
+                      </div>
+                      <div className={`rounded-2xl p-3 shadow-sm text-xs ${
+                        isAuthorSelf 
+                          ? 'bg-orange-600 text-white rounded-tr-none' 
+                          : 'bg-white border border-slate-200 text-slate-850 rounded-tl-none'
+                      }`}>
+                        <p className={`font-bold text-[10px] mb-0.5 ${isAuthorSelf ? 'text-orange-200' : 'text-slate-500'}`}>
+                          {selectedTicket.employeeName} (Author)
+                        </p>
+                        <p className="font-medium leading-relaxed">{selectedTicket.description}</p>
+                        <span className={`block text-[9px] mt-1 text-right ${isAuthorSelf ? 'text-orange-200' : 'text-slate-400'}`}>
+                          {selectedTicket.createdAt}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Replies list */}
                 {selectedTicket.replies.map(rep => {
-                  const isSenderSelf = rep.senderName === userProfile?.fullName;
+                  let isSenderSelf = false;
+                  if (role === 'hr' && rep.senderRole === 'hr') isSenderSelf = true;
+                  else if (role === 'admin' && rep.senderRole === 'admin') isSenderSelf = true;
+                  else if ((role === 'employee' || role === 'team_lead') && (rep.senderRole === 'employee' || rep.senderRole === 'team_lead')) isSenderSelf = true;
+
                   return (
                     <div 
                       key={rep.id} 
