@@ -223,9 +223,9 @@ export function Sidebar({ role }: SidebarProps) {
           </button>
         </div>
       ) : (
-        /* Android Style: Material Design 3 Solid Tab Bar, Active Highlight Indicator Pills, MD Typography */
+        /* Android Style: Material Design 3 Solid Tab Bar, Active Highlight Indicator Pills, MD Typography, Light Mode */
         <div 
-          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900 border-t border-slate-800 pb-safe shadow-lg flex justify-around items-center pt-3 pb-4 px-1"
+          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200/80 pb-safe shadow-lg flex justify-around items-center pt-3 pb-4 px-1"
           style={{ fontFamily: 'Roboto, "Noto Sans", sans-serif' }}
         >
           {mobileQuickLinks.map(item => {
@@ -238,11 +238,11 @@ export function Sidebar({ role }: SidebarProps) {
                 className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform duration-100 relative"
               >
                 <div className={`px-5 py-1 rounded-full flex items-center justify-center transition-all ${
-                  isActive ? 'bg-orange-600 text-white shadow' : 'bg-transparent text-slate-400'
+                  isActive ? 'bg-orange-50 text-orange-700 shadow-sm' : 'bg-transparent text-slate-400'
                 }`}>
                   <Icon className="h-5 w-5 shrink-0" />
                 </div>
-                <span className={`text-[10px] tracking-wide font-medium ${isActive ? 'text-white font-bold' : 'text-slate-455'}`}>
+                <span className={`text-[10px] tracking-wide font-medium ${isActive ? 'text-orange-700 font-bold' : 'text-slate-500'}`}>
                   {item.name}
                 </span>
               </Link>
@@ -253,11 +253,11 @@ export function Sidebar({ role }: SidebarProps) {
             className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform duration-100 relative"
           >
             <div className={`px-5 py-1 rounded-full flex items-center justify-center transition-all ${
-              isMobileMenuOpen ? 'bg-orange-600 text-white shadow' : 'bg-transparent text-slate-400'
+              isMobileMenuOpen ? 'bg-orange-50 text-orange-700 shadow-sm' : 'bg-transparent text-slate-400'
             }`}>
               <Menu className="h-5 w-5 shrink-0" />
             </div>
-            <span className={`text-[10px] tracking-wide font-medium ${isMobileMenuOpen ? 'text-white font-bold' : 'text-slate-455'}`}>
+            <span className={`text-[10px] tracking-wide font-medium ${isMobileMenuOpen ? 'text-orange-700 font-bold' : 'text-slate-500'}`}>
               Menu
             </span>
           </button>
@@ -274,11 +274,7 @@ export function Sidebar({ role }: SidebarProps) {
 
           <div 
             ref={drawerRef}
-            className={`relative flex flex-col w-64 max-w-xs h-full shadow-2xl p-5 z-50 justify-between animate-in slide-in-from-left duration-200 ${
-              platform === 'ios'
-                ? 'bg-white/95 backdrop-blur-md border-r border-slate-200/50 rounded-r-2xl'
-                : 'bg-slate-900 border-r border-slate-800 text-white'
-            }`}
+            className={`relative flex flex-col w-64 max-w-xs h-full shadow-2xl p-5 z-50 justify-between animate-in slide-in-from-left duration-200 bg-white/95 backdrop-blur-md border-r border-slate-200/50 rounded-r-2xl`}
             style={{ 
               fontFamily: platform === 'ios' 
                 ? '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif' 
@@ -287,21 +283,13 @@ export function Sidebar({ role }: SidebarProps) {
           >
             <div className="space-y-6">
               {/* Header */}
-              <div className={`flex items-center justify-between pb-4 border-b ${
-                platform === 'ios' ? 'border-slate-100' : 'border-slate-800'
-              }`}>
-                <div className={`font-bold text-lg tracking-tight ${
-                  platform === 'ios' ? 'text-orange-600' : 'text-orange-500'
-                }`}>
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                <div className="font-bold text-lg tracking-tight text-orange-600">
                   DelCargo Menu
                 </div>
                 <button 
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className={`p-1 rounded-full transition-colors ${
-                    platform === 'ios' 
-                      ? 'text-slate-400 hover:bg-slate-100 hover:text-slate-700' 
-                      : 'text-slate-500 hover:bg-slate-800 hover:text-white'
-                  }`}
+                  className="p-1 rounded-full transition-colors text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -319,18 +307,12 @@ export function Sidebar({ role }: SidebarProps) {
                       onClick={() => setIsMobileMenuOpen(false)}
                       className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
                         isActive 
-                          ? platform === 'ios'
-                            ? 'bg-orange-50 text-orange-700'
-                            : 'bg-orange-600 text-white'
-                          : platform === 'ios'
-                            ? 'text-slate-650 hover:bg-slate-50'
-                            : 'text-slate-300 hover:bg-slate-800'
+                          ? 'bg-orange-50 text-orange-700'
+                          : 'text-slate-650 hover:bg-slate-50'
                       }`}
                     >
                       <Icon className={`h-4.5 w-4.5 shrink-0 ${
-                        isActive 
-                          ? 'text-inherit' 
-                          : platform === 'ios' ? 'text-slate-400' : 'text-slate-500'
+                        isActive ? 'text-orange-700' : 'text-slate-450'
                       }`} />
                       {item.name}
                     </Link>
@@ -343,18 +325,12 @@ export function Sidebar({ role }: SidebarProps) {
                   onClick={() => setIsMobileMenuOpen(false)}
                   className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
                     isPolicyActive 
-                      ? platform === 'ios'
-                        ? 'bg-orange-50 text-orange-700'
-                        : 'bg-orange-600 text-white'
-                      : platform === 'ios'
-                        ? 'text-slate-650 hover:bg-slate-50'
-                        : 'text-slate-300 hover:bg-slate-800'
+                      ? 'bg-orange-50 text-orange-700'
+                      : 'text-slate-650 hover:bg-slate-50'
                   }`}
                 >
                   <BookOpen className={`h-4.5 w-4.5 shrink-0 ${
-                    isPolicyActive 
-                      ? 'text-inherit' 
-                      : platform === 'ios' ? 'text-slate-400' : 'text-slate-500'
+                    isPolicyActive ? 'text-orange-700' : 'text-slate-450'
                   }`} />
                   Policy Handbook
                 </Link>
@@ -362,9 +338,7 @@ export function Sidebar({ role }: SidebarProps) {
             </div>
 
             {/* Bottom Actions inside side menu */}
-            <div className={`pt-4 border-t ${
-              platform === 'ios' ? 'border-slate-100' : 'border-slate-800'
-            }`}>
+            <div className="pt-4 border-t border-slate-100">
               <button
                 onClick={() => { setIsMobileMenuOpen(false); handleSignOut(); }}
                 className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors"
