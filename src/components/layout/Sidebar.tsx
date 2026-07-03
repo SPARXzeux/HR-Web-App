@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, MoreHorizontal } from 'lucide-react';
 import { db } from '@/lib/db';
 
 interface SidebarProps {
@@ -71,56 +71,100 @@ export function Sidebar({ role }: SidebarProps) {
   const policyHref = role === 'admin' ? '/admin/policy' : role === 'hr' ? '/hr/policy' : '/employee/policy';
   const isPolicyActive = pathname === policyHref;
 
-  return (
-    <aside className="w-64 border-r border-slate-200 bg-white flex flex-col h-screen sticky top-0">
-      <div className="h-16 flex items-center px-6 border-b border-slate-200">
-        <div className="font-bold text-xl text-orange-600">
-          DelCargo HR
-        </div>
-      </div>
+  // Pick top 4 links for mobile quick tab layout
+  const mobileQuickLinks = links.slice(0, 4);
 
-      <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-1">
-        {links.map((item) => {
+  return (
+    <>
+      {/* Desktop Sidebar (hidden on mobile) */}
+      <aside className="hidden md:flex w-64 border-r border-slate-200 bg-white flex-col h-screen sticky top-0">
+        <div className="h-16 flex items-center px-6 border-b border-slate-200">
+          <div className="font-bold text-xl text-orange-600">
+            DelCargo HR
+          </div>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-1">
+          {links.map((item) => {
+            const isActive = pathname === item.href;
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={`flex items-center px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 ${
+                  isActive
+                    ? 'bg-orange-50 text-orange-700'
+                    : 'text-slate-650 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <Icon className={`mr-3 h-5 w-5 ${isActive ? 'text-orange-700' : 'text-slate-400'}`} />
+                {item.name}
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* Bottom Actions section */}
+        <div className="p-4 border-t border-slate-200 space-y-1">
+          <Link
+            href={policyHref}
+            className={`flex items-center px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 ${
+              isPolicyActive
+                ? 'bg-orange-50 text-orange-700'
+                : 'text-slate-650 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <BookOpen className={`mr-3 h-5 w-5 ${isPolicyActive ? 'text-orange-700' : 'text-slate-400'}`} />
+            Policy Handbook
+          </Link>
+          <button
+            onClick={handleSignOut}
+            className="flex w-full items-center px-3 py-2.5 rounded-lg text-sm font-semibold text-slate-600 hover:bg-rose-50 hover:text-rose-700 transition-colors duration-150"
+          >
+            <LogOut className="mr-3 h-5 w-5 text-slate-400" />
+            Sign out
+          </button>
+        </div>
+      </aside>
+
+      {/* iOS/Android Native-style Translucent Bottom Navigation Bar (visible on mobile only) */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/80 backdrop-blur-lg border-t border-slate-200/60 pb-safe shadow-lg flex justify-around items-center pt-2.5 pb-3.5 px-2">
+        {mobileQuickLinks.map(item => {
           const isActive = pathname === item.href;
           const Icon = item.icon;
           return (
             <Link
               key={item.name}
               href={item.href}
-              className={`flex items-center px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 ${
-                isActive
-                  ? 'bg-orange-50 text-orange-700'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              className={`flex flex-col items-center gap-1 active:scale-90 transition-transform duration-100 relative ${
+                isActive ? 'text-orange-600' : 'text-slate-450 hover:text-slate-600'
               }`}
             >
-              <Icon className={`mr-3 h-5 w-5 ${isActive ? 'text-orange-700' : 'text-slate-400'}`} />
-              {item.name}
+              <Icon className="h-5 w-5 shrink-0" />
+              <span className="text-[9px] font-bold tracking-tight">{item.name.split(' ')[0]}</span>
             </Link>
           );
         })}
-      </nav>
-
-      {/* Bottom Actions section */}
-      <div className="p-4 border-t border-slate-200 space-y-1">
+        {/* Policy Handbook Mobile Tab */}
         <Link
           href={policyHref}
-          className={`flex items-center px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 ${
-            isPolicyActive
-              ? 'bg-orange-50 text-orange-700'
-              : 'text-slate-650 hover:bg-slate-100 hover:text-slate-900'
+          className={`flex flex-col items-center gap-1 active:scale-90 transition-transform duration-100 ${
+            isPolicyActive ? 'text-orange-600' : 'text-slate-450 hover:text-slate-600'
           }`}
         >
-          <BookOpen className={`mr-3 h-5 w-5 ${isPolicyActive ? 'text-orange-700' : 'text-slate-400'}`} />
-          Policy Handbook
+          <BookOpen className="h-5 w-5 shrink-0" />
+          <span className="text-[9px] font-bold tracking-tight">Handbook</span>
         </Link>
+        {/* Sign Out Action Button */}
         <button
           onClick={handleSignOut}
-          className="flex w-full items-center px-3 py-2.5 rounded-lg text-sm font-semibold text-slate-600 hover:bg-rose-50 hover:text-rose-700 transition-colors duration-150"
+          className="flex flex-col items-center gap-1 active:scale-90 transition-transform duration-100 text-slate-450 hover:text-rose-600"
         >
-          <LogOut className="mr-3 h-5 w-5 text-slate-400" />
-          Sign out
+          <LogOut className="h-5 w-5 shrink-0" />
+          <span className="text-[9px] font-bold tracking-tight">Exit</span>
         </button>
       </div>
-    </aside>
+    </>
   );
 }
