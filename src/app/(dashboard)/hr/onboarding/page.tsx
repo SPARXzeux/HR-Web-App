@@ -125,29 +125,70 @@ export default function HROnboardingPage() {
 
       {/* Onboard Employee Modal */}
       <Modal isOpen={isOnboardOpen} onClose={() => setIsOnboardOpen(false)} title="Onboard New Employee">
-        <form onSubmit={handleOnboardSubmit} className="space-y-4">
-          {onboardError && <div className="p-3 text-xs bg-rose-50 text-rose-600 border border-rose-100 rounded-lg font-semibold">{onboardError}</div>}
-          {onboardSuccess && <div className="p-3 text-xs bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-lg font-semibold">{onboardSuccess}</div>}
+        <form onSubmit={handleOnboardSubmit} className="space-y-4 pt-1">
+          {onboardError && (
+            <div className="p-3.5 text-xs bg-rose-50 text-rose-700 border border-rose-100 rounded-xl font-semibold flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-rose-600 shrink-0" />
+              {onboardError}
+            </div>
+          )}
+          {onboardSuccess && (
+            <div className="p-3.5 text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-xl font-semibold flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 shrink-0" />
+              {onboardSuccess}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Full Name *</label>
-              <input type="text" required value={fullName} onChange={e => setFullName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900" placeholder="e.g. John Doe" />
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Full Name *</label>
+              <input 
+                type="text" 
+                required 
+                value={fullName} 
+                onChange={e => setFullName(e.target.value)} 
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+                placeholder="e.g. John Doe" 
+              />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Job Title / Designation *</label>
-              <input type="text" required value={jobTitle} onChange={e => setJobTitle(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900" placeholder="e.g. QA Specialist" />
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Job Title / Designation *</label>
+              <input 
+                type="text" 
+                required 
+                value={jobTitle} 
+                onChange={e => setJobTitle(e.target.value)} 
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+                placeholder="e.g. QA Specialist" 
+              />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Email Address *</label>
-              <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900" placeholder="e.g. john@company.com" />
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Email Address *</label>
+              <input 
+                type="email" 
+                required 
+                value={email} 
+                onChange={e => setEmail(e.target.value)} 
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+                placeholder="e.g. john@company.com" 
+              />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Gender</label>
-              <select value={gender} onChange={e => setGender(e.target.value as 'male' | 'female')} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Gender</label>
+              <select 
+                value={gender} 
+                onChange={e => setGender(e.target.value as 'male' | 'female')} 
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer appearance-none"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 0.875rem center',
+                  backgroundSize: '1rem'
+                }}
+              >
                 <option value="male">Male</option>
                 <option value="female">Female</option>
               </select>
@@ -155,35 +196,79 @@ export default function HROnboardingPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Role Type</label>
-              <select value={role} onChange={e => setRole(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Role Type</label>
+              <select 
+                value={role} 
+                onChange={e => setRole(e.target.value)} 
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer appearance-none"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 0.875rem center',
+                  backgroundSize: '1rem'
+                }}
+              >
                 <option value="employee">Employee</option>
                 <option value="hr">HR</option>
               </select>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Base Salary (PKR) *</label>
-              <input type="text" required value={salary} onChange={e => setSalary(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900" placeholder="e.g. 50000" />
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Base Salary (PKR) *</label>
+              <input 
+                type="text" 
+                required 
+                value={salary} 
+                onChange={e => setSalary(e.target.value)} 
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+                placeholder="e.g. 50000" 
+              />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Assign Team</label>
-              <select value={team} onChange={e => setTeam(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Assign Team</label>
+              <select 
+                value={team} 
+                onChange={e => setTeam(e.target.value)} 
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer appearance-none"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 0.875rem center',
+                  backgroundSize: '1rem'
+                }}
+              >
                 {teams.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Temporary Password</label>
-              <input type="text" value={tempPassword} onChange={e => setTempPassword(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900" placeholder="e.g. welcome123" />
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Temporary Password</label>
+              <input 
+                type="text" 
+                value={tempPassword} 
+                onChange={e => setTempPassword(e.target.value)} 
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+                placeholder="e.g. welcome123" 
+              />
             </div>
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-            <button type="button" onClick={() => setIsOnboardOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
-            <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Register & Invite</button>
+            <button 
+              type="button" 
+              onClick={() => setIsOnboardOpen(false)} 
+              className="bg-white hover:bg-slate-55 border border-slate-200 text-slate-650 hover:text-slate-800 font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all"
+            >
+              Cancel
+            </button>
+            <button 
+              type="submit" 
+              className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all shadow-md shadow-orange-600/10"
+            >
+              Register & Invite
+            </button>
           </div>
         </form>
       </Modal>
