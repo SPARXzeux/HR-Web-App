@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, MoreHorizontal, X } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, Menu, X } from 'lucide-react';
 import { db } from '@/lib/db';
 
 interface SidebarProps {
@@ -13,8 +13,8 @@ export function Sidebar({ role }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [isTeamLead, setIsTeamLead] = useState(false);
-  const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
-  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const drawerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const email = localStorage.getItem('user_email');
@@ -25,18 +25,18 @@ export function Sidebar({ role }: SidebarProps) {
     }
   }, []);
 
-  // Click outside listener for mobile more drawer
+  // Click outside listener for mobile drawer
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
-      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
-        setIsMobileMoreOpen(false);
+      if (drawerRef.current && !drawerRef.current.contains(e.target as Node)) {
+        setIsMobileMenuOpen(false);
       }
     };
-    if (isMobileMoreOpen) {
+    if (isMobileMenuOpen) {
       document.addEventListener('mousedown', handleOutsideClick);
     }
     return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [isMobileMoreOpen]);
+  }, [isMobileMenuOpen]);
 
   const handleSignOut = () => {
     localStorage.removeItem('user_role');
@@ -86,10 +86,39 @@ export function Sidebar({ role }: SidebarProps) {
   const policyHref = role === 'admin' ? '/admin/policy' : role === 'hr' ? '/hr/policy' : '/employee/policy';
   const isPolicyActive = pathname === policyHref;
 
-  // Bottom Mobile Bar: Main 4 links
-  const mobileQuickLinks = links.slice(0, 4);
-  // Rest of the links go inside "More" panel
-  const mobileMoreLinks = links.slice(4);
+  // Bottom Mobile Bar: Keep most used tabs (Dashboard, Tasks, Leaves, Tickets)
+  const getMobileQuickLinks = () => {
+    if (role === 'hr') {
+      return [
+        { name: 'HR Dashboard', href: '/hr', icon: LayoutDashboard },
+        { name: 'Tasks', href: '/hr/tasks', icon: ClipboardList },
+        { name: 'Leaves', href: '/hr/leaves', icon: Clock },
+        { name: 'Tickets', href: '/hr/tickets', icon: HelpCircle },
+      ];
+    }
+    if (role === 'admin') {
+      return [
+        { name: 'Overview', href: '/admin', icon: LayoutDashboard },
+        { name: 'Tasks', href: '/admin/tasks', icon: ClipboardList },
+        { name: 'Leaves', href: '/admin/leaves', icon: Clock },
+        { name: 'Tickets', href: '/admin/tickets', icon: HelpCircle },
+      ];
+    }
+    // Employee
+    return [
+      { name: 'Dashboard', href: '/employee', icon: LayoutDashboard },
+      { name: 'Leaves', href: '/employee/leaves', icon: Clock },
+      { name: 'Tickets', href: '/employee/tickets', icon: HelpCircle },
+      ...(isTeamLead ? [{ name: 'Team Tasks', href: '/employee/tasks', icon: Star }] : [{ name: 'Salary', href: '/employee/salary', icon: Wallet }]),
+    ];
+  };
+
+  const mobileQuickLinks = getMobileQuickLinks();
+
+  // All links not included in the quick bottom bar go into the Left Side Menu Drawer
+  const mobileSideLinks = links.filter(link => 
+    !mobileQuickLinks.some(quick => quick.href === link.href)
+  );
 
   return (
     <>
@@ -145,7 +174,7 @@ export function Sidebar({ role }: SidebarProps) {
         </div>
       </aside>
 
-      {/* iOS/Android Native-style Translucent Bottom Navigation Bar (visible on mobile only) */}
+      {/* iOS/Android Native-style Translucent Bottom Navigation Bar */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/80 backdrop-blur-lg border-t border-slate-200/60 pb-safe shadow-lg flex justify-around items-center pt-2.5 pb-3.5 px-2">
         {mobileQuickLinks.map(item => {
           const isActive = pathname === item.href;
@@ -159,79 +188,98 @@ export function Sidebar({ role }: SidebarProps) {
               }`}
             >
               <Icon className="h-5 w-5 shrink-0" />
-              <span className="text-[9px] font-bold tracking-tight">{item.name.replace('Management', '').replace('Dashboard', '').trim()}</span>
+              <span className="text-[9px] font-bold tracking-tight">{item.name}</span>
             </Link>
           );
         })}
 
-        {/* More Button to trigger popover drawer */}
+        {/* Menu Tab button to open side drawer */}
         <button
-          onClick={() => setIsMobileMoreOpen(prev => !prev)}
+          onClick={() => setIsMobileMenuOpen(true)}
           className={`flex flex-col items-center gap-1 active:scale-90 transition-transform duration-100 relative ${
-            isMobileMoreOpen ? 'text-orange-600' : 'text-slate-450'
+            isMobileMenuOpen ? 'text-orange-600' : 'text-slate-450'
           }`}
         >
-          <MoreHorizontal className="h-5 w-5 shrink-0" />
-          <span className="text-[9px] font-bold tracking-tight">More</span>
+          <Menu className="h-5 w-5 shrink-0" />
+          <span className="text-[9px] font-bold tracking-tight">Menu</span>
         </button>
+      </div>
 
-        {/* Drawer overlay for additional options */}
-        {isMobileMoreOpen && (
+      {/* Mobile Slide-Out Side Menu Drawer (Left Side Menu) */}
+      {isMobileMenuOpen && (
+        <div className="md:hidden fixed inset-0 z-50 flex">
+          {/* Backdrop Blur Overlay */}
           <div 
-            ref={moreMenuRef}
-            className="absolute bottom-16 right-4 left-4 bg-white/95 backdrop-blur-md border border-slate-200 shadow-2xl rounded-2xl p-4 space-y-1 animate-in slide-in-from-bottom-5 duration-200 z-50 max-h-[300px] overflow-y-auto"
-          >
-            <div className="flex justify-between items-center pb-2 mb-2 border-b border-slate-100">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">More Actions</span>
-              <button onClick={() => setIsMobileMoreOpen(false)} className="p-1 hover:bg-slate-100 rounded-full text-slate-400">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+            className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={() => setIsMobileMenuOpen(false)}
+          />
 
-            {/* List remaining navigation options */}
-            {mobileMoreLinks.map(item => {
-              const isActive = pathname === item.href;
-              const Icon = item.icon;
-              return (
+          {/* Left Drawer Content */}
+          <div 
+            ref={drawerRef}
+            className="relative flex flex-col w-64 max-w-xs bg-white h-full shadow-2xl p-5 border-r border-slate-200 animate-in slide-in-from-left duration-200 z-50 justify-between"
+          >
+            <div className="space-y-6">
+              {/* Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                <div className="font-bold text-lg text-orange-600 tracking-tight">DelCargo Menu</div>
+                <button 
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:bg-slate-50 hover:text-slate-700 transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Drawer Links */}
+              <nav className="space-y-1">
+                {mobileSideLinks.map(item => {
+                  const isActive = pathname === item.href;
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      onClick={() => setIsMobileMenuOpen(false)}
+                      className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all duration-150 ${
+                        isActive 
+                          ? 'bg-orange-50 text-orange-700' 
+                          : 'text-slate-650 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Icon className={`h-4.5 w-4.5 shrink-0 ${isActive ? 'text-orange-700' : 'text-slate-400'}`} />
+                      {item.name}
+                    </Link>
+                  );
+                })}
+
+                {/* Policy Handbook link */}
                 <Link
-                  key={item.name}
-                  href={item.href}
-                  onClick={() => setIsMobileMoreOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                    isActive 
-                      ? 'bg-orange-50 text-orange-700' 
-                      : 'text-slate-650 hover:bg-slate-50'
+                  href={policyHref}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all duration-150 ${
+                    isPolicyActive ? 'bg-orange-50 text-orange-700' : 'text-slate-650 hover:bg-slate-50'
                   }`}
                 >
-                  <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-orange-700' : 'text-slate-400'}`} />
-                  {item.name}
+                  <BookOpen className={`h-4.5 w-4.5 shrink-0 ${isPolicyActive ? 'text-orange-700' : 'text-slate-400'}`} />
+                  Policy Handbook
                 </Link>
-              );
-            })}
+              </nav>
+            </div>
 
-            {/* Policy Handbook Link inside More drawer */}
-            <Link
-              href={policyHref}
-              onClick={() => setIsMobileMoreOpen(false)}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                isPolicyActive ? 'bg-orange-50 text-orange-700' : 'text-slate-650 hover:bg-slate-55'
-              }`}
-            >
-              <BookOpen className={`h-4 w-4 shrink-0 ${isPolicyActive ? 'text-orange-700' : 'text-slate-400'}`} />
-              Policy Handbook
-            </Link>
-
-            {/* Sign Out Option */}
-            <button
-              onClick={() => { setIsMobileMoreOpen(false); handleSignOut(); }}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 border-t border-slate-100 mt-2"
-            >
-              <LogOut className="h-4 w-4 shrink-0 text-rose-500" />
-              Sign Out
-            </button>
+            {/* Bottom Actions inside side menu */}
+            <div className="pt-4 border-t border-slate-100">
+              <button
+                onClick={() => { setIsMobileMenuOpen(false); handleSignOut(); }}
+                className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors"
+              >
+                <LogOut className="h-4.5 w-4.5 shrink-0 text-rose-500" />
+                Sign Out
+              </button>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </>
   );
 }
