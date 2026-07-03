@@ -73,10 +73,12 @@ export function TicketsView({ role }: TicketsViewProps) {
 
   const handleSendReply = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!replyMsg.trim() || !selectedTicket || !userProfile) return;
+    if (!replyMsg.trim() || !selectedTicket) return;
+
+    const senderName = userProfile?.fullName || (role === 'hr' ? 'HR Manager' : role === 'admin' ? 'System Admin' : currentEmail.split('@')[0]);
 
     const updated = db.addTicketReply(selectedTicket.id, {
-      senderName: userProfile.fullName,
+      senderName,
       senderRole: role,
       message: replyMsg.trim()
     });

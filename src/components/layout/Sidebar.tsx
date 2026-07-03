@@ -34,7 +34,6 @@ export function Sidebar({ role }: SidebarProps) {
     { name: 'Tasks', href: '/admin/tasks', icon: ClipboardList },
     { name: 'Leaves Approval', href: '/admin/leaves', icon: Clock },
     { name: 'Payroll & Salary', href: '/admin/payroll', icon: Wallet },
-    { name: 'Policy Handbook', href: '/admin/policy', icon: BookOpen },
     { name: 'Career Board', href: '/admin/careers', icon: Briefcase },
     { name: 'Support Tickets', href: '/admin/tickets', icon: HelpCircle },
   ];
@@ -46,7 +45,6 @@ export function Sidebar({ role }: SidebarProps) {
     { name: 'Leave Management', href: '/hr/leaves', icon: Clock },
     { name: 'Team Management', href: '/hr/teams', icon: Users },
     { name: 'Payroll Records', href: '/hr/payroll', icon: Wallet },
-    { name: 'Policy Handbook', href: '/hr/policy', icon: BookOpen },
     { name: 'Career Board', href: '/hr/careers', icon: Briefcase },
     { name: 'Support Tickets', href: '/hr/tickets', icon: HelpCircle },
   ];
@@ -55,7 +53,6 @@ export function Sidebar({ role }: SidebarProps) {
     { name: 'My Dashboard', href: '/employee', icon: LayoutDashboard },
     { name: 'My Leaves', href: '/employee/leaves', icon: Clock },
     { name: 'Salary History', href: '/employee/salary', icon: Wallet },
-    { name: 'Policy Handbook', href: '/employee/policy', icon: BookOpen },
     { name: 'Career Board', href: '/employee/careers', icon: Briefcase },
     { name: 'Support Tickets', href: '/employee/tickets', icon: HelpCircle },
     ...(isTeamLead ? [{ name: 'Team Tasks ⭐', href: '/employee/tasks', icon: Star }] : []),
@@ -69,6 +66,10 @@ export function Sidebar({ role }: SidebarProps) {
   };
 
   const links = navMap[role] ?? employeeItems;
+
+  // Dedicated role-scoped policy href
+  const policyHref = role === 'admin' ? '/admin/policy' : role === 'hr' ? '/hr/policy' : '/employee/policy';
+  const isPolicyActive = pathname === policyHref;
 
   return (
     <aside className="w-64 border-r border-slate-200 bg-white flex flex-col h-screen sticky top-0">
@@ -99,7 +100,19 @@ export function Sidebar({ role }: SidebarProps) {
         })}
       </nav>
 
-      <div className="p-4 border-t border-slate-200">
+      {/* Bottom Actions section */}
+      <div className="p-4 border-t border-slate-200 space-y-1">
+        <Link
+          href={policyHref}
+          className={`flex items-center px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 ${
+            isPolicyActive
+              ? 'bg-orange-50 text-orange-700'
+              : 'text-slate-650 hover:bg-slate-100 hover:text-slate-900'
+          }`}
+        >
+          <BookOpen className={`mr-3 h-5 w-5 ${isPolicyActive ? 'text-orange-700' : 'text-slate-400'}`} />
+          Policy Handbook
+        </Link>
         <button
           onClick={handleSignOut}
           className="flex w-full items-center px-3 py-2.5 rounded-lg text-sm font-semibold text-slate-600 hover:bg-rose-50 hover:text-rose-700 transition-colors duration-150"
