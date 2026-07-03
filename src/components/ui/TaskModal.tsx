@@ -1,0 +1,157 @@
+'use client';
+
+import React, { useState } from 'react';
+import { Modal } from '@/components/ui/Modal';
+import { db, Task, Profile } from '@/lib/db';
+import { CheckCircle2 } from 'lucide-react';
+
+interface TaskModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  employees: Profile[];
+  createdBy: string;
+  onTaskAdded?: (task: Task) => void;
+}
+
+export function TaskModal({ isOpen, onClose, employees, createdBy, onTaskAdded }: TaskModalProps) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [assignedEmail, setAssignedEmail] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [priority, setPriority] = useState<Task['priority']>('medium');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!title || !assignedEmail || !dueDate) {
+      setError('Please fill in all required fields.');
+      return;
+    }
+
+    const emp = employees.find(e => e.email === assignedEmail);
+    if (!emp) {
+      setError('Employee not found.');
+      return;
+    }
+
+    const task = db.addTask({
+      title,
+      description,
+      assignedTo: emp.fullName,
+      assignedEmail: emp.email,
+      team: emp.teams[0] || 'General',
+      dueDate,
+      priority,
+      status: 'todo',
+      createdBy,
+    });
+
+    setSuccess(`Task "${title}" assigned to ${emp.fullName}!`);
+    onTaskAdded?.(task);
+
+    setTimeout(() => {
+      setSuccess('');
+      setTitle('');
+      setDescription('');
+      setAssignedEmail('');
+      setDueDate('');
+      setPriority('medium');
+      onClose();
+    }, 1200);
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Assign New Task">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {error && (
+          <div className="p-3 text-xs bg-rose-50 text-rose-600 border border-rose-100 rounded-lg font-semibold">{error}</div>
+        )}
+        {success && (
+          <div className="p-3 text-xs bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-lg font-semibold flex items-center gap-1.5">
+            <CheckCircle2 className="h-4 w-4" />{success}
+          </div>
+        )}
+
+        <div className="space-y-1">
+          <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Task Title *</label>
+          <input
+            type="text"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900"
+            placeholder="e.g. Prepare Q3 Report"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Description</label>
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            rows={2}
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900 resize-none"
+            placeholder="Brief description of the task..."
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Assign To *</label>
+          <select
+            value={assignedEmail}
+            onChange={e => setAssignedEmail(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900"
+          >
+            <option value="">— Select employee —</option>
+            {employees.map(emp => (
+              <option key={emp.id} value={emp.email}>
+                {emp.fullName} ({emp.teams.join(', ')})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Due Date *</label>
+            <input
+              type="date"
+              value={dueDate}
+              onChange={e => setDueDate(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Priority</label>
+            <select
+              value={priority}
+              onChange={e => setPriority(e.target.value as Task['priority'])}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900"
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+          <button
+            type="button"
+            onClick={onClose}
+            className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm"
+          >
+            Assign Task
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}

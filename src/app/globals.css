@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@variant dark (.disable-dark-mode-entirely);
+
+:root {
+  /* Blueprint Canvas Theme: Strict light mode colors */
+  --background: #f8fafc; /* Slate 50 background */
+  --foreground: #0f172a; /* Slate 900 text */
+  --surface: #ffffff;    /* Card and sidebar background */
+  --border: #e2e8f0;     /* Slate 200 border */
+  --primary: #ea580c;    /* DelCargo Orange */
+  --primary-hover: #c2410c;
+  --indigo: #4f46e5;
+  --emerald: #10b981;
+  --amber: #f59e0b;
+  --rose: #ef4444;
+
+  /* Custom animations matching Emil Kowalski's recommendations */
+  --ease-out-snappy: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out-smooth: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-indigo: var(--indigo);
+  --color-emerald: var(--emerald);
+  --color-amber: var(--amber);
+  --color-rose: var(--rose);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+  min-height: 100vh;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Base button animations */
+button, select, input, textarea {
+  transition: transform 150ms var(--ease-out-snappy), border-color 150ms var(--ease-out-snappy), background-color 150ms var(--ease-out-snappy), box-shadow 150ms var(--ease-out-snappy);
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+@keyframes enter-modal {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
