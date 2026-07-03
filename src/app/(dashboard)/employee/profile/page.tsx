@@ -6,7 +6,7 @@ import { Modal } from '@/components/ui/Modal';
 import { db, Profile } from '@/lib/db';
 import {
   User, Mail, Briefcase, Calendar, Users, ShieldCheck,
-  KeyRound, CheckCircle2, AlertCircle, Edit3, Star
+  KeyRound, CheckCircle2, AlertCircle, Star
 } from 'lucide-react';
 
 export default function EmployeeProfilePage() {
@@ -73,11 +73,12 @@ export default function EmployeeProfilePage() {
   const joined = new Date(profile.joinedDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
   const infoRows = [
-    { icon: Mail,      label: 'Email',       value: profile.email },
-    { icon: Briefcase, label: 'Role',         value: profile.role.charAt(0).toUpperCase() + profile.role.slice(1) },
-    { icon: Calendar,  label: 'Joined',       value: joined },
-    { icon: Users,     label: 'Teams',        value: profile.teams.join(', ') || '—' },
-    { icon: ShieldCheck, label: 'Onboarding', value: profile.onboardingCompleted ? 'Completed ✓' : 'Incomplete' },
+    { icon: Mail,      label: 'Email Address',       value: profile.email },
+    { icon: Briefcase, label: 'Designation / Title', value: profile.jobTitle || 'Employee' },
+    { icon: User,      label: 'Gender / Pronouns',   value: profile.gender ? (profile.gender.charAt(0).toUpperCase() + profile.gender.slice(1)) : 'Male' },
+    { icon: Calendar,  label: 'Joined Date',         value: joined },
+    { icon: Users,     label: 'Department Teams',    value: profile.teams.join(', ') || '—' },
+    { icon: ShieldCheck, label: 'Onboarding Status',  value: profile.onboardingCompleted ? 'Completed ✓' : 'Incomplete' },
   ];
 
   return (
@@ -108,7 +109,7 @@ export default function EmployeeProfilePage() {
 
           <h2 className="text-xl font-bold text-slate-900">{profile.fullName}</h2>
           <div className="flex flex-wrap items-center gap-2 mt-1">
-            <span className="text-xs font-bold text-orange-700 bg-orange-50 border border-orange-100 px-2 py-0.5 rounded-full capitalize">{profile.role}</span>
+            <span className="text-xs font-bold text-orange-700 bg-orange-50 border border-orange-100 px-2 py-0.5 rounded-full capitalize">{profile.jobTitle || profile.role}</span>
             {profile.isTeamLead && (profile.leadTeams?.length ?? 0) > 0 && (
               <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1">
                 <Star className="h-3 w-3" /> Team Lead · {profile.leadTeams?.join(', ')}

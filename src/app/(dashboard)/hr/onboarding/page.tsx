@@ -19,6 +19,8 @@ export default function HROnboardingPage() {
   const [salary, setSalary] = useState('');
   const [team, setTeam] = useState('Engineering');
   const [tempPassword, setTempPassword] = useState('');
+  const [jobTitle, setJobTitle] = useState('');
+  const [gender, setGender] = useState<'male' | 'female'>('male');
   const [onboardError, setOnboardError] = useState('');
   const [onboardSuccess, setOnboardSuccess] = useState('');
 
@@ -32,7 +34,7 @@ export default function HROnboardingPage() {
     setOnboardError('');
     setOnboardSuccess('');
 
-    if (!fullName || !email || !salary) {
+    if (!fullName || !email || !salary || !jobTitle) {
       setOnboardError('Please fill in all required fields.');
       return;
     }
@@ -49,7 +51,9 @@ export default function HROnboardingPage() {
       joinedDate: new Date().toISOString().split('T')[0],
       baseSalary: Number(salary),
       teams: [team],
-      password: tempPassword || 'employee123'
+      password: tempPassword || 'employee123',
+      jobTitle,
+      gender,
     });
 
     db.addNotification('all', 'hr', `New employee ${fullName} onboarded onto team ${team}.`);
@@ -63,6 +67,8 @@ export default function HROnboardingPage() {
       setSalary('');
       setTeam('Engineering');
       setTempPassword('');
+      setJobTitle('');
+      setGender('male');
       setOnboardSuccess('');
     }, 1500);
   };
@@ -85,11 +91,12 @@ export default function HROnboardingPage() {
       <Card className="overflow-hidden border border-slate-200">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left border-collapse">
-            <thead className="text-xs font-bold text-slate-500 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
+            <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
               <tr>
                 <th className="px-6 py-4">Name</th>
                 <th className="px-6 py-4">Email</th>
-                <th className="px-6 py-4">Role Assigned</th>
+                <th className="px-6 py-4">Job Title (Role)</th>
+                <th className="px-6 py-4 text-center">Gender</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4 text-center">Invited Date</th>
               </tr>
@@ -99,13 +106,16 @@ export default function HROnboardingPage() {
                 <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4 font-semibold text-slate-900">{emp.fullName}</td>
                   <td className="px-6 py-4">{emp.email}</td>
-                  <td className="px-6 py-4 capitalize">{emp.role} ({emp.teams.join(', ') || 'No Team'})</td>
+                  <td className="px-6 py-4 capitalize font-medium text-slate-800">
+                    {emp.jobTitle || 'Employee'} <span className="text-[10px] text-slate-400 font-bold uppercase">({emp.role})</span>
+                  </td>
+                  <td className="px-6 py-4 text-center capitalize font-semibold text-slate-500">{emp.gender || 'male'}</td>
                   <td className="px-6 py-4">
                     <Badge variant={emp.onboardingCompleted ? 'success' : 'warning'}>
                       {emp.onboardingCompleted ? 'Completed' : 'Invite Sent'}
                     </Badge>
                   </td>
-                  <td className="px-6 py-4 text-center text-slate-500">{emp.joinedDate}</td>
+                  <td className="px-6 py-4 text-center text-slate-550">{emp.joinedDate}</td>
                 </tr>
               ))}
             </tbody>
@@ -119,17 +129,34 @@ export default function HROnboardingPage() {
           {onboardError && <div className="p-3 text-xs bg-rose-50 text-rose-600 border border-rose-100 rounded-lg font-semibold">{onboardError}</div>}
           {onboardSuccess && <div className="p-3 text-xs bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-lg font-semibold">{onboardSuccess}</div>}
 
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Full Name *</label>
-            <input type="text" value={fullName} onChange={e => setFullName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900" placeholder="e.g. John Doe" />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Email Address *</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900" placeholder="e.g. john@company.com" />
-          </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Role</label>
+              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Full Name *</label>
+              <input type="text" required value={fullName} onChange={e => setFullName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900" placeholder="e.g. John Doe" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Job Title / Designation *</label>
+              <input type="text" required value={jobTitle} onChange={e => setJobTitle(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900" placeholder="e.g. QA Specialist" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Email Address *</label>
+              <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900" placeholder="e.g. john@company.com" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Gender</label>
+              <select value={gender} onChange={e => setGender(e.target.value as 'male' | 'female')} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900">
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Role Type</label>
               <select value={role} onChange={e => setRole(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900">
                 <option value="employee">Employee</option>
                 <option value="hr">HR</option>
@@ -137,19 +164,23 @@ export default function HROnboardingPage() {
             </div>
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Base Salary (PKR) *</label>
-              <input type="text" value={salary} onChange={e => setSalary(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900" placeholder="e.g. 50000" />
+              <input type="text" required value={salary} onChange={e => setSalary(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900" placeholder="e.g. 50000" />
             </div>
           </div>
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Assign Team</label>
-            <select value={team} onChange={e => setTeam(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900">
-              {teams.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Assign Team</label>
+              <select value={team} onChange={e => setTeam(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900">
+                {teams.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Temporary Password</label>
+              <input type="text" value={tempPassword} onChange={e => setTempPassword(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900" placeholder="e.g. welcome123" />
+            </div>
           </div>
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Temporary Password</label>
-            <input type="text" value={tempPassword} onChange={e => setTempPassword(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900" placeholder="e.g. welcome123" />
-          </div>
+
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
             <button type="button" onClick={() => setIsOnboardOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
             <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Register & Invite</button>

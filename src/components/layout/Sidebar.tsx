@@ -2,8 +2,8 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star } from 'lucide-react';
-import { db, Profile } from '@/lib/db';
+import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle } from 'lucide-react';
+import { db } from '@/lib/db';
 
 interface SidebarProps {
   role: 'admin' | 'hr' | 'employee' | 'team_lead';
@@ -34,6 +34,9 @@ export function Sidebar({ role }: SidebarProps) {
     { name: 'Tasks', href: '/admin/tasks', icon: ClipboardList },
     { name: 'Leaves Approval', href: '/admin/leaves', icon: Clock },
     { name: 'Payroll & Salary', href: '/admin/payroll', icon: Wallet },
+    { name: 'Policy Handbook', href: '/admin/policy', icon: BookOpen },
+    { name: 'Career Board', href: '/admin/careers', icon: Briefcase },
+    { name: 'Support Tickets', href: '/admin/tickets', icon: HelpCircle },
   ];
 
   const hrItems = [
@@ -43,12 +46,18 @@ export function Sidebar({ role }: SidebarProps) {
     { name: 'Leave Management', href: '/hr/leaves', icon: Clock },
     { name: 'Team Management', href: '/hr/teams', icon: Users },
     { name: 'Payroll Records', href: '/hr/payroll', icon: Wallet },
+    { name: 'Policy Handbook', href: '/hr/policy', icon: BookOpen },
+    { name: 'Career Board', href: '/hr/careers', icon: Briefcase },
+    { name: 'Support Tickets', href: '/hr/tickets', icon: HelpCircle },
   ];
 
   const employeeItems = [
     { name: 'My Dashboard', href: '/employee', icon: LayoutDashboard },
     { name: 'My Leaves', href: '/employee/leaves', icon: Clock },
     { name: 'Salary History', href: '/employee/salary', icon: Wallet },
+    { name: 'Policy Handbook', href: '/employee/policy', icon: BookOpen },
+    { name: 'Career Board', href: '/employee/careers', icon: Briefcase },
+    { name: 'Support Tickets', href: '/employee/tickets', icon: HelpCircle },
     ...(isTeamLead ? [{ name: 'Team Tasks ⭐', href: '/employee/tasks', icon: Star }] : []),
   ];
 

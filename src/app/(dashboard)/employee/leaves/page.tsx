@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { db, LeaveApplication, Profile } from '@/lib/db';
-import { Clock, PlusCircle, CheckCircle2 } from 'lucide-react';
+import { Clock, PlusCircle, CheckCircle2, AlertCircle, HelpCircle, BadgeCheck } from 'lucide-react';
 
 export default function EmployeeLeavesPage() {
   const [leaves, setLeaves] = useState<LeaveApplication[]>([]);
@@ -20,6 +20,10 @@ export default function EmployeeLeavesPage() {
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Cashout simulator state
+  const [cashoutDays, setCashoutDays] = useState(0);
+  const [simRollover, setSimRollover] = useState(0);
 
   useEffect(() => {
     const email = localStorage.getItem('user_email');
@@ -37,6 +41,15 @@ export default function EmployeeLeavesPage() {
     window.addEventListener('globalSearch', handleSearch);
     return () => window.removeEventListener('globalSearch', handleSearch);
   }, []);
+
+  // Sync cashout days input limit with remaining PTO balance
+  const remainingPTO = userProfile ? db.getRemainingPTO(userProfile.fullName, userProfile.joinedDate) : 0;
+  useEffect(() => {
+    if (remainingPTO > 0) {
+      setCashoutDays(Math.floor(remainingPTO));
+      setSimRollover(Math.max(0, Math.min(5, Math.floor(remainingPTO - Math.floor(remainingPTO)))));
+    }
+  }, [remainingPTO]);
 
   const handleLeaveSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,28 +69,53 @@ export default function EmployeeLeavesPage() {
       return;
     }
 
-    if (leaveType === 'pto') {
-      const diffTime = Math.abs(end.getTime() - start.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 3600 * 24)) + 1;
-      if (diffDays !== 1) {
-        setError('PTO requests can only be taken for exactly 1 day.');
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 3600 * 24)) + 1;
+
+    // 1. Parental Leave Validations
+    if (leaveType === 'parental_leave') {
+      if (!userProfile) return;
+      if (userProfile.gender !== 'female') {
+        setError('Parental leave is only available to female employees.');
+        return;
+      }
+      const tenure = db.calculateTenure(userProfile.joinedDate);
+      if (tenure.totalMonths < 12) {
+        setError('Parental leave requires at least 1 year (12 months) of continuous service at DelCargo.');
+        return;
+      }
+      if (diffDays !== 30) {
+        setError('Parental leave requests must be submitted for exactly 30 days.');
         return;
       }
     }
 
+    // 2. PTO Validations
     if (leaveType === 'pto') {
+      // Must be exactly 1 day
+      if (diffDays !== 1) {
+        setError('PTO requests can only be taken for exactly 1 day.');
+        return;
+      }
+
+      // Must be submitted at least 14 days (2 weeks) in advance
       const today = new Date();
       today.setHours(0,0,0,0);
       start.setHours(0,0,0,0);
       const differenceInTime = start.getTime() - today.getTime();
       const differenceInDays = differenceInTime / (1000 * 3600 * 24);
       if (differenceInDays < 14) {
-        setError('PTO requests must be submitted at least 14 days in advance.');
+        setError('PTO requests must be submitted at least 14 days (2 weeks) in advance.');
         return;
       }
-    }
 
-    if (leaveType === 'pto') {
+      // Check remaining balance
+      if (remainingPTO < 1) {
+        setError('Insufficient accrued PTO balance remaining.');
+        return;
+      }
+
+      // Only 1 PTO request per calendar month
       const startMonth = start.getMonth();
       const startYear = start.getFullYear();
       const hasExistingPTO = leaves.some(l => {
@@ -99,7 +137,7 @@ export default function EmployeeLeavesPage() {
     const newLeave: LeaveApplication = {
       id: `l_${Date.now()}`,
       employeeName: userProfile?.fullName || 'Employee',
-      type: leaveType === 'pto' ? 'PTO' : leaveType === 'sick' ? 'Sick Leave' : 'Urgent',
+      type: leaveType === 'pto' ? 'PTO' : leaveType === 'sick' ? 'Sick Leave' : leaveType === 'parental_leave' ? 'Parental Leave' : 'Urgent',
       duration: durationStr,
       reason,
       status: 'pending'
@@ -128,95 +166,120 @@ export default function EmployeeLeavesPage() {
     }
   };
 
-  const totalLeaves = leaves.length;
-  const pendingLeaves = leaves.filter(l => l.status === 'pending' || l.status === 'hr_approved').length;
-  const approvedLeaves = leaves.filter(l => l.status === 'approved').length;
-  const rejectedLeaves = leaves.filter(l => l.status === 'rejected').length;
-
   const filteredLeaves = leaves.filter(l =>
     l.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
     l.reason.toLowerCase().includes(searchQuery.toLowerCase()) ||
     l.duration.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // Accurate PTO stats
+  const accruedPTO = userProfile ? db.calculatePTOAccrued(userProfile.joinedDate) : 0;
+  const takenPTO = leaves
+    .filter(l => l.type === 'PTO' && l.status === 'approved')
+    .reduce((acc, l) => {
+      const dates = db.parseLeaveDates(l.duration);
+      if (!dates) return acc + 1;
+      return acc + (Math.ceil(Math.abs(dates.end.getTime() - dates.start.getTime()) / (1000 * 3600 * 24)) + 1);
+    }, 0);
+
+  // Settlement computations
+  const currentBaseSalary = userProfile ? db.calculateCurrentSalary(userProfile) : 0;
+  const ptoDailyRate = Math.round(currentBaseSalary / 22);
+  const potentialCashoutVal = Math.max(0, cashoutDays * ptoDailyRate);
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">My Leave Requests</h1>
-          <p className="text-slate-500">Manage and track your time-off applications.</p>
+          <p className="text-slate-500 text-sm">View accrued time-off metrics and submit applications.</p>
         </div>
         <button
           onClick={() => setIsLeaveOpen(true)}
-          className="inline-flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg font-semibold transition-colors shadow-sm active:scale-97 duration-150 text-sm"
+          className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
         >
-          <PlusCircle className="h-4 w-4" />
-          Apply for Leave
+          <PlusCircle className="h-4.5 w-4.5" /> Apply for Leave
         </button>
       </div>
 
-      {/* Stat Summary Chips */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-5 pb-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">{totalLeaves}</p>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-500">
-                <Clock className="h-5 w-5" />
-              </div>
-            </div>
+      {/* Dynamic PTO balances */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card className="border border-slate-200">
+          <CardContent className="pt-5">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Remaining PTO Bank</p>
+            <p className="text-3xl font-bold text-orange-600 mt-1">{remainingPTO} Days</p>
+            <p className="text-[10px] text-slate-400 mt-1">Capped at 30 days maximum ceiling</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-5 pb-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Pending</p>
-                <p className="text-3xl font-bold text-amber-600 mt-1">{pendingLeaves}</p>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-500">
-                <Clock className="h-5 w-5" />
-              </div>
-            </div>
+        <Card className="border border-slate-200">
+          <CardContent className="pt-5">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Accrued PTO</p>
+            <p className="text-3xl font-bold text-slate-800 mt-1">{accruedPTO} Days</p>
+            <p className="text-[10px] text-slate-400 mt-1">Accumulated at individual anniversary dates</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-5 pb-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Approved</p>
-                <p className="text-3xl font-bold text-emerald-600 mt-1">{approvedLeaves}</p>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-500">
-                <CheckCircle2 className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-5 pb-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Rejected</p>
-                <p className="text-3xl font-bold text-rose-600 mt-1">{rejectedLeaves}</p>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-500">
-                <Clock className="h-5 w-5" />
-              </div>
-            </div>
+        <Card className="border border-slate-200">
+          <CardContent className="pt-5">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Approved PTO Taken</p>
+            <p className="text-3xl font-bold text-slate-800 mt-1">{takenPTO} Days</p>
+            <p className="text-[10px] text-slate-400 mt-1">Reflected upon official CEO validation</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Leave History Table */}
+      {/* Jan 31 Settlement Simulator */}
+      <Card className="border border-slate-200 bg-slate-50/50">
+        <div className="px-5 pt-4 pb-1 border-b border-slate-200 bg-white">
+          <h3 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+            <BadgeCheck className="h-4 w-4 text-orange-600" />
+            January 31st Settlement & Cash Out Simulator
+          </h3>
+        </div>
+        <CardContent className="p-5 space-y-4">
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Simulate your end-of-cycle options. You can roll over up to <strong>5 unused PTO days</strong> to the next year and cash out the rest.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-semibold">
+            <div className="space-y-1">
+              <label className="text-slate-500 uppercase tracking-wider text-[10px]">Cash Out Days</label>
+              <input
+                type="number"
+                min={0}
+                max={Math.floor(remainingPTO)}
+                value={cashoutDays}
+                onChange={e => {
+                  const val = Math.max(0, Math.min(Math.floor(remainingPTO), Number(e.target.value)));
+                  setCashoutDays(val);
+                  setSimRollover(Math.max(0, Math.min(5, Math.floor(remainingPTO - val))));
+                }}
+                className="w-full bg-white border border-slate-200 rounded-lg py-2 px-3 text-slate-850"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-slate-500 uppercase tracking-wider text-[10px]">Rolled Over Days</label>
+              <p className="bg-white border border-slate-200 rounded-lg py-2 px-3 text-slate-850 font-mono">
+                {simRollover} Days (Max 5)
+              </p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-slate-500 uppercase tracking-wider text-[10px]">Calculated Payout</label>
+              <p className="bg-white border border-slate-200 rounded-lg py-2 px-3 text-emerald-800 font-mono font-bold">
+                PKR {potentialCashoutVal.toLocaleString()}
+              </p>
+            </div>
+          </div>
+          <p className="text-[10px] text-slate-400 font-semibold">
+            Based on: Daily rate (PKR {ptoDailyRate.toLocaleString()}) = Monthly Salary (PKR {currentBaseSalary.toLocaleString()}) ÷ 22 days.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* History log */}
       <Card className="overflow-hidden p-0 border border-slate-200">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[700px] text-sm text-left border-collapse">
-            <thead className="text-xs font-bold text-slate-500 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
+            <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
               <tr>
                 <th className="px-6 py-4">Type</th>
                 <th className="px-6 py-4">Dates</th>
@@ -228,14 +291,14 @@ export default function EmployeeLeavesPage() {
               {filteredLeaves.map(leave => (
                 <tr key={leave.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4 font-semibold text-slate-900">{leave.type}</td>
-                  <td className="px-6 py-4 text-slate-600 font-medium">{leave.duration}</td>
+                  <td className="px-6 py-4 text-slate-650 font-medium">{leave.duration}</td>
                   <td className="px-6 py-4 text-slate-500">{leave.reason}</td>
                   <td className="px-6 py-4 text-center">{getStatusBadge(leave.status)}</td>
                 </tr>
               ))}
               {filteredLeaves.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="text-center py-12 text-slate-400 font-semibold italic">
+                  <td colSpan={4} className="text-center py-12 text-slate-400 font-semibold italic text-xs">
                     No leave requests found
                   </td>
                 </tr>
@@ -245,22 +308,24 @@ export default function EmployeeLeavesPage() {
         </div>
       </Card>
 
-      {/* Apply for Leave Modal */}
+      {/* Apply modal */}
       <Modal isOpen={isLeaveOpen} onClose={() => setIsLeaveOpen(false)} title="Apply for Leave">
         <form onSubmit={handleLeaveSubmit} className="space-y-4">
           {error && (
-            <div className="p-3 text-xs bg-rose-50 text-rose-600 border border-rose-100 rounded-lg font-semibold">
+            <div className="p-3 text-xs bg-rose-50 text-rose-600 border border-rose-100 rounded-lg font-semibold flex items-center gap-1.5">
+              <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
               {error}
             </div>
           )}
           {success && (
-            <div className="p-3 text-xs bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-lg font-semibold">
+            <div className="p-3 text-xs bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-lg font-semibold flex items-center gap-1.5">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
               {success}
             </div>
           )}
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Leave Type</label>
+            <label className="text-xs font-bold text-slate-555 uppercase tracking-wider">Leave Type</label>
             <select
               value={leaveType}
               onChange={(e) => setLeaveType(e.target.value)}
@@ -269,12 +334,15 @@ export default function EmployeeLeavesPage() {
               <option value="pto">PTO / Vacation</option>
               <option value="sick">Sick Leave</option>
               <option value="urgent">Urgent Leave</option>
+              {userProfile?.gender === 'female' && (
+                <option value="parental_leave">Parental Leave (30 Days)</option>
+              )}
             </select>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Start Date *</label>
+              <label className="text-xs font-bold text-slate-555 uppercase tracking-wider">Start Date *</label>
               <input
                 type="date"
                 value={startDate}
@@ -283,7 +351,7 @@ export default function EmployeeLeavesPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">End Date *</label>
+              <label className="text-xs font-bold text-slate-555 uppercase tracking-wider">End Date *</label>
               <input
                 type="date"
                 value={endDate}
@@ -294,30 +362,19 @@ export default function EmployeeLeavesPage() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Reason *</label>
+            <label className="text-xs font-bold text-slate-555 uppercase tracking-wider">Reason *</label>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               rows={3}
               className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900 resize-none"
-              placeholder="Provide a brief explanation for your leave..."
+              placeholder="Provide explanation..."
             />
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={() => setIsLeaveOpen(false)}
-              className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm"
-            >
-              Submit Request
-            </button>
+            <button type="button" onClick={() => setIsLeaveOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
+            <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Submit Request</button>
           </div>
         </form>
       </Modal>

@@ -206,7 +206,7 @@ export default function HRTeamsPage() {
                           <span title={`Lead of: ${emp.leadTeams?.join(', ')}`} className="text-amber-500">⭐</span>
                         )}
                       </div>
-                      <div className="text-[10px] text-slate-550 mt-0.5 uppercase tracking-wide font-medium">{emp.role}</div>
+                      <div className="text-[10px] text-slate-550 mt-0.5 uppercase tracking-wide font-medium">{emp.jobTitle || emp.role}</div>
                     </div>
                     <button
                       onMouseDown={e => e.stopPropagation()}
