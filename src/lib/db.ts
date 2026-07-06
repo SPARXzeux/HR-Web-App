@@ -630,6 +630,33 @@ export const db = {
   getTickets: (): Ticket[] => getInitialData('hr_tickets_prod_v1', defaultTickets),
   saveTickets: (data: Ticket[]) => saveData('hr_tickets_prod_v1', data),
 
+  // Lightweight, ticket-only re-fetch from Supabase (rather than the full
+  // 8-table syncFromSupabase). Lets the tickets view poll frequently for
+  // near-real-time updates without hammering every table on every tick.
+  refreshTickets: async (): Promise<Ticket[]> => {
+    try {
+      const { data, error } = await supabase
+        .from('delcargo_store')
+        .select('value')
+        .eq('key', 'hr_tickets_prod_v1')
+        .maybeSingle();
+
+      if (error) {
+        console.error('[Supabase Sync] Ticket refresh error:', error);
+        return db.getTickets();
+      }
+
+      const freshTickets: Ticket[] = (data?.value as Ticket[]) || [];
+      if (isClient) {
+        localStorage.setItem('hr_tickets_prod_v1', JSON.stringify(freshTickets));
+      }
+      return freshTickets;
+    } catch (err: any) {
+      console.error('[Supabase Sync] Unexpected ticket refresh error:', err);
+      return db.getTickets();
+    }
+  },
+
   createTicket: (ticket: Omit<Ticket, 'id' | 'status' | 'createdAt' | 'replies'>) => {
     const list = db.getTickets();
     const newTicket: Ticket = {

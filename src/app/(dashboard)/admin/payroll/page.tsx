@@ -16,18 +16,20 @@ interface PayrollSummary {
 
 export default function AdminPayrollPage() {
   const [summaries, setSummaries] = useState<PayrollSummary[]>([]);
-  const [isReleased, setIsReleased] = useState(false);
+  const [payroll, setPayroll] = useState<PayrollRecord[]>([]);
+  const [isReleasing, setIsReleasing] = useState(false);
 
-  useEffect(() => {
-    const payroll = db.getPayroll();
+  const loadPayroll = () => {
+    const freshPayroll = db.getPayroll();
     const employees = db.getEmployees();
-    
+    setPayroll(freshPayroll);
+
     // Group dynamically by employee teams/departments
     const depts = Array.from(new Set(employees.flatMap(e => e.teams)));
     const calculatedSummaries = depts.map(dept => {
       const deptEmployees = employees.filter(e => e.teams.includes(dept));
-      const deptPayroll = payroll.filter(p => deptEmployees.some(e => e.id === p.employeeId));
-      
+      const deptPayroll = freshPayroll.filter(p => deptEmployees.some(e => e.id === p.employeeId));
+
       return {
         department: dept,
         headcount: deptEmployees.length,
@@ -36,9 +38,29 @@ export default function AdminPayrollPage() {
         totalDeductions: deptPayroll.reduce((acc, p) => acc + p.deductions, 0)
       };
     });
-    
+
     setSummaries(calculatedSummaries);
+  };
+
+  useEffect(() => {
+    loadPayroll();
   }, []);
+
+  // Real status — derived from actual payroll records, not a local toggle.
+  // "Released" means every current payroll record has genuinely been
+  // processed (same `processed` flag HR's per-employee Process button sets).
+  const isReleased = payroll.length > 0 && payroll.every(p => p.processed);
+
+  const handleReleaseMonthlyFunds = () => {
+    const confirmed = window.confirm(`This will mark all ${payroll.filter(p => !p.processed).length} pending payroll record(s) as processed. Continue?`);
+    if (!confirmed) return;
+
+    setIsReleasing(true);
+    const updated = payroll.map(p => ({ ...p, processed: true }));
+    db.savePayroll(updated);
+    setIsReleasing(false);
+    loadPayroll();
+  };
 
   const grandTotalBase = summaries.reduce((acc, s) => acc + s.totalBase, 0);
   const grandTotalBonuses = summaries.reduce((acc, s) => acc + s.totalBonuses, 0);
@@ -53,12 +75,13 @@ export default function AdminPayrollPage() {
           <p className="text-xs md:text-sm text-slate-500">High-level cost tracking, departmental breakdowns, and global payout releasing.</p>
         </div>
         {!isReleased ? (
-          <button 
-            onClick={() => setIsReleased(true)}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 md:py-2 rounded-lg font-semibold transition-colors shadow-sm active:scale-97 duration-150 flex items-center gap-1.5 text-sm min-h-[44px] md:min-h-0 self-start md:self-auto"
+          <button
+            onClick={handleReleaseMonthlyFunds}
+            disabled={isReleasing || payroll.length === 0}
+            className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-4 py-2.5 md:py-2 rounded-lg font-semibold transition-colors shadow-sm active:scale-97 duration-150 flex items-center gap-1.5 text-sm min-h-[44px] md:min-h-0 self-start md:self-auto"
           >
             <CheckCircle2 className="h-4 w-4" />
-            Release Monthly Funds
+            {isReleasing ? 'Releasing…' : 'Release Monthly Funds'}
           </button>
         ) : (
           <Badge variant="success" className="text-sm px-4 py-2 rounded-lg flex items-center gap-1.5 self-start md:self-auto">

@@ -1,15 +1,20 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Modal } from '@/components/ui/Modal';
 import { useRouter } from 'next/navigation';
 import { db } from '@/lib/db';
+import { ArrowLeft, Eye, EyeOff, Mail } from 'lucide-react';
 
 export default function AuthPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isForgotOpen, setIsForgotOpen] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -60,6 +65,14 @@ export default function AuthPage() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4 font-sans animate-in fade-in duration-200">
+      <div className="w-full max-w-5xl mb-4">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-orange-600 transition-colors"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to Home
+        </Link>
+      </div>
       <Card className="w-full max-w-5xl shadow-xl bg-white border border-slate-200 rounded-3xl overflow-hidden grid grid-cols-1 md:grid-cols-2 p-0">
         {/* Left Side: Premium Image Cover */}
         <div className="relative hidden md:flex flex-col justify-end p-8 bg-slate-900 overflow-hidden">
@@ -117,18 +130,35 @@ export default function AuthPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Password</label>
-                  <a href="#" className="text-xs font-bold text-orange-600 hover:text-orange-700 hover:underline">Forgot password?</a>
+                <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Password</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    className="w-full px-3.5 py-2.5 pr-10 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-100 rounded-xl outline-none text-xs font-semibold transition-all text-slate-900"
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                    tabIndex={-1}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
-                <input 
-                  type="password" 
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="w-full px-3.5 py-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-100 rounded-xl outline-none text-xs font-semibold transition-all text-slate-900"
-                  placeholder="••••••••"
-                />
+                <div className="text-right">
+                  <button
+                    type="button"
+                    onClick={() => setIsForgotOpen(true)}
+                    className="text-xs font-bold text-orange-600 hover:text-orange-700 hover:underline"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
               </div>
               <button 
                 type="submit" 
@@ -146,6 +176,29 @@ export default function AuthPage() {
           </CardContent>
         </div>
       </Card>
+
+      <Modal isOpen={isForgotOpen} onClose={() => setIsForgotOpen(false)} title="Forgot Password">
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 bg-orange-50 border border-orange-100 p-4 rounded-xl">
+            <Mail className="h-5 w-5 text-orange-600 shrink-0 mt-0.5" />
+            <p className="text-xs text-slate-700 font-semibold leading-relaxed">
+              Self-service password reset isn't available yet. To reset your password, please contact your HR administrator directly — they can reset it for you from the Employee Directory.
+            </p>
+          </div>
+          <div className="text-xs text-slate-500 space-y-1">
+            <p className="font-bold text-slate-700">HR Contact</p>
+            <p>hr@delcargo.us</p>
+          </div>
+          <div className="flex justify-end pt-2 border-t border-slate-200">
+            <button
+              onClick={() => setIsForgotOpen(false)}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

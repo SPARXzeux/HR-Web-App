@@ -40,6 +40,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [uploadingPassport, setUploadingPassport] = useState(false);
 
   const [dbReady, setDbReady] = useState(false);
+  const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -130,7 +131,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   };
 
-  const handleCompleteOnboarding = () => {
+  const handleCompleteOnboarding = async () => {
     setStepperError('');
     if (!signName || signName.trim().toLowerCase() !== profile?.fullName.trim().toLowerCase()) {
       setStepperError('Please sign with your exact full name to confirm.');
@@ -143,20 +144,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
 
     if (email) {
-      db.updateProfileDetails(email, {
-        bankName,
-        accountNumber,
-        iban,
-        profilePicture: profilePicture || undefined
-      });
-      db.updateOnboardingStatus(email, true);
-      const employees = db.getEmployees();
-      const updated = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
-      if (updated) {
-        setProfile(updated);
+      setIsCompletingOnboarding(true);
+      try {
+        // Single combined write — previously this was two separate
+        // updateProfileDetails/updateOnboardingStatus calls fired back to
+        // back without awaiting either. Both independently read-merged-wrote
+        // the full profiles table to Supabase, so their upsert requests
+        // raced each other: whichever landed last in Postgres won, and it
+        // was possible for the earlier (stale, pre-completion) payload to
+        // land last and silently revert onboardingCompleted back to false —
+        // which is exactly the "onboarding restarts after refresh" bug.
+        // Merging into one atomic update removes the race entirely.
+        await db.updateProfileDetails(email, {
+          bankName,
+          accountNumber,
+          iban,
+          profilePicture: profilePicture || undefined,
+          onboardingCompleted: true
+        });
+
+        const employees = db.getEmployees();
+        const updated = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
+        if (updated) {
+          setProfile(updated);
+        }
+        // Add welcome notification
+        db.addNotification(email, 'employee', 'Welcome onboard! Your dashboard is now fully unlocked.');
+      } finally {
+        setIsCompletingOnboarding(false);
       }
-      // Add welcome notification
-      db.addNotification(email, 'employee', 'Welcome onboard! Your dashboard is now fully unlocked.');
     }
   };
 
@@ -635,11 +651,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 >
                   Back
                 </button>
-                <button 
+                <button
                   onClick={handleCompleteOnboarding}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                  disabled={isCompletingOnboarding}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-70 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all flex items-center justify-center gap-1.5 shadow-sm"
                 >
-                  <CheckCircle2 className="h-4 w-4" /> Complete Onboarding
+                  {isCompletingOnboarding ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Finishing Up…
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-4 w-4" /> Complete Onboarding
+                    </>
+                  )}
                 </button>
               </div>
             </div>

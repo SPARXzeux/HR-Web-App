@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { db, Profile } from '@/lib/db';
+import { PasswordInput } from '@/components/ui/PasswordInput';
 import {
   User, Mail, Briefcase, Calendar, ShieldCheck, KeyRound, CheckCircle2, AlertCircle, Edit2
 } from 'lucide-react';
@@ -274,30 +275,27 @@ export default function AdminProfilePage() {
 
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Current Password</label>
-            <input
-              type="password"
+            <PasswordInput
               value={currentPass}
-              onChange={e => setCurrentPass(e.target.value)}
+              onChange={setCurrentPass}
               className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900"
               placeholder="Enter current password"
             />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">New Password</label>
-            <input
-              type="password"
+            <PasswordInput
               value={newPass}
-              onChange={e => setNewPass(e.target.value)}
+              onChange={setNewPass}
               className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900"
               placeholder="Enter new password"
             />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Confirm New Password</label>
-            <input
-              type="password"
+            <PasswordInput
               value={confirmPass}
-              onChange={e => setConfirmPass(e.target.value)}
+              onChange={setConfirmPass}
               className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900"
               placeholder="Confirm new password"
             />

@@ -30,6 +30,20 @@ export function TicketsView({ role }: TicketsViewProps) {
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  const applyTickets = (all: Ticket[], email: string) => {
+    if (role === 'employee' || role === 'team_lead') {
+      setTickets(all.filter(t => t.employeeEmail === email));
+    } else {
+      setTickets(all);
+    }
+    // Keep the open conversation live too, so incoming replies from other
+    // users/devices show up without the viewer needing to reselect it.
+    setSelectedTicket(prev => {
+      if (!prev) return prev;
+      return all.find(t => t.id === prev.id) || prev;
+    });
+  };
+
   useEffect(() => {
     const email = localStorage.getItem('user_email') || '';
     setCurrentEmail(email);
@@ -37,12 +51,18 @@ export function TicketsView({ role }: TicketsViewProps) {
     setEmployees(emps);
     setUserProfile(emps.find(e => e.email === email) || null);
 
-    const all = db.getTickets();
-    if (role === 'employee' || role === 'team_lead') {
-      setTickets(all.filter(t => t.employeeEmail === email));
-    } else {
-      setTickets(all);
-    }
+    applyTickets(db.getTickets(), email);
+  }, [role]);
+
+  // Poll Supabase for ticket changes every 8s — new tickets and replies from
+  // other users/devices appear without a full page reload.
+  useEffect(() => {
+    const email = localStorage.getItem('user_email') || '';
+    const interval = setInterval(async () => {
+      const fresh = await db.refreshTickets();
+      applyTickets(fresh, email);
+    }, 8000);
+    return () => clearInterval(interval);
   }, [role]);
 
   // Scroll chat to bottom when replies change
