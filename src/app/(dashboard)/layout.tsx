@@ -92,14 +92,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }, 1200);
   };
 
-  const simulateProfilePicUpload = (name: string) => {
-    setUploadingPic(true);
-    setTimeout(() => {
-      setUploadingPic(false);
-      setProfilePicture('https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=256&auto=format&fit=crop'); // Mock profile pic
-    }, 1000);
-  };
-
   const handleNextStep = () => {
     setStepperError('');
     if (onboardStep === 1) {

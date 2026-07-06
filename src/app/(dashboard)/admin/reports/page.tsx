@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { db, Profile, formatMoney } from '@/lib/db';
+import { db, Profile, formatMoney, TimesheetEntry } from '@/lib/db';
 import { FileText, Search, Filter, ShieldCheck, Download, MapPin, Edit2, Monitor } from 'lucide-react';
 import { UserProfileModal } from '@/components/ui/UserProfileModal';
 
@@ -24,7 +24,7 @@ export default function ReportsPage() {
 
   // Timesheet Review states
   const [selectedReviewEmp, setSelectedReviewEmp] = useState<Profile | null>(null);
-  const [reviewEntries, setReviewEntries] = useState<any[]>([]);
+  const [reviewEntries, setReviewEntries] = useState<TimesheetEntry[]>([]);
 
   // Profile modal states
   const [selectedProfileEmail, setSelectedProfileEmail] = useState<string | null>(null);
@@ -110,13 +110,12 @@ export default function ReportsPage() {
 
   const handleOpenReviewModal = (emp: Profile) => {
     setSelectedReviewEmp(emp);
-    const key = `timesheets_${emp.email}`;
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      setReviewEntries(JSON.parse(saved));
-    } else {
-      setReviewEntries([]);
-    }
+    // Real, Supabase-synced shift history — visible regardless of which
+    // device/region the employee actually clocked in from.
+    const entries = db.getTimesheets()
+      .filter(t => t.employeeEmail === emp.email)
+      .sort((a, b) => (b.clockIn || '').localeCompare(a.clockIn || ''));
+    setReviewEntries(entries);
   };
 
   return (
@@ -372,23 +371,29 @@ export default function ReportsPage() {
                   <thead className="font-bold text-slate-550 bg-slate-50 border-b border-slate-200 uppercase tracking-widest text-[9px]">
                     <tr>
                       <th className="px-4 py-2.5">Date</th>
-                      <th className="px-4 py-2.5">Tracked Task</th>
-                      <th className="px-4 py-2.5 text-right">Time Spent</th>
-                      <th className="px-4 py-2.5 text-right">Avg Activity</th>
+                      <th className="px-4 py-2.5">Clock In</th>
+                      <th className="px-4 py-2.5">Clock Out</th>
+                      <th className="px-4 py-2.5 text-right">Duration</th>
+                      <th className="px-4 py-2.5 text-right">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-150">
-                    {reviewEntries.map((entry, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/50">
+                    {reviewEntries.map((entry) => (
+                      <tr key={entry.id} className="hover:bg-slate-50/50">
                         <td className="px-4 py-3 font-bold text-slate-700">{entry.date}</td>
-                        <td className="px-4 py-3 text-slate-600 font-medium">{entry.task}</td>
-                        <td className="px-4 py-3 text-right font-bold text-slate-900">{entry.duration}</td>
-                        <td className="px-4 py-3 text-right font-bold text-emerald-600">{entry.score}%</td>
+                        <td className="px-4 py-3 text-slate-600 font-medium font-mono text-[10px]">{entry.clockIn ? new Date(entry.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                        <td className="px-4 py-3 text-slate-600 font-medium font-mono text-[10px]">{entry.clockOut ? new Date(entry.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                        <td className="px-4 py-3 text-right font-bold text-slate-900">{entry.duration || '—'}</td>
+                        <td className="px-4 py-3 text-right">
+                          <Badge variant={entry.status === 'in_progress' ? 'warning' : 'success'}>
+                            {entry.status === 'in_progress' ? 'On Shift' : 'Completed'}
+                          </Badge>
+                        </td>
                       </tr>
                     ))}
                     {reviewEntries.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="py-6 text-center text-slate-400 font-semibold italic">No tracked session history.</td>
+                        <td colSpan={5} className="py-6 text-center text-slate-400 font-semibold italic">No shifts recorded yet.</td>
                       </tr>
                     )}
                   </tbody>

@@ -109,9 +109,9 @@ export default function EmployeeLeavesPage() {
         return;
       }
 
-      // Check remaining balance
+      // Check remaining balance (shared PTO + Sick Leave bank)
       if (remainingPTO < 1) {
-        setError('Insufficient accrued PTO balance remaining.');
+        setError('Insufficient leave balance remaining in your combined PTO/Sick bank.');
         return;
       }
 
@@ -126,6 +126,16 @@ export default function EmployeeLeavesPage() {
       });
       if (hasExistingPTO) {
         setError('You can only apply for 1 PTO request per calendar month.');
+        return;
+      }
+    }
+
+    // 3. Sick Leave Validations — drawn from the same combined bank as PTO,
+    // but no advance-notice requirement (sick days are, by nature, unplanned)
+    // and multi-day requests are allowed.
+    if (leaveType === 'sick') {
+      if (remainingPTO < diffDays) {
+        setError(`Insufficient leave balance remaining. You have ${remainingPTO} day(s) left in your combined PTO/Sick bank.`);
         return;
       }
     }
@@ -172,15 +182,9 @@ export default function EmployeeLeavesPage() {
     l.duration.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Accurate PTO stats
+  // Accurate combined PTO + Sick Leave bank stats
   const accruedPTO = userProfile ? db.calculatePTOAccrued(userProfile.joinedDate) : 0;
-  const takenPTO = leaves
-    .filter(l => l.type === 'PTO' && l.status === 'approved')
-    .reduce((acc, l) => {
-      const dates = db.parseLeaveDates(l.duration);
-      if (!dates) return acc + 1;
-      return acc + (Math.ceil(Math.abs(dates.end.getTime() - dates.start.getTime()) / (1000 * 3600 * 24)) + 1);
-    }, 0);
+  const takenPTO = userProfile ? db.getApprovedLeaveDays(userProfile.fullName, ['PTO', 'Sick Leave']) : 0;
 
   // Settlement computations
   const currentBaseSalary = userProfile ? db.calculateCurrentSalary(userProfile) : 0;
@@ -207,23 +211,23 @@ export default function EmployeeLeavesPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card className="border border-slate-200">
           <CardContent className="pt-5">
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Remaining PTO Bank</p>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Remaining Bank (PTO + Sick)</p>
             <p className="text-3xl font-bold text-orange-600 mt-1">{remainingPTO} Days</p>
             <p className="text-[10px] text-slate-400 mt-1">Capped at 30 days maximum ceiling</p>
           </CardContent>
         </Card>
         <Card className="border border-slate-200">
           <CardContent className="pt-5">
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Accrued PTO</p>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Accrued</p>
             <p className="text-3xl font-bold text-slate-800 mt-1">{accruedPTO} Days</p>
-            <p className="text-[10px] text-slate-400 mt-1">Accumulated at individual anniversary dates</p>
+            <p className="text-[10px] text-slate-400 mt-1">Accumulated at individual anniversary date</p>
           </CardContent>
         </Card>
         <Card className="border border-slate-200">
           <CardContent className="pt-5">
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Approved PTO Taken</p>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Approved Days Taken</p>
             <p className="text-3xl font-bold text-slate-800 mt-1">{takenPTO} Days</p>
-            <p className="text-[10px] text-slate-400 mt-1">Reflected upon official CEO validation</p>
+            <p className="text-[10px] text-slate-400 mt-1">PTO + Sick Leave, upon official CEO validation</p>
           </CardContent>
         </Card>
       </div>
@@ -357,6 +361,7 @@ export default function EmployeeLeavesPage() {
               className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900"
             >
               <option value="pto">PTO / Vacation</option>
+              <option value="sick">Sick Leave</option>
               <option value="urgent">Urgent Leave</option>
               {userProfile?.gender === 'female' && (
                 <option value="parental_leave">Parental Leave (30 Days)</option>

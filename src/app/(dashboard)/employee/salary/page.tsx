@@ -7,10 +7,19 @@ import { Badge } from '@/components/ui/Badge';
 import { db, Profile, PayrollRecord, formatMoney } from '@/lib/db';
 import { FileText, Download, CheckCircle2, ShieldCheck, Printer } from 'lucide-react';
 
+interface Payslip {
+  month: string;
+  base: number;
+  deductions: number;
+  bonus: number;
+  net: number;
+  processed: boolean;
+}
+
 export default function EmployeeSalaryPage() {
   const [userProfile, setUserProfile] = useState<Profile | null>(null);
   const [payrollRecord, setPayrollRecord] = useState<PayrollRecord | null>(null);
-  const [selectedSlip, setSelectedSlip] = useState<{ month: string; base: number; deductions: number; bonus: number; net: number } | null>(null);
+  const [selectedSlip, setSelectedSlip] = useState<Payslip | null>(null);
 
   useEffect(() => {
     const email = localStorage.getItem('user_email');
@@ -30,30 +39,21 @@ export default function EmployeeSalaryPage() {
   const originalBase = userProfile ? userProfile.baseSalary : 0;
   const totalIncrement = baseSalary - originalBase;
 
-  // Mock list of 3 months history calculated dynamically from current state
-  const slips = [
-    { month: 'June 2026', base: baseSalary, deductions: payrollRecord?.processed ? payrollRecord.deductions : 0, bonus: payrollRecord?.processed ? payrollRecord.bonus : 2500, net: baseSalary + (payrollRecord?.processed ? payrollRecord.bonus : 2500) - (payrollRecord?.processed ? payrollRecord.deductions : 0) },
-    { month: 'May 2026', base: baseSalary, deductions: 0, bonus: 1500, net: baseSalary + 1500 },
-    { month: 'April 2026', base: baseSalary, deductions: 1000, bonus: 0, net: baseSalary - 1000 }
-  ];
+  // Real current-cycle payslip only — sourced directly from the actual
+  // payroll record (bonus/deductions default to 0 until HR/Finance actually
+  // processes them; nothing here is fabricated). Historical month-by-month
+  // payslip archiving isn't implemented yet, so we don't invent past months.
+  const currentMonthLabel = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const currentSlip: Payslip | null = payrollRecord ? {
+    month: currentMonthLabel,
+    base: baseSalary,
+    deductions: payrollRecord.deductions || 0,
+    bonus: payrollRecord.bonus || 0,
+    net: baseSalary + (payrollRecord.bonus || 0) - (payrollRecord.deductions || 0),
+    processed: !!payrollRecord.processed
+  } : null;
 
-  const getMonthDate = (monthStr: string) => {
-    const [month, year] = monthStr.split(' ');
-    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    const monthIndex = months.indexOf(month);
-    return new Date(Number(year), monthIndex, 1);
-  };
-
-  const startDate = userProfile?.salaryStartDate 
-    ? new Date(userProfile.salaryStartDate)
-    : (userProfile?.joinedDate ? new Date(userProfile.joinedDate) : new Date());
-  
-  const startCompareDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-
-  const filteredSlips = slips.filter(slip => {
-    const slipDate = getMonthDate(slip.month);
-    return slipDate >= startCompareDate;
-  });
+  const filteredSlips: Payslip[] = currentSlip ? [currentSlip] : [];
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -99,6 +99,7 @@ export default function EmployeeSalaryPage() {
                 <th className="px-6 py-4 text-right">Deductions</th>
                 <th className="px-6 py-4 text-right">Bonuses</th>
                 <th className="px-6 py-4 text-right">Net Received</th>
+                <th className="px-6 py-4 text-center">Status</th>
                 <th className="px-6 py-4 text-center">Receipt</th>
               </tr>
             </thead>
@@ -115,7 +116,10 @@ export default function EmployeeSalaryPage() {
                   </td>
                   <td className="px-6 py-4 text-right font-bold text-slate-900">{formatMoney(slip.net, userProfile?.region)}</td>
                   <td className="px-6 py-4 text-center">
-                    <button 
+                    <Badge variant={slip.processed ? 'success' : 'warning'}>{slip.processed ? 'Processed' : 'Pending'}</Badge>
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <button
                       onClick={() => setSelectedSlip(slip)}
                       className="text-xs font-semibold text-orange-655 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded transition-all active:scale-97 flex items-center gap-1.5 mx-auto"
                     >
@@ -126,7 +130,7 @@ export default function EmployeeSalaryPage() {
               ))}
               {filteredSlips.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-400 font-semibold italic text-xs">
+                  <td colSpan={7} className="py-8 text-center text-slate-400 font-semibold italic text-xs">
                     No salary slips recorded or tracking has not started yet.
                   </td>
                 </tr>
@@ -140,7 +144,7 @@ export default function EmployeeSalaryPage() {
             <div key={i} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-bold text-slate-900">{slip.month}</p>
-                <span className="text-xs font-bold text-slate-800">{formatMoney(slip.net, userProfile?.region)}</span>
+                <Badge variant={slip.processed ? 'success' : 'warning'}>{slip.processed ? 'Processed' : 'Pending'}</Badge>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -186,7 +190,7 @@ export default function EmployeeSalaryPage() {
                 <h3 className="font-bold text-slate-900 text-base">DelCargo Logistics Ltd.</h3>
                 <p className="text-[10px] text-slate-400 mt-0.5">HR Operations Paystub Receipt</p>
               </div>
-              <Badge variant="success">Paid</Badge>
+              <Badge variant={selectedSlip.processed ? 'success' : 'warning'}>{selectedSlip.processed ? 'Paid' : 'Pending Processing'}</Badge>
             </div>
 
             {/* Employee details */}

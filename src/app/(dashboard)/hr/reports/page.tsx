@@ -4,19 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { db, Profile, formatMoney } from '@/lib/db';
+import { db, Profile, formatMoney, TimesheetEntry } from '@/lib/db';
 import { FileText, Search, Filter, ShieldCheck, Download, Monitor, Clock, CheckCircle2, TrendingUp, Calendar } from 'lucide-react';
 import { UserProfileModal } from '@/components/ui/UserProfileModal';
-
-interface TrackingEntry {
-  date: string;
-  task?: string;
-  duration?: string;
-  score?: number;
-  clockIn?: string;
-  clockOut?: string;
-  status?: string;
-}
 
 export default function ReportsPage() {
   const [employees, setEmployees] = useState<Profile[]>([]);
@@ -24,7 +14,7 @@ export default function ReportsPage() {
   const [onboardingFilter, setOnboardingFilter] = useState<'All' | 'Completed' | 'Pending'>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedReviewEmp, setSelectedReviewEmp] = useState<Profile | null>(null);
-  const [reviewEntries, setReviewEntries] = useState<TrackingEntry[]>([]);
+  const [reviewEntries, setReviewEntries] = useState<TimesheetEntry[]>([]);
   const [dateFilter, setDateFilter] = useState('');
 
   const [selectedProfileEmail, setSelectedProfileEmail] = useState<string | null>(null);
@@ -34,28 +24,12 @@ export default function ReportsPage() {
     setSelectedReviewEmp(emp);
     setDateFilter('');
 
-    // Combine local per-session tracking entries (from tracker page)
-    const localKey = `timesheets_${emp.email}`;
-    const localSaved = localStorage.getItem(localKey);
-    const localEntries: TrackingEntry[] = localSaved ? JSON.parse(localSaved) : [];
-
-    // Also pull from the global timesheets table (clock-in/out shifts from Supabase sync)
-    const globalRaw = localStorage.getItem('hr_timesheets_prod_v1');
-    const globalAll: any[] = globalRaw ? JSON.parse(globalRaw) : [];
-    const globalEntries: TrackingEntry[] = globalAll
-      .filter(ts => ts.employeeEmail === emp.email)
-      .map(ts => ({
-        date: ts.date,
-        clockIn: ts.clockIn,
-        clockOut: ts.clockOut,
-        duration: ts.duration,
-        status: ts.status,
-        score: ts.score
-      }));
-
-    // Merge both sources, deduplicate by date+task
-    const merged = [...globalEntries, ...localEntries];
-    setReviewEntries(merged);
+    // Real, Supabase-synced shift history — visible regardless of which
+    // device/region the employee actually clocked in from.
+    const entries = db.getTimesheets()
+      .filter(t => t.employeeEmail === emp.email)
+      .sort((a, b) => (b.clockIn || '').localeCompare(a.clockIn || ''));
+    setReviewEntries(entries);
   };
 
   useEffect(() => {
@@ -89,9 +63,8 @@ export default function ReportsPage() {
     }
     return acc;
   }, 0);
-  const avgScore = filteredReviewEntries.length > 0
-    ? Math.round(filteredReviewEntries.filter(e => e.score).reduce((acc, e) => acc + (e.score || 0), 0) / filteredReviewEntries.filter(e => e.score).length)
-    : 0;
+  const completedShifts = filteredReviewEntries.filter(e => e.status === 'completed').length;
+  const openShifts = filteredReviewEntries.filter(e => e.status === 'in_progress').length;
 
   const exportMainCSV = () => {
     const headers = ['Full Name', 'Email', 'Role', 'Region', 'Bank Name', 'Account Number', 'IBAN', 'Onboarding Status', 'Base Salary'];
@@ -119,14 +92,13 @@ export default function ReportsPage() {
 
   const exportTrackingCSV = () => {
     if (!selectedReviewEmp) return;
-    const headers = ['Date', 'Task / Activity', 'Clock In', 'Clock Out', 'Duration', 'Activity Score (%)'];
+    const headers = ['Date', 'Clock In', 'Clock Out', 'Duration', 'Status'];
     const rows = filteredReviewEntries.map(e => [
       e.date || '',
-      e.task || 'Shift',
-      e.clockIn || '—',
-      e.clockOut || '—',
+      e.clockIn ? new Date(e.clockIn).toLocaleTimeString() : '—',
+      e.clockOut ? new Date(e.clockOut).toLocaleTimeString() : '—',
       e.duration || '—',
-      e.score ? `${e.score}%` : '—'
+      e.status === 'in_progress' ? 'On Shift' : 'Completed'
     ]);
 
     const csvContent = "data:text/csv;charset=utf-8,"
@@ -300,13 +272,13 @@ export default function ReportsPage() {
               </div>
               <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-center">
                 <TrendingUp className="h-4 w-4 text-emerald-500 mx-auto mb-1" />
-                <p className="text-lg font-bold text-emerald-900">{avgScore > 0 ? `${avgScore}%` : '—'}</p>
-                <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Avg Activity</p>
+                <p className="text-lg font-bold text-emerald-900">{completedShifts}{openShifts > 0 ? ` (+${openShifts} live)` : ''}</p>
+                <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Completed Shifts</p>
               </div>
               <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 text-center">
                 <Calendar className="h-4 w-4 text-orange-500 mx-auto mb-1" />
                 <p className="text-lg font-bold text-orange-900">{filteredReviewEntries.length}</p>
-                <p className="text-[10px] font-bold text-orange-600 uppercase tracking-wider">Sessions</p>
+                <p className="text-[10px] font-bold text-orange-600 uppercase tracking-wider">Total Shifts</p>
               </div>
             </div>
 
@@ -342,34 +314,30 @@ export default function ReportsPage() {
                   <thead className="font-bold text-slate-555 bg-slate-50/80 border-b border-slate-200 uppercase tracking-widest text-[9px] sticky top-0">
                     <tr>
                       <th className="px-4 py-2.5">Date</th>
-                      <th className="px-4 py-2.5">Task / Activity</th>
                       <th className="px-4 py-2.5">Clock In</th>
                       <th className="px-4 py-2.5">Clock Out</th>
                       <th className="px-4 py-2.5 text-right">Duration</th>
-                      <th className="px-4 py-2.5 text-right">Activity %</th>
+                      <th className="px-4 py-2.5 text-right">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredReviewEntries.map((entry, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                    {filteredReviewEntries.map((entry) => (
+                      <tr key={entry.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-4 py-3 font-bold text-slate-700">{entry.date || '—'}</td>
-                        <td className="px-4 py-3 text-slate-600 font-medium max-w-[180px] truncate">{entry.task || 'Shift'}</td>
-                        <td className="px-4 py-3 font-mono text-slate-500 text-[10px]">{entry.clockIn || '—'}</td>
-                        <td className="px-4 py-3 font-mono text-slate-500 text-[10px]">{entry.clockOut || '—'}</td>
+                        <td className="px-4 py-3 font-mono text-slate-500 text-[10px]">{entry.clockIn ? new Date(entry.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                        <td className="px-4 py-3 font-mono text-slate-500 text-[10px]">{entry.clockOut ? new Date(entry.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                         <td className="px-4 py-3 text-right font-bold text-slate-900">{entry.duration || '—'}</td>
                         <td className="px-4 py-3 text-right">
-                          {entry.score ? (
-                            <span className={`font-bold text-xs ${entry.score >= 85 ? 'text-emerald-600' : entry.score >= 70 ? 'text-amber-600' : 'text-rose-600'}`}>
-                              {entry.score}%
-                            </span>
-                          ) : <span className="text-slate-300 font-bold">—</span>}
+                          <Badge variant={entry.status === 'in_progress' ? 'warning' : 'success'}>
+                            {entry.status === 'in_progress' ? 'On Shift' : 'Completed'}
+                          </Badge>
                         </td>
                       </tr>
                     ))}
                     {filteredReviewEntries.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-400 font-semibold italic">
-                          {reviewEntries.length === 0 ? 'No tracking sessions recorded yet.' : 'No sessions match the date filter.'}
+                        <td colSpan={5} className="py-8 text-center text-slate-400 font-semibold italic">
+                          {reviewEntries.length === 0 ? 'No shifts recorded yet.' : 'No shifts match the date filter.'}
                         </td>
                       </tr>
                     )}

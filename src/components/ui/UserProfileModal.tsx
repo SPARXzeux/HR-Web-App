@@ -159,6 +159,10 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
   };
 
   const confirmOffboard = () => {
+    // Company policy: full payout of the remaining combined PTO/Sick bank
+    // at contract end, computed from real accrual + leave records.
+    const finalLeavePayout = db.getFinalLeavePayout(profile);
+
     db.updateProfileDetails(profile.email, {
       offboarded: true,
       offboardDate: new Date().toISOString().split('T')[0],
@@ -166,7 +170,8 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
         itClearance,
         financeClearance,
         hrClearance,
-        notes
+        notes,
+        finalLeavePayout
       }
     });
     setShowOffboardConfirm(false);
@@ -332,6 +337,11 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                     <p className="flex items-center gap-1.5">
                       {profile.offboardingStatus.hrClearance ? '🟢' : '🔴'} HR Official Signoff
                     </p>
+                    {profile.offboardingStatus.finalLeavePayout !== undefined && (
+                      <p className="flex items-center gap-1.5 mt-1 pt-1.5 border-t border-rose-200/50">
+                        💰 Final PTO/Sick Payout: <span className="font-bold">{formatMoney(profile.offboardingStatus.finalLeavePayout, profile.region)}</span>
+                      </p>
+                    )}
                     {profile.offboardingStatus.notes && (
                       <p className="mt-2 text-slate-550 border-t border-rose-200/50 pt-1.5 font-medium leading-relaxed">
                         Notes: {profile.offboardingStatus.notes}
@@ -492,6 +502,16 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                 </p>
               </div>
 
+              <div className="p-3.5 bg-emerald-50 border border-emerald-150 rounded-xl flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Final PTO/Sick Bank Payout</p>
+                  <p className="text-[9px] text-emerald-600 font-semibold mt-0.5">
+                    {db.getRemainingPTO(profile.fullName, profile.joinedDate)} remaining days × daily rate (monthly salary ÷ 22)
+                  </p>
+                </div>
+                <p className="text-lg font-bold text-emerald-800">{formatMoney(db.getFinalLeavePayout(profile), profile.region)}</p>
+              </div>
+
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
                   <input
@@ -553,7 +573,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
         onClose={() => setShowOffboardConfirm(false)}
         onConfirm={confirmOffboard}
         title="Offboard this employee?"
-        message={`This will deactivate ${profile.fullName}'s account and immediately block all access to the workspace. Their record stays in the system as "Offboarded" and can be reactivated later.`}
+        message={`This will deactivate ${profile.fullName}'s account and immediately block all access to the workspace. A final PTO/Sick bank payout of ${formatMoney(db.getFinalLeavePayout(profile), profile.region)} will be recorded. Their record stays in the system as "Offboarded" and can be reactivated later.`}
         confirmLabel="Yes, Offboard"
         variant="warning"
       />

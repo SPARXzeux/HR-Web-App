@@ -32,6 +32,7 @@ export interface Profile {
     financeClearance: boolean;
     hrClearance: boolean;
     notes?: string;
+    finalLeavePayout?: number; // full payout of remaining PTO/Sick bank at contract end
   };
 }
 
@@ -72,6 +73,19 @@ export interface Task {
   priority: 'low' | 'medium' | 'high';
   status: 'todo' | 'in_progress' | 'done';
   createdBy: string;        // role that created it
+}
+
+// A real clock-in/clock-out shift record. Created the moment an employee's
+// shift actually starts (geofence entry for USA, manual button for remote)
+// and completed the moment it actually ends — no simulated/randomized data.
+export interface TimesheetEntry {
+  id: string;
+  employeeEmail: string;
+  date: string;             // 'YYYY-MM-DD', the day the shift started
+  clockIn: string;           // ISO timestamp
+  clockOut?: string;         // ISO timestamp, set once the shift ends
+  duration?: string;         // formatted "Xh Ym", computed once the shift ends
+  status: 'in_progress' | 'completed';
 }
 
 export interface PayrollRecord {
@@ -432,6 +446,14 @@ async function syncFromSupabase() {
   }
 }
 
+function formatDurationBetween(startISO: string, endISO: string): string {
+  const ms = new Date(endISO).getTime() - new Date(startISO).getTime();
+  const totalMinutes = Math.max(0, Math.round(ms / 60000));
+  const hrs = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  return `${hrs}h ${mins}m`;
+}
+
 function getInitialData<T>(key: string, fallback: T): T {
   if (!isClient) return fallback;
   const data = localStorage.getItem(key);
@@ -748,12 +770,12 @@ export const db = {
     return Math.min(30, Math.round(totalAccrued * 100) / 100);
   },
 
-  // Remaining PTO: accrued minus taken approved PTO days
-  getRemainingPTO: (fullName: string, joinedDate: string): number => {
-    const accrued = db.calculatePTOAccrued(joinedDate);
+  // Counts approved days taken for a given set of leave types (helper used
+  // by the combined PTO+Sick bank below).
+  getApprovedLeaveDays: (fullName: string, types: Array<'PTO' | 'Sick Leave'>): number => {
     const leaves = db.getLeaves();
-    const approvedPTODays = leaves
-      .filter(l => l.employeeName === fullName && l.type === 'PTO' && l.status === 'approved')
+    return leaves
+      .filter(l => l.employeeName === fullName && l.status === 'approved' && types.includes(l.type as any))
       .reduce((acc, l) => {
         const dates = db.parseLeaveDates(l.duration);
         if (!dates) return acc + 1;
@@ -761,7 +783,16 @@ export const db = {
         const days = Math.ceil(diff / (1000 * 3600 * 24)) + 1;
         return acc + days;
       }, 0);
-    return Math.max(0, Math.round((accrued - approvedPTODays) * 100) / 100);
+  },
+
+  // Combined PTO + Sick Leave bank, per company policy: a single accrued
+  // balance (see calculatePTOAccrued for the yearly-increment schedule,
+  // individual anniversary date, capped at 30) that both PTO and Sick Leave
+  // requests draw down from — there is no separate sick leave allotment.
+  getRemainingPTO: (fullName: string, joinedDate: string): number => {
+    const accrued = db.calculatePTOAccrued(joinedDate);
+    const takenDays = db.getApprovedLeaveDays(fullName, ['PTO', 'Sick Leave']);
+    return Math.max(0, Math.round((accrued - takenDays) * 100) / 100);
   },
 
   calculateCurrentSalary: (profile: Profile): number => {
@@ -770,6 +801,15 @@ export const db = {
     const years = Math.max(0, currentYear - joinedYear);
     const increment = profile.region === 'USA' ? 100 : 10000;
     return profile.baseSalary + (years * increment);
+  },
+
+  // Full payout of the remaining combined PTO/Sick bank at contract end,
+  // per company policy. Day rate = current monthly salary ÷ 22 (same
+  // formula used by the Jan 31 settlement cash-out calculator).
+  getFinalLeavePayout: (profile: Profile): number => {
+    const remainingDays = db.getRemainingPTO(profile.fullName, profile.joinedDate);
+    const dailyRate = db.calculateCurrentSalary(profile) / 22;
+    return Math.round(remainingDays * dailyRate);
   },
 
   getPayroll: (): PayrollRecord[] => {
@@ -955,10 +995,29 @@ export const db = {
     db.saveWarehouses(updated);
     return updated;
   },
-  deleteWarehouse: (id: string) => {
+  deleteWarehouse: async (id: string) => {
     const list = db.getWarehouses();
     const updated = list.filter(w => w.id !== id);
-    db.saveWarehouses(updated);
+
+    // Update local cache immediately
+    if (isClient) {
+      localStorage.setItem('hr_warehouses_prod_v1', JSON.stringify(updated));
+    }
+
+    // Permanently remove the row from Supabase — saveWarehouses() only
+    // upserts, it never deletes rows, so without this the warehouse would
+    // keep reappearing every time another device/page re-syncs from Supabase.
+    try {
+      const { error } = await supabase.from('warehouses').delete().eq('id', id);
+      if (error) {
+        console.error('[Supabase Sync] Warehouse delete error:', error);
+      } else {
+        console.log(`[Supabase Sync] Permanently deleted warehouse ${id}.`);
+      }
+    } catch (err: any) {
+      console.error('[Supabase Sync] Unexpected warehouse delete error:', err);
+    }
+
     // Also remove this warehouse from employee assignments
     const employees = db.getEmployees();
     const updatedEmployees = employees.map(emp => {
@@ -967,7 +1026,7 @@ export const db = {
       }
       return emp;
     });
-    db.saveEmployees(updatedEmployees);
+    await db.saveEmployees(updatedEmployees);
     return updated;
   },
 
@@ -994,7 +1053,56 @@ export const db = {
     return updated;
   },
 
-  getLastSyncError: () => lastSyncError
+  getLastSyncError: () => lastSyncError,
+
+  // --- Real timesheet / clock-in-out tracking ---
+  // Backed by the same 'hr_timesheets_prod_v1' key that already syncs to the
+  // Supabase 'timesheets' table, so shifts are visible to HR/Admin regardless
+  // of which region/device the employee clocked in from.
+  getTimesheets: (): TimesheetEntry[] => getInitialData('hr_timesheets_prod_v1', []),
+  saveTimesheets: (data: TimesheetEntry[]) => saveData('hr_timesheets_prod_v1', data),
+
+  // Returns the currently open (not yet clocked out) shift for an employee, if any.
+  getOpenShift: (employeeEmail: string): TimesheetEntry | null => {
+    const all = db.getTimesheets();
+    return all.find(t => t.employeeEmail === employeeEmail && t.status === 'in_progress') || null;
+  },
+
+  // Starts a real shift. Idempotent — if a shift is already open for this
+  // employee, returns the existing one instead of creating a duplicate.
+  clockIn: async (employeeEmail: string): Promise<TimesheetEntry> => {
+    const all = db.getTimesheets();
+    const existingOpen = all.find(t => t.employeeEmail === employeeEmail && t.status === 'in_progress');
+    if (existingOpen) return existingOpen;
+
+    const now = new Date();
+    const entry: TimesheetEntry = {
+      id: `ts_${Date.now()}`,
+      employeeEmail,
+      date: now.toISOString().split('T')[0],
+      clockIn: now.toISOString(),
+      status: 'in_progress'
+    };
+    await db.saveTimesheets([entry, ...all]);
+    return entry;
+  },
+
+  // Ends the employee's currently open shift, computing the real elapsed
+  // duration from the actual clock-in timestamp. No-op if nothing is open.
+  clockOut: async (employeeEmail: string): Promise<TimesheetEntry | null> => {
+    const all = db.getTimesheets();
+    const openEntry = all.find(t => t.employeeEmail === employeeEmail && t.status === 'in_progress');
+    if (!openEntry) return null;
+
+    const nowIso = new Date().toISOString();
+    const updated = all.map(t =>
+      t.id === openEntry.id
+        ? { ...t, clockOut: nowIso, duration: formatDurationBetween(t.clockIn, nowIso), status: 'completed' as const }
+        : t
+    );
+    await db.saveTimesheets(updated);
+    return updated.find(t => t.id === openEntry.id) || null;
+  }
 };
 
 export const formatMoney = (amount: number, region?: 'USA' | 'Pakistan') => {
