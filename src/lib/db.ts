@@ -740,14 +740,14 @@ export const db = {
     await db.saveEmployees(updated);
   },
 
-  updateEmployeeTeams: (employeeId: string, newTeams: string[]) => {
+  updateEmployeeTeams: async (employeeId: string, newTeams: string[]) => {
     const employees = db.getEmployees();
     const updated = employees.map(emp => emp.id === employeeId ? { ...emp, teams: newTeams } : emp);
-    db.saveEmployees(updated);
+    await db.saveEmployees(updated);
     return updated;
   },
 
-  setTeamLead: (employeeId: string, leadTeams: string[]) => {
+  setTeamLead: async (employeeId: string, leadTeams: string[]) => {
     const employees = db.getEmployees();
     const updated = employees.map(emp => {
       if (emp.id === employeeId) {
@@ -755,7 +755,7 @@ export const db = {
       }
       return emp;
     });
-    db.saveEmployees(updated);
+    await db.saveEmployees(updated);
     return updated;
   },
 
@@ -786,10 +786,10 @@ export const db = {
     return updatedTeams;
   },
 
-  resetPassword: (email: string, newPass: string) => {
+  resetPassword: async (email: string, newPass: string) => {
     const employees = db.getEmployees();
     const updated = employees.map(emp => emp.email === email ? { ...emp, password: newPass } : emp);
-    db.saveEmployees(updated);
+    await db.saveEmployees(updated);
     return true;
   },
 
@@ -872,10 +872,10 @@ export const db = {
     return newAnn;
   },
 
-  updateProfileDetails: (email: string, updates: Partial<Profile>) => {
+  updateProfileDetails: async (email: string, updates: Partial<Profile>) => {
     const employees = db.getEmployees();
     const updated = employees.map(emp => emp.email === email ? { ...emp, ...updates } : emp);
-    db.saveEmployees(updated);
+    await db.saveEmployees(updated);
     return updated;
   }
 };

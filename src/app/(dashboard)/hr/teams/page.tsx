@@ -111,8 +111,8 @@ export default function HRTeamsPage() {
     }
   };
 
-  const performAllocation = (employeeId: string, finalTeams: string[]) => {
-    const updated = db.updateEmployeeTeams(employeeId, finalTeams);
+  const performAllocation = async (employeeId: string, finalTeams: string[]) => {
+    const updated = await db.updateEmployeeTeams(employeeId, finalTeams);
     setEmployees(updated);
     setDraggedEmployee(null);
     setTargetTeam(null);

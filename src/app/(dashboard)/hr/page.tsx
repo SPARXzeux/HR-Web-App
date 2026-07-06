@@ -82,13 +82,13 @@ export default function HRDashboard() {
     }, 1200);
   };
 
-  const handleOnboardSubmit = (e: React.FormEvent) => {
+  const handleOnboardSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setOnboardError('');
     if (!fullName || !email || !salary) { setOnboardError('Please fill in all required fields.'); return; }
     if (isNaN(Number(salary)) || Number(salary) <= 0) { setOnboardError('Please enter a valid base salary.'); return; }
 
-    db.addEmployee({ fullName, email, role: role as Profile['role'], joinedDate: new Date().toISOString().split('T')[0], baseSalary: Number(salary), teams: [team], password: tempPassword || 'employee123' });
+    await db.addEmployee({ fullName, email, role: role as Profile['role'], joinedDate: new Date().toISOString().split('T')[0], baseSalary: Number(salary), teams: [team], password: tempPassword || 'employee123' });
     db.addNotification('all', 'hr', `New employee ${fullName} (${role}) registered.`);
     setOnboardSuccess('Employee registered!');
     setEmployees(db.getEmployees());
