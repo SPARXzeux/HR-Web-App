@@ -34,7 +34,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // Document Upload Simulator States
   const [cvFile, setCvFile] = useState<string | null>(null);
-  const [cnicFile, setCnicFile] = useState<string | null>(null);
+  const [cnicFiles, setCnicFiles] = useState<string[]>([]);
   const [passportFile, setPassportFile] = useState<string | null>(null);
   const [uploading, setUploading] = useState({ cv: false, cnic: false });
   const [uploadingPassport, setUploadingPassport] = useState(false);
@@ -88,7 +88,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setTimeout(() => {
       setUploading(prev => ({ ...prev, [type]: false }));
       if (type === 'cv') setCvFile(name);
-      else setCnicFile(name);
+      else setCnicFiles(prev => [...prev, name].slice(0, 2));
     }, 1200);
   };
 
@@ -118,9 +118,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
         setStep2SubStep(2);
       } else if (step2SubStep === 2) {
-        if (!cnicFile) {
-          const docLabel = profile?.region === 'USA' ? 'Driver License / Work Permit' : 'CNIC images';
-          setStepperError(`Required: ${docLabel} must be uploaded.`);
+        const requiredCount = profile?.region === 'USA' ? 1 : 2;
+        if (cnicFiles.length < requiredCount) {
+          const docLabel = profile?.region === 'USA' ? 'Driver License / Work Permit' : 'CNIC images (Both Front and Back sides required)';
+          setStepperError(`Required: ${docLabel} must be uploaded (${cnicFiles.length}/${requiredCount} uploaded).`);
           return;
         }
         if (profile?.region === 'USA') {
@@ -391,27 +392,38 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           <span className="text-sm font-bold text-slate-900">
                             3. {profile?.region === 'USA' ? 'Driver License / Work Permit *' : 'CNIC Card (Both Sides) *'}
                           </span>
-                          <p className="text-[10px] text-slate-400 mt-0.5">JPG or PNG image scan</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            {profile?.region === 'USA' ? 'Upload 1 front scan.' : 'Upload 2 scans (Front and Back side scans required).'}
+                          </p>
                         </div>
-                        {cnicFile ? (
-                          <span className="text-emerald-600 font-bold text-xs flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Uploaded</span>
+                        {cnicFiles.length >= (profile?.region === 'USA' ? 1 : 2) ? (
+                          <span className="text-emerald-600 font-bold text-xs flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> All Scans Added</span>
                         ) : uploading.cnic ? (
                           <span className="text-slate-400 text-xs animate-pulse">Uploading scans...</span>
                         ) : (
                           <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
-                            Upload Scan
+                            {cnicFiles.length > 0 ? `Upload Scan #${cnicFiles.length + 1}` : 'Upload Scan'}
                             <input 
                               type="file" 
                               accept="image/*"
                               className="hidden"
-                              onChange={(e) => simulateUpload('cnic', e.target.files?.[0]?.name || (profile?.region === 'USA' ? 'Sarah_Connor_License.png' : 'Sarah_Connor_CNIC.png'))}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                const isUsa = profile?.region === 'USA';
+                                const mockName = file?.name || (isUsa ? 'Sarah_Connor_License.png' : `Sarah_Connor_CNIC_${cnicFiles.length === 0 ? 'Front' : 'Back'}.png`);
+                                simulateUpload('cnic', mockName);
+                              }}
                             />
                           </label>
                         )}
                       </div>
-                      {cnicFile && (
-                        <div className="text-xs font-semibold text-slate-600 mt-3 flex items-center gap-1 bg-white p-2 rounded border border-slate-200">
-                          <FileText className="h-4 w-4 text-orange-600" /> {cnicFile}
+                      {cnicFiles.length > 0 && (
+                        <div className="space-y-1.5 mt-3">
+                          {cnicFiles.map((file, idx) => (
+                            <div key={idx} className="text-xs font-semibold text-slate-600 flex items-center gap-1 bg-white p-2 rounded border border-slate-200">
+                              <FileText className="h-4 w-4 text-orange-600" /> {file}
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
