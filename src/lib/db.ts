@@ -204,6 +204,43 @@ async function syncFromSupabase() {
       })();
       const localOnly = localProfiles.filter(p => p && p.email && !dbEmails.has(p.email.toLowerCase()));
 
+      if (localOnly.length > 0) {
+        console.log(`[Supabase Sync] Migrating ${localOnly.length} local-only profiles to Supabase...`);
+        const rowsToSync = localOnly.map(p => ({
+          id: p.id,
+          full_name: p.fullName || '',
+          email: p.email || '',
+          role: p.role || 'employee',
+          joined_date: p.joinedDate || new Date().toISOString().split('T')[0],
+          onboarding_completed: p.onboardingCompleted !== undefined ? p.onboardingCompleted : false,
+          base_salary: p.baseSalary || 0,
+          teams: p.teams || [],
+          password: p.password || 'employee123',
+          is_team_lead: p.isTeamLead !== undefined ? p.isTeamLead : false,
+          lead_teams: p.leadTeams || [],
+          is_warehouse_lead: p.isWarehouseLead !== undefined ? p.isWarehouseLead : false,
+          managed_warehouses: p.managedWarehouses || [],
+          job_title: p.jobTitle || 'Staff',
+          gender: p.gender || 'male',
+          bank_name: p.bankName || null,
+          account_number: p.accountNumber || null,
+          iban: p.iban || null,
+          profile_picture: p.profilePicture || null,
+          region: p.region || 'Pakistan',
+          assigned_warehouses: p.assignedWarehouses || [],
+          tracking_enabled: p.trackingEnabled !== undefined ? p.trackingEnabled : true,
+          salary_start_date: p.salaryStartDate || p.joinedDate || null
+        }));
+        
+        supabase.from('profiles').upsert(rowsToSync).then(({ error }) => {
+          if (error) {
+            console.error('[Supabase Sync] Auto-migration error:', error);
+          } else {
+            console.log('[Supabase Sync] Auto-migration completed successfully.');
+          }
+        });
+      }
+
       const mappedDb = finalProfiles.map(p => ({
         id: p.id,
         fullName: p.full_name,
