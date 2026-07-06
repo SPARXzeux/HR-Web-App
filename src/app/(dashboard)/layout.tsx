@@ -164,17 +164,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Force onboarding stepper gate if user is employee and onboarding is incomplete
   if (role === 'employee' && profile && !profile.onboardingCompleted) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col justify-between py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-xl mx-auto w-full bg-white border border-slate-200 rounded-xl p-8 shadow-sm">
+      <div className="min-h-screen bg-slate-50 flex flex-col py-6 md:py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-xl mx-auto w-full bg-white border border-slate-200 rounded-xl p-4 sm:p-8 shadow-sm">
           
           {/* Header */}
-          <div className="text-center pb-6 border-b border-slate-200 mb-8">
-            <h1 className="text-2xl font-bold text-slate-900">Employee Onboarding</h1>
-            <p className="text-sm text-slate-500 mt-2">Welcome to DelCargo! Complete these simple steps to access your dashboard.</p>
+          <div className="text-center pb-4 md:pb-6 border-b border-slate-200 mb-6 md:mb-8">
+            <h1 className="text-xl md:text-2xl font-bold text-slate-900">Employee Onboarding</h1>
+            <p className="text-xs md:text-sm text-slate-500 mt-1.5">Welcome to DelCargo! Complete these simple steps to access your dashboard.</p>
           </div>
 
           {/* Stepper Indicators */}
-          <div className="flex justify-between items-center mb-8 relative">
+          <div className="flex justify-between items-center mb-6 md:mb-8 relative">
             <div className="absolute left-0 right-0 h-0.5 bg-slate-200 top-1/2 -translate-y-1/2 z-0"></div>
             
             <div className={`flex items-center justify-center h-8 w-8 rounded-full text-xs font-bold z-10 ${
@@ -208,9 +208,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           {/* Step 1: Confirmation */}
           {onboardStep === 1 && (
-            <div className="space-y-6">
-              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <User className="h-5 w-5 text-orange-600" /> Step 1: Profile & Bank Details
+            <div className="space-y-4 md:space-y-6">
+              <h2 className="text-base md:text-lg font-bold text-slate-900 flex items-center gap-2">
+                <User className="h-4 w-4 md:h-5 md:w-5 text-orange-600" /> Step 1: Profile & Bank Details
               </h2>
               
               <div className="space-y-4">
@@ -269,7 +269,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className="flex justify-end pt-4 border-t border-slate-200">
                 <button 
                   onClick={handleNextStep}
-                  className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1"
+                  className="w-full md:w-auto bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all flex items-center justify-center gap-1"
                 >
                   Confirm & Continue <ChevronRight className="h-4 w-4" />
                 </button>
@@ -430,18 +430,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 )}
               </div>
 
-              <div className="flex justify-between pt-4 border-t border-slate-200">
+              <div className="flex gap-3 pt-4 border-t border-slate-200">
                 <button 
                   type="button"
                   onClick={() => setOnboardStep(1)}
-                  className="bg-white border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all"
+                  className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all"
                 >
                   Back
                 </button>
                 <button 
                   type="button"
                   onClick={handleNextStep}
-                  className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1"
+                  className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all flex items-center justify-center gap-1"
                 >
                   Confirm & Continue <ChevronRight className="h-4 w-4" />
                 </button>
@@ -472,18 +472,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </div>
               </div>
 
-              <div className="flex justify-between pt-4 border-t border-slate-200">
+              <div className="flex gap-3 pt-4 border-t border-slate-200">
                 <button 
                   onClick={() => setOnboardStep(2)}
-                  className="bg-white border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all"
+                  className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all"
                 >
                   Back
                 </button>
                 <button 
                   onClick={handleNextStep}
-                  className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1"
+                  className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all flex items-center justify-center gap-1"
                 >
-                  Confirm & Continue <ChevronRight className="h-4 w-4" />
+                  Continue <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
             </div>
@@ -578,16 +578,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 />
               </div>
 
-              <div className="flex justify-between pt-4 border-t border-slate-200">
+              <div className="flex gap-3 pt-4 border-t border-slate-200">
                 <button 
                   onClick={() => setOnboardStep(3)}
-                  className="bg-white border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all"
+                  className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all"
                 >
                   Back
                 </button>
                 <button 
                   onClick={handleCompleteOnboarding}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all flex items-center justify-center gap-1.5 shadow-sm"
                 >
                   <CheckCircle2 className="h-4 w-4" /> Complete Onboarding
                 </button>
@@ -605,7 +605,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <Sidebar role={role} />
       <div className="flex flex-col flex-1 w-full overflow-hidden">
         <TopNav />
-        <main className="flex-1 overflow-y-auto p-6 md:p-8 pb-20 md:pb-8">
+        <main className="flex-1 overflow-y-auto px-4 py-4 md:px-8 md:py-8 pb-24 md:pb-8">
           <div className="max-w-6xl mx-auto">
             {children}
           </div>
@@ -615,7 +615,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Consent Popup Overlay Gate */}
       {showConsent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white border border-slate-200 w-full max-w-2xl rounded-xl shadow-2xl p-6 sm:p-8 animate-in zoom-in-95 duration-150">
+          <div className="bg-white border border-slate-200 w-full max-w-2xl rounded-2xl shadow-2xl p-4 sm:p-8 animate-in zoom-in-95 duration-150">
             <div className="text-center pb-4 border-b border-slate-200 mb-6">
               <h2 className="text-xl font-bold text-slate-900">DelCargo HR Consent & Data Agreement</h2>
               <p className="text-xs text-slate-500 mt-1">Please review the terms of data access before continuing.</p>

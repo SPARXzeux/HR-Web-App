@@ -46,60 +46,60 @@ export default function AdminPayrollPage() {
   const grandNetPayable = grandTotalBase + grandTotalBonuses - grandTotalDeductions;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-6 px-4 py-4 md:px-0 md:py-0">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Payroll & Financials Overview</h1>
-          <p className="text-slate-500">High-level cost tracking, departmental breakdowns, and global payout releasing.</p>
+          <h1 className="text-lg md:text-2xl font-bold text-slate-900">Payroll &amp; Financials Overview</h1>
+          <p className="text-xs md:text-sm text-slate-500">High-level cost tracking, departmental breakdowns, and global payout releasing.</p>
         </div>
         {!isReleased ? (
           <button 
             onClick={() => setIsReleased(true)}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-semibold transition-colors shadow-sm active:scale-97 duration-150 flex items-center gap-1.5"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 md:py-2 rounded-lg font-semibold transition-colors shadow-sm active:scale-97 duration-150 flex items-center gap-1.5 text-sm min-h-[44px] md:min-h-0 self-start md:self-auto"
           >
             <CheckCircle2 className="h-4 w-4" />
             Release Monthly Funds
           </button>
         ) : (
-          <Badge variant="success" className="text-sm px-4 py-2 rounded-lg flex items-center gap-1.5">
+          <Badge variant="success" className="text-sm px-4 py-2 rounded-lg flex items-center gap-1.5 self-start md:self-auto">
             <CheckCircle2 className="h-4 w-4" />
             Monthly Funds Released
           </Badge>
         )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="pt-5 md:pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-slate-500">Total Net Outflow</p>
-                <p className="text-3xl font-bold text-slate-900 mt-2">${grandNetPayable.toLocaleString()}</p>
+                <p className="text-xs md:text-sm font-semibold text-slate-500">Total Net Outflow</p>
+                <p className="text-2xl md:text-3xl font-bold text-slate-900 mt-2">${grandNetPayable.toLocaleString()}</p>
               </div>
-              <div className="h-12 w-12 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
-                <DollarSign className="h-6 w-6" />
+              <div className="h-11 w-11 md:h-12 md:w-12 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
+                <DollarSign className="h-5 w-5 md:h-6 md:w-6" />
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="pt-5 md:pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-slate-500">Accumulated Bonuses</p>
-                <p className="text-3xl font-bold text-slate-900 mt-2">${grandTotalBonuses.toLocaleString()}</p>
+                <p className="text-xs md:text-sm font-semibold text-slate-500">Accumulated Bonuses</p>
+                <p className="text-2xl md:text-3xl font-bold text-slate-900 mt-2">${grandTotalBonuses.toLocaleString()}</p>
               </div>
-              <div className="h-12 w-12 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-orange-650">
-                <TrendingUp className="h-6 w-6" />
+              <div className="h-11 w-11 md:h-12 md:w-12 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-orange-650">
+                <TrendingUp className="h-5 w-5 md:h-6 md:w-6" />
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="pt-5 md:pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-slate-500">Payroll Status</p>
+                <p className="text-xs md:text-sm font-semibold text-slate-500">Payroll Status</p>
                 <div className="mt-3">
                   {isReleased ? (
                     <Badge variant="success">Completed</Badge>
@@ -113,9 +113,10 @@ export default function AdminPayrollPage() {
         </Card>
       </div>
 
-      <h2 className="text-xl font-bold text-slate-900 mt-8 mb-4">Departmental Breakdowns</h2>
+      <h2 className="text-base md:text-xl font-bold text-slate-900 mt-6 md:mt-8 mb-3 md:mb-4">Departmental Breakdowns</h2>
       <Card className="overflow-hidden p-0 border border-slate-200">
-        <div className="overflow-x-auto">
+        {/* Desktop table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm text-left border-collapse">
             <thead className="text-xs font-bold text-slate-500 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
               <tr>
@@ -143,6 +144,42 @@ export default function AdminPayrollPage() {
               })}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile card stack */}
+        <div className="md:hidden space-y-3 p-4">
+          {summaries.map(s => {
+            const deptNet = s.totalBase + s.totalBonuses - s.totalDeductions;
+            return (
+              <div key={s.department} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-slate-900">{s.department}</p>
+                  <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{s.headcount} staff</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase">Total Base</p>
+                    <p className="text-xs font-bold text-slate-800">${s.totalBase.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase">Bonuses</p>
+                    <p className="text-xs font-bold text-emerald-600">+${s.totalBonuses.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase">Deductions</p>
+                    <p className="text-xs font-bold text-rose-600">-${s.totalDeductions.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase">Net Payable</p>
+                    <p className="text-xs font-bold text-slate-900">${deptNet.toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {summaries.length === 0 && (
+            <p className="py-8 text-center text-slate-400 font-semibold italic text-sm">No payroll data available.</p>
+          )}
         </div>
       </Card>
     </div>

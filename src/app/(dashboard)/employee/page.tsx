@@ -164,21 +164,21 @@ export default function EmployeeDashboard() {
   });
 
   return (
-    <div className="space-y-6 font-sans">
+    <div className="space-y-4 md:space-y-6 font-sans px-0">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white border border-slate-200 p-6 rounded-xl shadow-sm">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white border border-slate-200 p-4 md:p-6 rounded-xl shadow-sm">
+        <div className="flex items-center gap-3 md:gap-4">
           <img 
             src={userProfile?.profilePicture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=256&auto=format&fit=crop'} 
             alt="Profile Preview" 
-            className="h-14 w-14 rounded-full object-cover border-2 border-orange-500 shadow-sm" 
+            className="h-12 w-12 md:h-14 md:w-14 rounded-full object-cover border-2 border-orange-500 shadow-sm" 
           />
           <div>
-            <h1 className="text-xl font-bold text-slate-900">{userProfile?.fullName || 'Employee'}</h1>
+            <h1 className="text-lg md:text-xl font-bold text-slate-900">{userProfile?.fullName || 'Employee'}</h1>
             <p className="text-xs text-slate-500 font-semibold">{userProfile?.jobTitle || 'Team Member'} · <span className="text-orange-655 font-bold">{userProfile?.region === 'USA' ? 'USA Operations' : 'Pakistan (Remote)'}</span></p>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-xs bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl font-bold text-slate-600">
+        <div className="flex items-center gap-2 text-xs bg-slate-50 border border-slate-200 px-3.5 py-2.5 md:py-2 rounded-xl font-bold text-slate-600">
           🏦 {userProfile?.bankName ? `${userProfile.bankName} (Verified)` : 'Bank details pending'}
         </div>
       </div>
@@ -274,7 +274,8 @@ export default function EmployeeDashboard() {
           <div className="space-y-3">
             <h2 className="text-base font-bold text-slate-900">Recent Leave Requests</h2>
             <Card className="overflow-hidden p-0 border border-slate-200 bg-white">
-              <div className="overflow-x-auto">
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full min-w-[500px] text-xs text-left border-collapse">
                   <thead className="font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
                     <tr>
@@ -305,6 +306,35 @@ export default function EmployeeDashboard() {
                     )}
                   </tbody>
                 </table>
+              </div>
+              {/* Mobile card stack */}
+              <div className="md:hidden space-y-2 p-3">
+                {leaves
+                  .filter(l =>
+                    l.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    l.reason.toLowerCase().includes(searchQuery.toLowerCase())
+                  )
+                  .map((leave) => (
+                    <div key={leave.id} className="bg-white border border-slate-200 rounded-xl p-3 space-y-2 shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-bold text-slate-900">{leave.type}</p>
+                        {getStatusBadge(leave.status)}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Duration</p>
+                          <p className="text-xs font-semibold text-slate-700">{leave.duration}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Reason</p>
+                          <p className="text-xs font-semibold text-slate-700">{leave.reason}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                {leaves.length === 0 && (
+                  <p className="py-6 text-center text-slate-400 font-semibold italic text-xs">No leave history found.</p>
+                )}
               </div>
             </Card>
           </div>
@@ -515,7 +545,7 @@ export default function EmployeeDashboard() {
               </div>
               <button 
                 onClick={() => router.push('/employee/careers')} 
-                className="w-full bg-slate-50 border border-slate-200 text-slate-700 font-bold py-2 rounded-lg text-xs hover:bg-slate-100 transition-all active:scale-97 text-center"
+                className="w-full bg-slate-50 border border-slate-200 text-slate-700 font-bold py-2.5 md:py-2 rounded-lg text-xs hover:bg-slate-100 transition-all active:scale-97 text-center"
               >
                 View open positions to refer →
               </button>
@@ -560,7 +590,7 @@ export default function EmployeeDashboard() {
               {selectedTask.status === 'todo' && (
                 <button
                   onClick={() => handleUpdateTaskStatus(selectedTask.id, 'in_progress')}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-xs"
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs"
                 >
                   Start Task
                 </button>
@@ -568,14 +598,14 @@ export default function EmployeeDashboard() {
               {selectedTask.status === 'in_progress' && (
                 <button
                   onClick={() => handleUpdateTaskStatus(selectedTask.id, 'done')}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg text-xs"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs"
                 >
                   Mark Completed
                 </button>
               )}
               <button
                 onClick={() => setSelectedTask(null)}
-                className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-xs"
+                className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs"
               >
                 Close
               </button>
@@ -602,31 +632,58 @@ export default function EmployeeDashboard() {
             <div className="space-y-3">
               <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Historical Sessions (Current Week)</h4>
               <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-                <table className="w-full text-xs text-left border-collapse">
-                  <thead className="font-bold text-slate-555 bg-slate-50 border-b border-slate-200 uppercase tracking-widest text-[9px]">
-                    <tr>
-                      <th className="px-4 py-2.5">Date</th>
-                      <th className="px-4 py-2.5">Tracked Task</th>
-                      <th className="px-4 py-2.5 text-right">Time Spent</th>
-                      <th className="px-4 py-2.5 text-right">Avg Activity</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-150">
-                    {reviewEntries.map((entry, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/50">
-                        <td className="px-4 py-3 font-bold text-slate-700">{entry.date}</td>
-                        <td className="px-4 py-3 text-slate-600 font-medium">{entry.task}</td>
-                        <td className="px-4 py-3 text-right font-bold text-slate-900">{entry.duration}</td>
-                        <td className="px-4 py-3 text-right font-bold text-emerald-600">{entry.score}%</td>
-                      </tr>
-                    ))}
-                    {reviewEntries.length === 0 && (
+                {/* Desktop table */}
+                <div className="hidden md:block">
+                  <table className="w-full text-xs text-left border-collapse">
+                    <thead className="font-bold text-slate-555 bg-slate-50 border-b border-slate-200 uppercase tracking-widest text-[9px]">
                       <tr>
-                        <td colSpan={4} className="py-6 text-center text-slate-400 font-semibold italic">No tracked session history.</td>
+                        <th className="px-4 py-2.5">Date</th>
+                        <th className="px-4 py-2.5">Tracked Task</th>
+                        <th className="px-4 py-2.5 text-right">Time Spent</th>
+                        <th className="px-4 py-2.5 text-right">Avg Activity</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-150">
+                      {reviewEntries.map((entry, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/50">
+                          <td className="px-4 py-3 font-bold text-slate-700">{entry.date}</td>
+                          <td className="px-4 py-3 text-slate-600 font-medium">{entry.task}</td>
+                          <td className="px-4 py-3 text-right font-bold text-slate-900">{entry.duration}</td>
+                          <td className="px-4 py-3 text-right font-bold text-emerald-600">{entry.score}%</td>
+                        </tr>
+                      ))}
+                      {reviewEntries.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="py-6 text-center text-slate-400 font-semibold italic">No tracked session history.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {/* Mobile card stack */}
+                <div className="md:hidden space-y-2 p-3">
+                  {reviewEntries.map((entry, idx) => (
+                    <div key={idx} className="bg-white border border-slate-200 rounded-xl p-3 space-y-2 shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-bold text-slate-900">{entry.date}</p>
+                        <span className="text-xs font-bold text-emerald-600">{entry.score}%</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Task</p>
+                          <p className="text-xs font-semibold text-slate-700">{entry.task}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Time Spent</p>
+                          <p className="text-xs font-bold text-slate-900">{entry.duration}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {reviewEntries.length === 0 && (
+                    <p className="py-6 text-center text-slate-400 font-semibold italic text-xs">No tracked session history.</p>
+                  )}
+                </div>
               </div>
               <div className="space-y-3">
               <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Workspace Screenshots</h4>

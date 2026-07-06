@@ -38,10 +38,10 @@ export default function EmployeeSalaryPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">My Salary Ledger</h1>
-        <p className="text-slate-500">Track base pay rates, dynamic annual increments, and payslips.</p>
+        <h1 className="text-lg md:text-2xl font-bold text-slate-900">My Salary Ledger</h1>
+        <p className="text-xs md:text-sm text-slate-500">Track base pay rates, dynamic annual increments, and payslips.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -69,9 +69,10 @@ export default function EmployeeSalaryPage() {
         </Card>
       </div>
 
-      <h2 className="text-xl font-bold text-slate-900 mt-8 mb-4">Historical Pay slips</h2>
+      <h2 className="text-base md:text-xl font-bold text-slate-900 mt-6 md:mt-8 mb-3 md:mb-4">Historical Pay slips</h2>
       <Card className="overflow-hidden p-0 border border-slate-200">
-        <div className="overflow-x-auto">
+        {/* Desktop table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full min-w-[750px] text-sm text-left border-collapse">
             <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
               <tr>
@@ -107,6 +108,41 @@ export default function EmployeeSalaryPage() {
               ))}
             </tbody>
           </table>
+        </div>
+        {/* Mobile card stack */}
+        <div className="md:hidden space-y-2 p-3">
+          {slips.map((slip, i) => (
+            <div key={i} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold text-slate-900">{slip.month}</p>
+                <span className="text-xs font-bold text-slate-800">{formatMoney(slip.net, userProfile?.region)}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Base</p>
+                  <p className="text-xs font-semibold text-slate-700">{formatMoney(slip.base, userProfile?.region)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Net Received</p>
+                  <p className="text-xs font-bold text-slate-900">{formatMoney(slip.net, userProfile?.region)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Deductions</p>
+                  <p className="text-xs font-semibold text-rose-600">{slip.deductions > 0 ? `-${formatMoney(slip.deductions, userProfile?.region)}` : '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Bonus</p>
+                  <p className="text-xs font-semibold text-emerald-600">{slip.bonus > 0 ? `+${formatMoney(slip.bonus, userProfile?.region)}` : '—'}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedSlip(slip)}
+                className="w-full text-xs font-semibold text-orange-650 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-2.5 rounded-lg transition-all active:scale-97 flex items-center justify-center gap-1.5"
+              >
+                <FileText className="h-3.5 w-3.5" /> View Payslip
+              </button>
+            </div>
+          ))}
         </div>
       </Card>
 

@@ -129,13 +129,13 @@ export default function TrackerPage() {
   };
 
   return (
-    <div className="space-y-6 font-sans">
+    <div className="space-y-4 md:space-y-6 font-sans">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Workstation Activity & Monitoring</h1>
-        <p className="text-slate-500">Automated employee timesheet, window titles tracking, and random screen capture review.</p>
+        <h1 className="text-lg md:text-2xl font-bold text-slate-900">Workstation Activity & Monitoring</h1>
+        <p className="text-xs md:text-sm text-slate-500">Automated employee timesheet, window titles tracking, and random screen capture review.</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-8">
         
         {/* Connection status and tracking stats (left 5 cols) */}
         <div className="lg:col-span-5 space-y-6">
@@ -147,7 +147,7 @@ export default function TrackerPage() {
                     <span className="text-[10px] font-bold text-emerald-650 uppercase tracking-widest bg-emerald-50 border border-emerald-150 px-3 py-1 rounded-full w-fit mx-auto flex items-center gap-1.5 animate-pulse">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Workstation Client Connected
                     </span>
-                    <div className="text-4xl font-bold text-slate-900 font-mono pt-2 flex items-center justify-center gap-2">
+                    <div className="text-3xl md:text-4xl font-bold text-slate-900 font-mono pt-2 flex items-center justify-center gap-2">
                       <Timer className="h-8 w-8 text-emerald-500 animate-spin" style={{ animationDuration: '3s' }} />
                       {formatHours(seconds)}
                     </div>
@@ -217,12 +217,13 @@ export default function TrackerPage() {
         {/* Historical Timesheet Log (right 7 cols) */}
         <div className="lg:col-span-7">
           <Card className="border border-slate-200 h-full">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div className="px-4 md:px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Timesheet Log (Current Week)</h3>
               <Badge variant="default">Total: {timesheetEntries.length} Sessions</Badge>
             </div>
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-xs text-left border-collapse">
                   <thead className="font-bold text-slate-555 bg-slate-50 uppercase tracking-widest border-b border-slate-200">
                     <tr>
@@ -243,6 +244,30 @@ export default function TrackerPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+              {/* Mobile card stack */}
+              <div className="md:hidden space-y-2 p-3">
+                {timesheetEntries.map((entry, index) => (
+                  <div key={index} className="bg-white border border-slate-200 rounded-xl p-3 space-y-2 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-slate-900">{entry.date}</p>
+                      <span className="text-xs font-bold text-emerald-600">{entry.score}%</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-semibold uppercase">Task</p>
+                        <p className="text-xs font-semibold text-slate-700">{entry.task}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-semibold uppercase">Hours</p>
+                        <p className="text-xs font-bold text-slate-900">{entry.duration}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {timesheetEntries.length === 0 && (
+                  <p className="py-6 text-center text-slate-400 font-semibold italic text-xs">No sessions recorded yet.</p>
+                )}
               </div>
             </CardContent>
           </Card>

@@ -116,23 +116,23 @@ export default function HRDashboard() {
   const teamLeads = employees.filter(e => e.isTeamLead).length;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 md:space-y-8">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">HR Dashboard</h1>
-          <p className="text-slate-500">Overview, scheduling calendar, and team operations.</p>
+          <h1 className="text-lg md:text-2xl font-bold text-slate-900">HR Dashboard</h1>
+          <p className="text-xs md:text-sm text-slate-500">Overview, scheduling calendar, and team operations.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setIsAnnounceOpen(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm min-h-[44px] md:min-h-0"
           >
             <PlusCircle className="h-4 w-4" /> Post Announcement
           </button>
           <button
             onClick={() => setIsTaskOpen(true)}
-            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm min-h-[44px] md:min-h-0"
           >
             <ClipboardList className="h-4 w-4" /> Assign Task
           </button>
@@ -140,55 +140,55 @@ export default function HRDashboard() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         <Card>
-          <CardContent className="pt-5">
+          <CardContent className="pt-4 md:pt-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold text-slate-500">Total Employees</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">{employees.length}</p>
+                <p className="text-[10px] md:text-xs font-semibold text-slate-500">Total Employees</p>
+                <p className="text-2xl md:text-3xl font-bold text-slate-900 mt-1">{employees.length}</p>
               </div>
-              <div className="h-11 w-11 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
-                <Users className="h-5 w-5" />
+              <div className="h-10 w-10 md:h-11 md:w-11 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
+                <Users className="h-4 w-4 md:h-5 md:w-5" />
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-5">
+          <CardContent className="pt-4 md:pt-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold text-slate-500">Pending Leaves</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">{pendingLeaves}</p>
+                <p className="text-[10px] md:text-xs font-semibold text-slate-500">Pending Leaves</p>
+                <p className="text-2xl md:text-3xl font-bold text-slate-900 mt-1">{pendingLeaves}</p>
               </div>
-              <div className="h-11 w-11 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600">
-                <Clock className="h-5 w-5" />
+              <div className="h-10 w-10 md:h-11 md:w-11 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600">
+                <Clock className="h-4 w-4 md:h-5 md:w-5" />
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-5">
+          <CardContent className="pt-4 md:pt-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold text-slate-500">Active Tasks</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">{activeTasks}</p>
+                <p className="text-[10px] md:text-xs font-semibold text-slate-500">Active Tasks</p>
+                <p className="text-2xl md:text-3xl font-bold text-slate-900 mt-1">{activeTasks}</p>
               </div>
-              <div className="h-11 w-11 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-orange-600">
-                <ClipboardList className="h-5 w-5" />
+              <div className="h-10 w-10 md:h-11 md:w-11 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-orange-600">
+                <ClipboardList className="h-4 w-4 md:h-5 md:w-5" />
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-5">
+          <CardContent className="pt-4 md:pt-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold text-slate-500">Team Leads</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">{teamLeads}</p>
+                <p className="text-[10px] md:text-xs font-semibold text-slate-500">Team Leads</p>
+                <p className="text-2xl md:text-3xl font-bold text-slate-900 mt-1">{teamLeads}</p>
               </div>
-              <div className="h-11 w-11 rounded-full bg-purple-50 border border-purple-100 flex items-center justify-center text-purple-600">
-                <UserCog className="h-5 w-5" />
+              <div className="h-10 w-10 md:h-11 md:w-11 rounded-full bg-purple-50 border border-purple-100 flex items-center justify-center text-purple-600">
+                <UserCog className="h-4 w-4 md:h-5 md:w-5" />
               </div>
             </div>
           </CardContent>
@@ -197,32 +197,32 @@ export default function HRDashboard() {
 
       {/* Dynamic Org Calendar */}
       <Card className="p-0">
-        <div className="px-6 pt-5 pb-2 border-b border-slate-100">
-          <h2 className="text-base font-bold text-slate-900">Organisation Calendar</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Leaves, task deadlines, and schedule conflicts — all teams in one view.</p>
+        <div className="px-4 md:px-6 pt-4 md:pt-5 pb-2 border-b border-slate-100">
+          <h2 className="text-sm md:text-base font-bold text-slate-900">Organisation Calendar</h2>
+          <p className="text-[10px] md:text-xs text-slate-500 mt-0.5">Leaves, task deadlines, and schedule conflicts — all teams in one view.</p>
         </div>
-        <div className="p-6">
+        <div className="p-3 md:p-6">
           <OrgCalendar leaves={leaves} tasks={tasks} employees={employees} />
         </div>
       </Card>
 
       {/* Announcements Panel */}
       <Card className="p-0">
-        <div className="px-6 pt-5 pb-2 border-b border-slate-100 flex justify-between items-center">
+        <div className="px-4 md:px-6 pt-4 md:pt-5 pb-2 border-b border-slate-100 flex justify-between items-center">
           <div>
-            <h2 className="text-base font-bold text-slate-900">Recent Announcements</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Corporate updates and targeted broadcast messages.</p>
+            <h2 className="text-sm md:text-base font-bold text-slate-900">Recent Announcements</h2>
+            <p className="text-[10px] md:text-xs text-slate-500 mt-0.5">Corporate updates and targeted broadcast messages.</p>
           </div>
         </div>
-        <CardContent className="p-6 space-y-4">
+        <CardContent className="p-4 md:p-6 space-y-3 md:space-y-4">
           {announcements.map(ann => (
-            <div key={ann.id} className="p-4 rounded-xl border border-slate-150 bg-slate-50/50 flex flex-col justify-between">
-              <div className="flex justify-between items-start gap-3">
+            <div key={ann.id} className="p-3 md:p-4 rounded-xl border border-slate-150 bg-slate-50/50 flex flex-col justify-between">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
                 <div>
                   <h4 className="font-bold text-slate-900 text-sm">{ann.title}</h4>
                   <p className="text-xs text-slate-500 mt-1 leading-relaxed">{ann.content}</p>
                 </div>
-                <Badge variant={ann.target === 'all' ? 'default' : 'warning'}>
+                <Badge variant={ann.target === 'all' ? 'default' : 'warning'} className="self-start shrink-0">
                   Target: {Array.isArray(ann.target) 
                     ? `Warehouses (${ann.target.map((tId: string) => warehouses.find(w => w.id === tId)?.name || tId).join(', ')})`
                     : ann.target.toUpperCase()}
@@ -242,10 +242,10 @@ export default function HRDashboard() {
 
       {/* Leave Quick Preview */}
       <div className="space-y-3">
-        <h2 className="text-base font-bold text-slate-900">Pending Leave Requests</h2>
+        <h2 className="text-sm md:text-base font-bold text-slate-900">Pending Leave Requests</h2>
         <div className="space-y-2">
           {leaves.filter(l => l.status === 'pending').slice(0, 5).map(l => (
-            <Card key={l.id} className="p-4">
+            <Card key={l.id} className="p-3 md:p-4">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <div className="font-semibold text-slate-900 text-sm">{l.employeeName}</div>
@@ -260,7 +260,7 @@ export default function HRDashboard() {
           )}
           <button
             onClick={() => router.push('/hr/leaves')}
-            className="text-xs font-semibold text-orange-600 hover:text-orange-700 mt-1"
+            className="text-xs font-semibold text-orange-600 hover:text-orange-700 mt-1 py-2.5 md:py-1"
           >
             View full Kanban board →
           </button>
@@ -342,8 +342,8 @@ export default function HRDashboard() {
           )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-            <button type="button" onClick={() => setIsAnnounceOpen(false)} className="bg-white hover:bg-slate-55 border border-slate-200 text-slate-650 hover:text-slate-800 font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all">Cancel</button>
-            <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all shadow-sm">Post Announcement</button>
+            <button type="button" onClick={() => setIsAnnounceOpen(false)} className="bg-white hover:bg-slate-55 border border-slate-200 text-slate-650 hover:text-slate-800 font-bold px-4 py-2.5 md:py-2 rounded-xl text-xs active:scale-97 transition-all">Cancel</button>
+            <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2.5 md:py-2 rounded-xl text-xs active:scale-97 transition-all shadow-sm">Post Announcement</button>
           </div>
         </form>
       </Modal>

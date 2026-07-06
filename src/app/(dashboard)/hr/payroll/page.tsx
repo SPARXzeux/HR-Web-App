@@ -91,16 +91,16 @@ export default function HRPayrollPage() {
   const totalPending = payrollData.filter(e => !e.processed).length;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-5 md:space-y-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Monthly Payroll Ledger</h1>
-          <p className="text-slate-500">Manage base salaries, bonuses, and calculate monthly net payouts.</p>
+          <h1 className="text-lg md:text-2xl font-bold text-slate-900">Monthly Payroll Ledger</h1>
+          <p className="text-xs md:text-sm text-slate-500">Manage base salaries, bonuses, and calculate monthly net payouts.</p>
         </div>
-        <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-lg">
+        <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg self-start md:self-auto">
           <button 
             onClick={() => setActiveTab('all')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
+            className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
               activeTab === 'all' 
                 ? 'bg-white text-slate-900 shadow-sm' 
                 : 'text-slate-600 hover:text-slate-950'
@@ -110,7 +110,7 @@ export default function HRPayrollPage() {
           </button>
           <button 
             onClick={() => setActiveTab('pending')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
+            className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
               activeTab === 'pending' 
                 ? 'bg-white text-slate-900 shadow-sm' 
                 : 'text-slate-600 hover:text-slate-950'
@@ -120,7 +120,7 @@ export default function HRPayrollPage() {
           </button>
           <button 
             onClick={() => setActiveTab('processed')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
+            className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
               activeTab === 'processed' 
                 ? 'bg-white text-slate-900 shadow-sm' 
                 : 'text-slate-600 hover:text-slate-950'
@@ -131,26 +131,26 @@ export default function HRPayrollPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="pt-5 md:pt-6">
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Projected Payout</p>
-            <p className="text-3xl font-bold text-slate-900 mt-2">${totalPayroll.toLocaleString()}</p>
+            <p className="text-2xl md:text-3xl font-bold text-slate-900 mt-2">${totalPayroll.toLocaleString()}</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="pt-5 md:pt-6">
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Remaining Checklist</p>
             <div className="flex items-center gap-2 mt-2">
               {totalPending > 0 ? (
                 <>
                   <AlertCircle className="h-5 w-5 text-amber-500" />
-                  <p className="text-sm font-semibold text-slate-800">{totalPending} employees pending processing</p>
+                  <p className="text-xs md:text-sm font-semibold text-slate-800">{totalPending} employees pending processing</p>
                 </>
               ) : (
                 <>
                   <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                  <p className="text-sm font-semibold text-slate-800">All payroll records completed for this month</p>
+                  <p className="text-xs md:text-sm font-semibold text-slate-800">All payroll records completed for this month</p>
                 </>
               )}
             </div>
@@ -158,106 +158,190 @@ export default function HRPayrollPage() {
         </Card>
       </div>
 
-      <Card className="overflow-hidden p-0 border border-slate-200">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[950px] text-sm text-left border-collapse">
-            <thead className="text-xs font-bold text-slate-500 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
-              <tr>
-                <th className="px-6 py-4">Employee Details</th>
-                <th className="px-6 py-4 text-right">Base Salary</th>
-                <th className="px-6 py-4 text-center">Unpaid Leaves</th>
-                <th className="px-6 py-4 text-right">Bonus ($)</th>
-                <th className="px-6 py-4 text-right">Deductions ($)</th>
-                <th className="px-6 py-4 text-right">Net Payable</th>
-                <th className="px-6 py-4 text-center">Status</th>
-                <th className="px-6 py-4 text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {filteredData.map(emp => {
-                const netPayable = emp.baseSalary + emp.bonus - emp.deductions;
-                return (
-                  <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="font-semibold text-slate-900">{emp.name}</div>
-                      <div className="text-xs text-slate-500 mt-0.5">{emp.role}</div>
-                    </td>
-                    <td className="px-6 py-4 text-right font-medium text-slate-900">
-                      ${emp.baseSalary.toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                        emp.unpaidLeaves > 0 
-                          ? 'bg-amber-50 text-amber-800 border border-amber-200/60' 
-                          : 'bg-slate-100 text-slate-500'
-                      }`}>
-                        {emp.unpaidLeaves} day(s)
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      {emp.processed ? (
-                        <span className="text-slate-900 font-medium">${emp.bonus}</span>
-                      ) : (
-                        <input 
-                          type="text" 
-                          value={emp.bonus || ''} 
-                          onChange={(e) => handleUpdateAmount(emp.id, 'bonus', e.target.value)}
-                          className="w-20 bg-slate-50 border border-slate-200 rounded-md py-1 px-2 text-right text-xs focus:border-orange-500 outline-none"
-                          placeholder="0"
-                        />
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      {emp.processed ? (
-                        <span className="text-slate-900 font-medium">${emp.deductions.toLocaleString()}</span>
-                      ) : (
-                        <input 
-                          type="text" 
-                          value={emp.deductions || ''} 
-                          onChange={(e) => handleUpdateAmount(emp.id, 'deductions', e.target.value)}
-                          className="w-20 bg-slate-50 border border-slate-200 rounded-md py-1 px-2 text-right text-xs focus:border-orange-500 outline-none"
-                          placeholder="0"
-                        />
-                      )}
-                      {(() => {
-                        const count = leavesList.filter(l => l.employeeName === emp.name && l.type === 'Urgent').length;
-                        if (count > 0 && count <= 3) {
-                          return <div className="text-[10px] text-emerald-600 font-bold mt-1">Rebate Eligible ({count} UL)</div>;
-                        } else if (count > 3) {
-                          return <div className="text-[10px] text-rose-600 font-bold mt-1">No Rebate ({count} UL)</div>;
-                        }
-                        return null;
-                      })()}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="font-semibold text-slate-900">${netPayable.toLocaleString()}</div>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      {emp.processed ? (
-                        <Badge variant="success">Completed</Badge>
-                      ) : (
-                        <Badge variant="warning">Pending</Badge>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      {emp.processed ? (
-                        <span className="text-xs text-slate-400 font-semibold">Processed</span>
-                      ) : (
-                        <button 
-                          onClick={() => handleProcess(emp.id)}
-                          className="text-xs font-semibold text-orange-650 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded transition-all active:scale-97"
-                        >
-                          Complete Payout
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      {/* Desktop Table */}
+      <div className="hidden md:block">
+        <Card className="overflow-hidden p-0 border border-slate-200">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[950px] text-sm text-left border-collapse">
+              <thead className="text-xs font-bold text-slate-500 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
+                <tr>
+                  <th className="px-6 py-4">Employee Details</th>
+                  <th className="px-6 py-4 text-right">Base Salary</th>
+                  <th className="px-6 py-4 text-center">Unpaid Leaves</th>
+                  <th className="px-6 py-4 text-right">Bonus ($)</th>
+                  <th className="px-6 py-4 text-right">Deductions ($)</th>
+                  <th className="px-6 py-4 text-right">Net Payable</th>
+                  <th className="px-6 py-4 text-center">Status</th>
+                  <th className="px-6 py-4 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {filteredData.map(emp => {
+                  const netPayable = emp.baseSalary + emp.bonus - emp.deductions;
+                  return (
+                    <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="font-semibold text-slate-900">{emp.name}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">{emp.role}</div>
+                      </td>
+                      <td className="px-6 py-4 text-right font-medium text-slate-900">
+                        ${emp.baseSalary.toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                          emp.unpaidLeaves > 0 
+                            ? 'bg-amber-50 text-amber-800 border border-amber-200/60' 
+                            : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {emp.unpaidLeaves} day(s)
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        {emp.processed ? (
+                          <span className="text-slate-900 font-medium">${emp.bonus}</span>
+                        ) : (
+                          <input 
+                            type="text" 
+                            value={emp.bonus || ''} 
+                            onChange={(e) => handleUpdateAmount(emp.id, 'bonus', e.target.value)}
+                            className="w-20 bg-slate-50 border border-slate-200 rounded-md py-1 px-2 text-right text-xs focus:border-orange-500 outline-none"
+                            placeholder="0"
+                          />
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        {emp.processed ? (
+                          <span className="text-slate-900 font-medium">${emp.deductions.toLocaleString()}</span>
+                        ) : (
+                          <input 
+                            type="text" 
+                            value={emp.deductions || ''} 
+                            onChange={(e) => handleUpdateAmount(emp.id, 'deductions', e.target.value)}
+                            className="w-20 bg-slate-50 border border-slate-200 rounded-md py-1 px-2 text-right text-xs focus:border-orange-500 outline-none"
+                            placeholder="0"
+                          />
+                        )}
+                        {(() => {
+                          const count = leavesList.filter(l => l.employeeName === emp.name && l.type === 'Urgent').length;
+                          if (count > 0 && count <= 3) {
+                            return <div className="text-[10px] text-emerald-600 font-bold mt-1">Rebate Eligible ({count} UL)</div>;
+                          } else if (count > 3) {
+                            return <div className="text-[10px] text-rose-600 font-bold mt-1">No Rebate ({count} UL)</div>;
+                          }
+                          return null;
+                        })()}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="font-semibold text-slate-900">${netPayable.toLocaleString()}</div>
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        {emp.processed ? (
+                          <Badge variant="success">Completed</Badge>
+                        ) : (
+                          <Badge variant="warning">Pending</Badge>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        {emp.processed ? (
+                          <span className="text-xs text-slate-400 font-semibold">Processed</span>
+                        ) : (
+                          <button 
+                            onClick={() => handleProcess(emp.id)}
+                            className="text-xs font-semibold text-orange-650 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded transition-all active:scale-97"
+                          >
+                            Complete Payout
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+
+      {/* Mobile Card Stack */}
+      <div className="md:hidden space-y-3">
+        {filteredData.map(emp => {
+          const netPayable = emp.baseSalary + emp.bonus - emp.deductions;
+          const urgentCount = leavesList.filter(l => l.employeeName === emp.name && l.type === 'Urgent').length;
+          return (
+            <div key={emp.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-bold text-slate-900">{emp.name}</p>
+                  <p className="text-xs text-slate-500">{emp.role}</p>
+                </div>
+                {emp.processed ? (
+                  <Badge variant="success">Completed</Badge>
+                ) : (
+                  <Badge variant="warning">Pending</Badge>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Base Salary</p>
+                  <p className="text-xs font-bold text-slate-800">${emp.baseSalary.toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Net Payable</p>
+                  <p className="text-xs font-bold text-slate-800">${netPayable.toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Unpaid Leaves</p>
+                  <p className="text-xs font-bold text-slate-800">{emp.unpaidLeaves} day(s)</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Bonus / Deductions</p>
+                  <p className="text-xs font-bold text-slate-800">${emp.bonus} / ${emp.deductions.toLocaleString()}</p>
+                </div>
+              </div>
+              {urgentCount > 0 && (
+                <p className={`text-[10px] font-bold ${urgentCount <= 3 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {urgentCount <= 3 ? `Rebate Eligible (${urgentCount} UL)` : `No Rebate (${urgentCount} UL)`}
+                </p>
+              )}
+              {!emp.processed && (
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase mb-1">Bonus ($)</p>
+                    <input 
+                      type="text" 
+                      value={emp.bonus || ''} 
+                      onChange={(e) => handleUpdateAmount(emp.id, 'bonus', e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-md py-1.5 px-2 text-xs focus:border-orange-500 outline-none"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase mb-1">Deductions ($)</p>
+                    <input 
+                      type="text" 
+                      value={emp.deductions || ''} 
+                      onChange={(e) => handleUpdateAmount(emp.id, 'deductions', e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-md py-1.5 px-2 text-xs focus:border-orange-500 outline-none"
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+              )}
+              {!emp.processed && (
+                <button 
+                  onClick={() => handleProcess(emp.id)}
+                  className="w-full text-xs font-semibold text-orange-650 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-2.5 rounded-lg transition-all active:scale-97 border border-orange-200"
+                >
+                  Complete Payout
+                </button>
+              )}
+            </div>
+          );
+        })}
+        {filteredData.length === 0 && (
+          <p className="text-xs text-slate-400 font-semibold italic text-center py-8">No records found.</p>
+        )}
+      </div>
     </div>
   );
 }

@@ -76,29 +76,29 @@ export default function AdminDashboard() {
   const highPriorityTasks = tasks.filter(t => t.priority === 'high' && t.status !== 'done').length;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 px-4 py-4 md:px-0 md:py-0 md:space-y-8">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Admin Overview</h1>
-          <p className="text-slate-500">High-level metrics, leave approvals, and organisation calendar.</p>
+          <h1 className="text-lg md:text-2xl font-bold text-slate-900">Admin Overview</h1>
+          <p className="text-xs md:text-sm text-slate-500">High-level metrics, leave approvals, and organisation calendar.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setIsAnnounceOpen(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs md:text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm min-h-[44px] md:min-h-0"
           >
             <PlusCircle className="h-4 w-4" /> Post Announcement
           </button>
           <button
             onClick={() => setIsTaskOpen(true)}
-            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs md:text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm min-h-[44px] md:min-h-0"
           >
             <ClipboardList className="h-4 w-4" /> Assign Task
           </button>
           <button
             onClick={() => router.push('/admin/tasks')}
-            className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all"
+            className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs md:text-sm active:scale-97 transition-all min-h-[44px] md:min-h-0"
           >
             View All Tasks
           </button>
@@ -106,55 +106,55 @@ export default function AdminDashboard() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         <Card>
-          <CardContent className="pt-5">
+          <CardContent className="pt-4 md:pt-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold text-slate-500">Monthly Payroll</p>
-                <p className="text-2xl font-bold text-slate-900 mt-1">PKR {(totalPayroll).toLocaleString()}</p>
+                <p className="text-[10px] md:text-xs font-semibold text-slate-500">Monthly Payroll</p>
+                <p className="text-base md:text-2xl font-bold text-slate-900 mt-1">PKR {(totalPayroll).toLocaleString()}</p>
               </div>
-              <div className="h-11 w-11 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
+              <div className="h-10 w-10 md:h-11 md:w-11 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
                 <DollarSign className="h-5 w-5" />
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-5">
+          <CardContent className="pt-4 md:pt-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold text-slate-500">Total Employees</p>
-                <p className="text-2xl font-bold text-slate-900 mt-1">{employees.length}</p>
+                <p className="text-[10px] md:text-xs font-semibold text-slate-500">Total Employees</p>
+                <p className="text-base md:text-2xl font-bold text-slate-900 mt-1">{employees.length}</p>
               </div>
-              <div className="h-11 w-11 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
+              <div className="h-10 w-10 md:h-11 md:w-11 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
                 <Users className="h-5 w-5" />
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-5">
+          <CardContent className="pt-4 md:pt-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold text-slate-500">Awaiting CEO Approval</p>
-                <p className="text-2xl font-bold text-slate-900 mt-1">{hrApprovedLeaves.length}</p>
+                <p className="text-[10px] md:text-xs font-semibold text-slate-500">Awaiting CEO Approval</p>
+                <p className="text-base md:text-2xl font-bold text-slate-900 mt-1">{hrApprovedLeaves.length}</p>
               </div>
-              <div className="h-11 w-11 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600">
+              <div className="h-10 w-10 md:h-11 md:w-11 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600">
                 <Clock className="h-5 w-5" />
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-5">
+          <CardContent className="pt-4 md:pt-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold text-slate-500">High Priority Tasks</p>
-                <p className="text-2xl font-bold text-slate-900 mt-1">{highPriorityTasks}</p>
+                <p className="text-[10px] md:text-xs font-semibold text-slate-500">High Priority Tasks</p>
+                <p className="text-base md:text-2xl font-bold text-slate-900 mt-1">{highPriorityTasks}</p>
                 <p className="text-[10px] text-slate-400">{activeTasks} total active</p>
               </div>
-              <div className="h-11 w-11 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600">
+              <div className="h-10 w-10 md:h-11 md:w-11 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600">
                 <AlertTriangle className="h-5 w-5" />
               </div>
             </div>
@@ -164,32 +164,32 @@ export default function AdminDashboard() {
 
       {/* Org Calendar */}
       <Card className="p-0">
-        <div className="px-6 pt-5 pb-2 border-b border-slate-100">
-          <h2 className="text-base font-bold text-slate-900">Organisation Calendar</h2>
+        <div className="px-4 md:px-6 pt-5 pb-2 border-b border-slate-100">
+          <h2 className="text-sm md:text-base font-bold text-slate-900">Organisation Calendar</h2>
           <p className="text-xs text-slate-500 mt-0.5">Leave schedules, task deadlines, and conflict indicators across all departments.</p>
         </div>
-        <div className="p-6">
+        <div className="p-4 md:p-6">
           <OrgCalendar leaves={leaves} tasks={tasks} employees={employees} />
         </div>
       </Card>
 
       {/* Announcements Panel */}
       <Card className="p-0">
-        <div className="px-6 pt-5 pb-2 border-b border-slate-100 flex justify-between items-center">
+        <div className="px-4 md:px-6 pt-5 pb-2 border-b border-slate-100 flex justify-between items-center">
           <div>
-            <h2 className="text-base font-bold text-slate-900">Recent Announcements</h2>
+            <h2 className="text-sm md:text-base font-bold text-slate-900">Recent Announcements</h2>
             <p className="text-xs text-slate-500 mt-0.5">Corporate updates and targeted broadcast messages.</p>
           </div>
         </div>
-        <CardContent className="p-6 space-y-4">
+        <CardContent className="p-4 md:p-6 space-y-4">
           {announcements.map(ann => (
             <div key={ann.id} className="p-4 rounded-xl border border-slate-150 bg-slate-50/50 flex flex-col justify-between">
-              <div className="flex justify-between items-start gap-3">
-                <div>
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
+                <div className="flex-1 min-w-0">
                   <h4 className="font-bold text-slate-900 text-sm">{ann.title}</h4>
                   <p className="text-xs text-slate-500 mt-1 leading-relaxed">{ann.content}</p>
                 </div>
-                <Badge variant={ann.target === 'all' ? 'default' : 'warning'}>
+                <Badge variant={ann.target === 'all' ? 'default' : 'warning'} className="self-start shrink-0">
                   Target: {Array.isArray(ann.target) 
                     ? `Warehouses (${ann.target.map((tId: string) => warehouses.find(w => w.id === tId)?.name || tId).join(', ')})`
                     : ann.target.toUpperCase()}
@@ -209,7 +209,7 @@ export default function AdminDashboard() {
 
       {/* CEO Leave Approval Queue */}
       <div className="space-y-3">
-        <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+        <h2 className="text-sm md:text-base font-bold text-slate-900 flex items-center gap-2">
           Pending CEO Approval
           {hrApprovedLeaves.length > 0 && (
             <span className="bg-amber-100 text-amber-800 font-bold text-[10px] px-2 py-0.5 rounded-full">{hrApprovedLeaves.length} pending</span>
@@ -217,7 +217,8 @@ export default function AdminDashboard() {
         </h2>
 
         <Card className="overflow-hidden p-0 border border-slate-200">
-          <div className="overflow-x-auto">
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm text-left border-collapse">
               <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
                 <tr>
@@ -256,6 +257,42 @@ export default function AdminDashboard() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile card stack */}
+          <div className="md:hidden">
+            {hrApprovedLeaves.length === 0 ? (
+              <p className="py-10 text-center text-slate-400 font-semibold italic text-sm">No pending approvals — all leaves are processed.</p>
+            ) : (
+              <div className="space-y-3 p-4">
+                {hrApprovedLeaves.map(l => (
+                  <div key={l.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-bold text-slate-900">{l.employeeName}</p>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">{l.type}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-semibold uppercase">Dates</p>
+                        <p className="text-xs font-bold text-slate-800">{l.duration}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-semibold uppercase">Reason</p>
+                        <p className="text-xs font-bold text-slate-800 truncate">{l.reason}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button onClick={() => handleCEOAction(l.id, 'approve')} className="flex-1 text-xs font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 py-2.5 rounded-lg transition-all active:scale-97">
+                        CEO Approve
+                      </button>
+                      <button onClick={() => handleCEOAction(l.id, 'reject')} className="flex-1 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 py-2.5 rounded-lg transition-all active:scale-97">
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </Card>
       </div>
@@ -333,8 +370,8 @@ export default function AdminDashboard() {
           )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-            <button type="button" onClick={() => setIsAnnounceOpen(false)} className="bg-white hover:bg-slate-55 border border-slate-200 text-slate-655 hover:text-slate-800 font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all">Cancel</button>
-            <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all shadow-sm">Post Announcement</button>
+            <button type="button" onClick={() => setIsAnnounceOpen(false)} className="bg-white hover:bg-slate-55 border border-slate-200 text-slate-655 hover:text-slate-800 font-bold px-4 py-2.5 md:py-2 rounded-xl text-xs active:scale-97 transition-all">Cancel</button>
+            <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2.5 md:py-2 rounded-xl text-xs active:scale-97 transition-all shadow-sm">Post Announcement</button>
           </div>
         </form>
       </Modal>
