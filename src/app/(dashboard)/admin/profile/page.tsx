@@ -5,11 +5,12 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { db, Profile } from '@/lib/db';
 import {
-  User, Mail, Briefcase, Calendar, ShieldCheck, KeyRound, CheckCircle2, AlertCircle
+  User, Mail, Briefcase, Calendar, ShieldCheck, KeyRound, CheckCircle2, AlertCircle, Edit2
 } from 'lucide-react';
 
 export default function AdminProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [hrProfile, setHrProfile] = useState<Profile | null>(null);
 
   // Password reset states
   const [isResetOpen, setIsResetOpen] = useState(false);
@@ -19,12 +20,36 @@ export default function AdminProfilePage() {
   const [resetError, setResetError] = useState('');
   const [resetSuccess, setResetSuccess] = useState('');
 
-  useEffect(() => {
+  // Profile Edit states
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [targetEmail, setTargetEmail] = useState('admin@delcargo.us');
+  const [editName, setEditName] = useState('');
+  const [editGender, setEditGender] = useState<'male' | 'female'>('male');
+  const [editTitle, setEditTitle] = useState('');
+  const [editSuccess, setEditSuccess] = useState('');
+
+  const loadProfiles = () => {
     const email = localStorage.getItem('user_email');
     const employees = db.getEmployees();
     const p = employees.find(e => e.email === email);
+    const hr = employees.find(e => e.email === 'hr@delcargo.us');
     if (p) setProfile(p);
+    if (hr) setHrProfile(hr);
+  };
+
+  useEffect(() => {
+    loadProfiles();
   }, []);
+
+  // Update Edit inputs when target changes
+  useEffect(() => {
+    const target = targetEmail === 'admin@delcargo.us' ? profile : hrProfile;
+    if (target) {
+      setEditName(target.fullName);
+      setEditGender(target.gender === 'female' ? 'female' : 'male');
+      setEditTitle(target.jobTitle || '');
+    }
+  }, [targetEmail, profile, hrProfile]);
 
   const handleResetSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,13 +76,29 @@ export default function AdminProfilePage() {
     const email = localStorage.getItem('user_email');
     if (email) {
       db.resetPassword(email, newPass);
-      const employees = db.getEmployees();
-      const updated = employees.find(e => e.email === email);
-      if (updated) setProfile(updated);
+      loadProfiles();
       setResetSuccess('Password updated successfully!');
       setCurrentPass(''); setNewPass(''); setConfirmPass('');
       setTimeout(() => { setIsResetOpen(false); setResetSuccess(''); }, 1400);
     }
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editName) return;
+
+    db.updateProfileDetails(targetEmail, {
+      fullName: editName,
+      gender: editGender,
+      jobTitle: editTitle
+    });
+
+    loadProfiles();
+    setEditSuccess('Profile updated successfully!');
+    setTimeout(() => {
+      setIsEditOpen(false);
+      setEditSuccess('');
+    }, 1200);
   };
 
   if (!profile) {
@@ -72,7 +113,7 @@ export default function AdminProfilePage() {
 
   const infoRows = [
     { icon: Mail,      label: 'Email Address',       value: profile.email },
-    { icon: Briefcase, label: 'Designation / Title', value: profile.jobTitle || 'Administrator' },
+    { icon: Briefcase, label: 'Designation / Title', value: profile.jobTitle || 'System Administrator' },
     { icon: User,      label: 'Gender / Pronouns',   value: profile.gender ? (profile.gender.charAt(0).toUpperCase() + profile.gender.slice(1)) : 'Male' },
     { icon: Calendar,  label: 'Joined Date',         value: joined },
     { icon: ShieldCheck, label: 'Security Role',      value: 'System Administrator' },
@@ -81,9 +122,20 @@ export default function AdminProfilePage() {
   return (
     <div className="space-y-8 max-w-2xl font-sans">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Admin Profile</h1>
-        <p className="text-slate-500 text-sm mt-0.5">Manage your system credentials and preferences.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Admin Profile</h1>
+          <p className="text-slate-500 text-sm mt-0.5">Manage your system credentials and preferences.</p>
+        </div>
+        <button
+          onClick={() => {
+            setTargetEmail(profile.email);
+            setIsEditOpen(true);
+          }}
+          className="flex items-center gap-1.5 text-xs font-bold bg-orange-650 hover:bg-orange-700 text-white px-3.5 py-2 rounded-xl transition-all shadow-md active:scale-97"
+        >
+          <Edit2 className="h-3.5 w-3.5" /> Edit System Profiles
+        </button>
       </div>
 
       {/* Avatar + Name card */}
@@ -102,12 +154,14 @@ export default function AdminProfilePage() {
                 {profile.fullName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
               </div>
             )}
-            <button
-              onClick={() => setIsResetOpen(true)}
-              className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition-all border border-slate-200 active:scale-97"
-            >
-              <KeyRound className="h-3.5 w-3.5" /> Reset Password
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setIsResetOpen(true)}
+                className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition-all border border-slate-200 active:scale-97"
+              >
+                <KeyRound className="h-3.5 w-3.5" /> Reset Password
+              </button>
+            </div>
           </div>
 
           <h2 className="text-xl font-bold text-slate-900">{profile.fullName}</h2>
@@ -139,29 +193,70 @@ export default function AdminProfilePage() {
         </div>
       </Card>
 
-      {/* Security Section */}
-      <Card className="border border-slate-200 p-0 overflow-hidden">
-        <div className="px-6 pt-5 pb-2 border-b border-slate-100">
-          <h3 className="font-bold text-slate-900 text-sm">Security</h3>
-        </div>
-        <div className="px-6 py-5 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center">
-              <KeyRound className="h-4 w-4 text-slate-500" />
+      {/* Profile Edit Modal */}
+      <Modal isOpen={isEditOpen} onClose={() => { setIsEditOpen(false); setEditSuccess(''); }} title="Edit System Profile">
+        <form onSubmit={handleEditSubmit} className="space-y-4">
+          {editSuccess && (
+            <div className="p-3 text-xs bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-lg font-semibold flex items-center gap-1.5">
+              <CheckCircle2 className="h-4 w-4" />{editSuccess}
             </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-900">Password</p>
-              <p className="text-xs text-slate-500 mt-0.5">Change your account password at any time.</p>
-            </div>
+          )}
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Select Profile to Edit</label>
+            <select
+              value={targetEmail}
+              onChange={e => setTargetEmail(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm outline-none text-slate-900 font-semibold"
+            >
+              <option value="admin@delcargo.us">Admin Profile (admin@delcargo.us)</option>
+              <option value="hr@delcargo.us">HR Profile (hr@delcargo.us)</option>
+            </select>
           </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Full Name</label>
+            <input
+              type="text"
+              value={editName}
+              onChange={e => setEditName(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm outline-none text-slate-900 font-semibold"
+              placeholder="Full Name"
+              required
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Gender</label>
+            <select
+              value={editGender}
+              onChange={e => setEditGender(e.target.value as any)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm outline-none text-slate-900 font-semibold"
+            >
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Job Title</label>
+            <input
+              type="text"
+              value={editTitle}
+              onChange={e => setEditTitle(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm outline-none text-slate-900 font-semibold"
+              placeholder="e.g. HR Director / System Administrator"
+            />
+          </div>
+
           <button
-            onClick={() => setIsResetOpen(true)}
-            className="flex-shrink-0 bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm"
+            type="submit"
+            className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-lg text-sm active:scale-97 transition-all mt-4"
           >
-            Change Password
+            Save Profile Changes
           </button>
-        </div>
-      </Card>
+        </form>
+      </Modal>
 
       {/* Password Reset Modal */}
       <Modal isOpen={isResetOpen} onClose={() => { setIsResetOpen(false); setResetError(''); setResetSuccess(''); }} title="Change Password">

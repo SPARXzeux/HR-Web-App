@@ -116,7 +116,7 @@ const isClient = typeof window !== 'undefined';
 
 const defaultEmployees: Profile[] = [
   { id: 'emp_admin', fullName: 'Admin', email: 'admin@delcargo.us', role: 'admin', joinedDate: '2026-07-01', onboardingCompleted: true, baseSalary: 12000, teams: [], password: 'Aamir@123', jobTitle: 'System Administrator', gender: 'male', region: 'USA', assignedWarehouses: [], bankName: '', accountNumber: '', iban: '', trackingEnabled: false },
-  { id: 'emp_hr', fullName: 'HR Admin', email: 'hr@delcargo.us', role: 'hr', joinedDate: '2026-07-01', onboardingCompleted: true, baseSalary: 9500, teams: [], password: 'HR@123', jobTitle: 'HR Director', gender: 'female', region: 'USA', assignedWarehouses: [], bankName: '', accountNumber: '', iban: '', trackingEnabled: false }
+  { id: 'emp_hr', fullName: 'HR Admin', email: 'hr@delcargo.us', role: 'hr', joinedDate: '2026-07-01', onboardingCompleted: true, baseSalary: 9500, teams: [], password: 'HR@123', jobTitle: 'HR Director', gender: 'male', region: 'USA', assignedWarehouses: [], bankName: '', accountNumber: '', iban: '', trackingEnabled: false }
 ];
 
 const defaultWarehouses: Warehouse[] = [
