@@ -146,19 +146,21 @@ const defaultCareers: CareerPosition[] = [];
 
 const defaultTickets: Ticket[] = [];
 
+let lastSyncError: string | null = null;
+
 async function syncFromSupabase() {
   if (typeof window === 'undefined') return;
   try {
     // Fetch all datasets in parallel to reduce load time
     const [
-      { data: dbProfiles },
-      { data: dbLeaves },
-      { data: dbTasks },
-      { data: dbTimesheets },
-      { data: dbAnnouncements },
-      { data: dbNotifications },
-      { data: dbWarehouses },
-      { data: kvStore }
+      resProfiles,
+      resLeaves,
+      resTasks,
+      resTimesheets,
+      resAnnouncements,
+      resNotifications,
+      resWarehouses,
+      resStore
     ] = await Promise.all([
       supabase.from('profiles').select('*'),
       supabase.from('leaves').select('*'),
@@ -169,6 +171,23 @@ async function syncFromSupabase() {
       supabase.from('warehouses').select('*'),
       supabase.from('delcargo_store').select('*')
     ]);
+
+    const queryError = resProfiles.error || resLeaves.error || resTasks.error || resTimesheets.error || resAnnouncements.error || resNotifications.error || resWarehouses.error || resStore.error;
+    if (queryError) {
+      lastSyncError = `Supabase Query Error: ${queryError.message} (Code: ${queryError.code})`;
+      console.error('[Supabase Sync] Query Error:', queryError);
+    } else {
+      lastSyncError = null;
+    }
+
+    const dbProfiles = resProfiles.data;
+    const dbLeaves = resLeaves.data;
+    const dbTasks = resTasks.data;
+    const dbTimesheets = resTimesheets.data;
+    const dbAnnouncements = resAnnouncements.data;
+    const dbNotifications = resNotifications.data;
+    const dbWarehouses = resWarehouses.data;
+    const kvStore = resStore.data;
 
     let finalProfiles = dbProfiles || [];
     const hasAdmin = finalProfiles.some(p => p.email === 'admin@delcargo.us');
@@ -407,7 +426,8 @@ async function syncFromSupabase() {
     }
 
     console.log('[Supabase Sync] SQL relational databases synchronized successfully.');
-  } catch (err) {
+  } catch (err: any) {
+    lastSyncError = `Relational fetch error: ${err?.message || String(err)}`;
     console.error('[Supabase Sync] Relational fetch error:', err);
   }
 }
@@ -914,7 +934,9 @@ export const db = {
     const updated = employees.map(emp => emp.email === email ? { ...emp, ...updates } : emp);
     await db.saveEmployees(updated);
     return updated;
-  }
+  },
+
+  getLastSyncError: () => lastSyncError
 };
 
 export const formatMoney = (amount: number, region?: 'USA' | 'Pakistan') => {
