@@ -22,7 +22,7 @@ export function Sidebar({ role }: SidebarProps) {
     const email = localStorage.getItem('user_email');
     if (email) {
       const employees = db.getEmployees();
-      const profile = employees.find(e => e.email === email);
+      const profile = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
       setIsTeamLead(!!(profile?.isTeamLead && (profile.leadTeams?.length ?? 0) > 0));
       setTrackingEnabled(!!profile?.trackingEnabled);
     }

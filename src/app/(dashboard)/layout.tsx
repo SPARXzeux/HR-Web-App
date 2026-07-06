@@ -58,7 +58,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         setEmail(savedEmail);
         
         const employees = db.getEmployees();
-        const userProfile = employees.find(e => e.email === savedEmail);
+        const userProfile = employees.find(e => e && e.email && e.email.toLowerCase() === savedEmail.toLowerCase());
         if (userProfile) {
           setProfile(userProfile);
         }
@@ -159,7 +159,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       });
       db.updateOnboardingStatus(email, true);
       const employees = db.getEmployees();
-      const updated = employees.find(e => e.email === email);
+      const updated = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
       if (updated) {
         setProfile(updated);
       }
@@ -727,7 +727,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
             
             <div className="space-y-4 text-xs text-slate-700 bg-slate-50 p-6 rounded-lg border border-slate-200/50 max-h-[420px] overflow-y-auto leading-relaxed font-medium">
-              <p className="text-sm font-semibold text-slate-900">Hello {profile?.fullName || 'Employee'}, welcome to the team {profile?.teams.join(' and ') || 'Operations'}!</p>
+              <p className="text-sm font-semibold text-slate-900">Hello {profile?.fullName || 'Employee'}, welcome to the team {profile?.teams?.join(' and ') || 'Operations'}!</p>
               <p className="font-semibold text-slate-800">Please review the following important HR policies:</p>
               
               <ol className="list-decimal pl-5 space-y-2.5">

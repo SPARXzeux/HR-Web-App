@@ -64,7 +64,7 @@ export default function EmployeeDashboard() {
   useEffect(() => {
     const email = localStorage.getItem('user_email');
     const employees = db.getEmployees();
-    const profile = employees.find(e => e.email === email);
+    const profile = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (profile) {
       setUserProfile(profile);
       const savedShift = localStorage.getItem(`shift_active_${profile.email}`) === 'true';
@@ -142,9 +142,10 @@ export default function EmployeeDashboard() {
   };
 
   // Find my team details
-  const myTeams = userProfile ? userProfile.teams : [];
+  const myTeams = userProfile && userProfile.teams ? userProfile.teams : [];
   const teamMembers = allEmployees.filter(emp => 
     emp.id !== userProfile?.id && 
+    emp.teams && Array.isArray(emp.teams) &&
     emp.teams.some(t => myTeams.includes(t))
   );
   const teamLead = allEmployees.find(emp => 
@@ -463,7 +464,7 @@ export default function EmployeeDashboard() {
                 <p className="text-[10px] text-slate-500 leading-relaxed font-semibold">Monitor the active workstation tracking logs of the members you lead:</p>
                 <div className="space-y-2 max-h-56 overflow-y-auto">
                   {allEmployees
-                    .filter(emp => emp.id !== userProfile.id && emp.teams.some(t => userProfile.leadTeams?.includes(t)))
+                    .filter(emp => emp.id !== userProfile.id && emp.teams && emp.teams.some(t => userProfile.leadTeams?.includes(t)))
                     .map(member => (
                       <div key={member.id} className="flex items-center justify-between p-2.5 rounded-xl border border-slate-150 bg-slate-50/50 text-xs font-semibold">
                         <div className="flex items-center gap-2">

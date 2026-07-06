@@ -37,7 +37,7 @@ export function TopNav() {
 
     if (savedEmail) {
       const employees = db.getEmployees();
-      const profile = employees.find(e => e.email === savedEmail);
+      const profile = employees.find(e => e.email && savedEmail && e.email.toLowerCase() === savedEmail.toLowerCase());
       if (profile) {
         setDisplayName(profile.fullName);
         setProfilePicture(profile.profilePicture || null);
