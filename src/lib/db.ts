@@ -115,10 +115,8 @@ export interface Ticket {
 const isClient = typeof window !== 'undefined';
 
 const defaultEmployees: Profile[] = [
-  { id: 'emp_1', fullName: 'John Doe', email: 'john@company.com', role: 'employee', joinedDate: '2024-01-15', onboardingCompleted: true, baseSalary: 6200, teams: ['Engineering'], password: 'john123', isTeamLead: true, leadTeams: ['Engineering'], jobTitle: 'Software Architect', gender: 'male', region: 'USA', assignedWarehouses: ['wh_1'], bankName: 'Chase Bank', accountNumber: '123456789', iban: 'US12CHAS34567890', trackingEnabled: true },
-  { id: 'emp_2', fullName: 'Jane Smith', email: 'jane@company.com', role: 'employee', joinedDate: '2025-06-15', onboardingCompleted: true, baseSalary: 58000, teams: ['Design', 'Engineering'], password: 'jane123', jobTitle: 'Lead Product Designer', gender: 'female', region: 'Pakistan', bankName: 'Habib Bank Limited', accountNumber: '987654321', iban: 'PK98HABB0987654321', trackingEnabled: false },
-  { id: 'emp_3', fullName: 'Sarah Connor', email: 'employee@company.com', role: 'employee', joinedDate: '2023-03-01', onboardingCompleted: false, baseSalary: 6500, teams: ['Operations'], password: 'employee123', jobTitle: 'Operations Manager', gender: 'female', region: 'USA', assignedWarehouses: ['wh_2'], trackingEnabled: true },
-  { id: 'emp_4', fullName: 'Alex Mercer', email: 'alex@company.com', role: 'employee', joinedDate: '2026-07-01', onboardingCompleted: false, baseSalary: 48000, teams: ['Engineering'], password: 'alex123', jobTitle: 'QA Specialist', gender: 'male', region: 'Pakistan', trackingEnabled: false }
+  { id: 'emp_admin', fullName: 'Admin', email: 'admin@delcargo.us', role: 'admin', joinedDate: '2026-07-01', onboardingCompleted: true, baseSalary: 12000, teams: [], password: 'Aamir@123', jobTitle: 'System Administrator', gender: 'male', region: 'USA', assignedWarehouses: [], bankName: '', accountNumber: '', iban: '', trackingEnabled: false },
+  { id: 'emp_hr', fullName: 'HR Admin', email: 'hr@delcargo.us', role: 'hr', joinedDate: '2026-07-01', onboardingCompleted: true, baseSalary: 9500, teams: [], password: 'HR@123', jobTitle: 'HR Director', gender: 'female', region: 'USA', assignedWarehouses: [], bankName: '', accountNumber: '', iban: '', trackingEnabled: false }
 ];
 
 const defaultWarehouses: Warehouse[] = [
@@ -127,41 +125,15 @@ const defaultWarehouses: Warehouse[] = [
   { id: 'wh_3', name: 'Houston Intercontinental Storage', latitude: 29.9902, longitude: -95.3368, radius: 450 }
 ];
 
-const defaultAnnouncements: Announcement[] = [
-  { id: 'ann_1', title: 'Welcome to the New HR Portal', content: 'We have updated our internal system. All employees are requested to complete their profiles and update bank details.', timestamp: '10:00 AM', createdBy: 'HR Admin', target: 'all' },
-  { id: 'ann_2', title: 'USA Summer Safety Guidelines', content: 'Please review the new safety guidelines for USA warehouses regarding warm weather operations.', timestamp: '02:30 PM', createdBy: 'Admin', target: 'usa' }
-];
+const defaultAnnouncements: Announcement[] = [];
 
-const defaultLeaves: LeaveApplication[] = [
-  { id: 'l_1', employeeName: 'John Doe', type: 'PTO', duration: 'Jul 10, 2026 - Jul 10, 2026', reason: 'Family vacation to the mountains.', status: 'pending' },
-  { id: 'l_2', employeeName: 'Jane Smith', type: 'Sick Leave', duration: 'Jun 02, 2026 - Jun 03, 2026', reason: 'Fever and flu symptoms.', status: 'approved' }
-];
+const defaultLeaves: LeaveApplication[] = [];
 
-const defaultTasks: Task[] = [
-  { id: 'task_1', title: 'Q3 Sprint Planning', description: 'Define engineering roadmap for Q3 deliverables.', assignedTo: 'John Doe', assignedEmail: 'john@company.com', team: 'Engineering', dueDate: '2026-07-10', priority: 'high', status: 'todo', createdBy: 'hr' },
-  { id: 'task_2', title: 'Onboarding Documentation', description: 'Update the employee handbook with new leave policies.', assignedTo: 'Jane Smith', assignedEmail: 'jane@company.com', team: 'Design', dueDate: '2026-07-15', priority: 'medium', status: 'in_progress', createdBy: 'hr' },
-  { id: 'task_3', title: 'Payroll Reconciliation', description: 'Cross-check June payroll figures with bank records.', assignedTo: 'Sarah Connor', assignedEmail: 'employee@company.com', team: 'Operations', dueDate: '2026-07-08', priority: 'high', status: 'todo', createdBy: 'admin' },
-];
+const defaultTasks: Task[] = [];
 
-const defaultCareers: CareerPosition[] = [
-  { id: 'car_1', title: 'Senior React Developer', department: 'Engineering', location: 'Remote (Pakistan)', description: 'We are seeking a senior frontend developer with expertise in React, Next.js, and clean tailwind architectures.', requirements: ['3+ years Experience with React/Next.js', 'Strong CSS & Tailwind skills', 'Knowledge of REST & GraphQL APIs'] },
-  { id: 'car_2', title: 'UX/UI Designer', department: 'Design', location: 'Lahore Office', description: 'Join our design system team to craft gorgeous experiences across logistics and tracking software platforms.', requirements: ['Figma master with strong portfolio', 'Interactive prototyping skill', 'Understanding of user accessibility guidelines'] }
-];
+const defaultCareers: CareerPosition[] = [];
 
-const defaultTickets: Ticket[] = [
-  {
-    id: 't_1',
-    employeeName: 'Jane Smith',
-    employeeEmail: 'jane@company.com',
-    title: 'Salary Slip Error',
-    description: 'My June payroll shows incorrect bonus structures compared to my target achievements.',
-    status: 'open',
-    createdAt: '2026-07-02 10:15 AM',
-    replies: [
-      { id: 'rep_1', senderName: 'Jane Smith', senderRole: 'employee', message: 'I can attach my performance metrics sheet if needed.', timestamp: '10:16 AM' }
-    ]
-  }
-];
+const defaultTickets: Ticket[] = [];
 
 async function syncFromSupabase() {
   if (typeof window === 'undefined') return;
