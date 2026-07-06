@@ -654,6 +654,53 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           )}
 
         </div>
+
+        {activePolicy && (
+          <Modal 
+            isOpen 
+            onClose={() => setActivePolicy(null)} 
+            title={
+              activePolicy === 'conduct' ? 'Code of Conduct' :
+              activePolicy === 'handbook' ? 'Employee Handbook' :
+              'Privacy & Data Policy'
+            }
+          >
+            <div className="space-y-4 pt-1 font-sans text-xs text-slate-700 leading-relaxed font-semibold">
+              {activePolicy === 'conduct' && (
+                <p>
+                  DelCargo is committed to maintaining a workplace that is respectful, inclusive, and professional. 
+                  All staff members are expected to act with high integrity, communicate transparently across remote teams, 
+                  and report conflicts directly to HR coordinators. Performance reviews are executed periodically.
+                </p>
+              )}
+              {activePolicy === 'handbook' && (
+                <div className="space-y-2">
+                  <p>The Employee Handbook sets forth our workplace expectations, leave management timelines, and payroll processing parameters.</p>
+                  <ul className="list-disc pl-4 space-y-1">
+                    <li>Leave requests require 2 weeks notice except for emergency leaves.</li>
+                    <li>Salary releases occur on the designated payouts schedules.</li>
+                    <li>Annual promotion increments are calculated natively by regional status.</li>
+                  </ul>
+                </div>
+              )}
+              {activePolicy === 'privacy' && (
+                <p>
+                  Your privacy is paramount. Personal banking details, files, and location access records are kept strictly confidential. 
+                  Our monitoring systems verify workstation logs and geofencing checkpoints to maintain secure log chains. 
+                  Data processing complies with local regional standards.
+                </p>
+              )}
+              <div className="flex justify-end pt-4 border-t border-slate-200 mt-4">
+                <button
+                  onClick={() => setActivePolicy(null)}
+                  className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-xs"
+                >
+                  Close Policy
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
       </div>
     );
   }

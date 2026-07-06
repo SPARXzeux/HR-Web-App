@@ -38,14 +38,14 @@ export function ToastNotification() {
   };
 
   return (
-    <div className="fixed top-5 right-5 z-[9999] space-y-3 pointer-events-none w-full max-w-sm">
+    <div className="fixed top-5 left-4 right-4 sm:left-auto sm:right-5 sm:w-[340px] z-[9999] space-y-3 pointer-events-none">
       {toasts.map(toast => (
         <div
           key={toast.id}
           className={`pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 shadow-xl rounded-xl p-4 flex gap-3 items-start transition-all duration-300 transform ${
             toast.visible 
-              ? 'translate-x-0 opacity-100 scale-100' 
-              : 'translate-x-12 opacity-0 scale-95'
+              ? 'translate-y-0 sm:translate-x-0 opacity-100 scale-100' 
+              : 'translate-y-[-12px] sm:translate-x-12 opacity-0 scale-95'
           }`}
         >
           <div className="h-8 w-8 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-orange-600 shrink-0">
