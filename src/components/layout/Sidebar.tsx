@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, Menu, X, FileText } from 'lucide-react';
 import { db } from '@/lib/db';
 
 interface SidebarProps {
@@ -13,6 +13,7 @@ export function Sidebar({ role }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [isTeamLead, setIsTeamLead] = useState(false);
+  const [trackingEnabled, setTrackingEnabled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [platform, setPlatform] = useState<'ios' | 'android'>('ios');
   const drawerRef = useRef<HTMLDivElement>(null);
@@ -23,6 +24,7 @@ export function Sidebar({ role }: SidebarProps) {
       const employees = db.getEmployees();
       const profile = employees.find(e => e.email === email);
       setIsTeamLead(!!(profile?.isTeamLead && (profile.leadTeams?.length ?? 0) > 0));
+      setTrackingEnabled(!!profile?.trackingEnabled);
     }
 
     // Dynamic OS Platform Detection for iOS vs Android
@@ -70,6 +72,7 @@ export function Sidebar({ role }: SidebarProps) {
     { name: 'Leaves Approval', href: '/admin/leaves', icon: Clock },
     { name: 'Payroll & Salary', href: '/admin/payroll', icon: Wallet },
     { name: 'Career Board', href: '/admin/careers', icon: Briefcase },
+    { name: 'Master Reports', href: '/admin/reports', icon: FileText },
     { name: 'Support Tickets', href: '/admin/tickets', icon: HelpCircle },
   ];
 
@@ -81,11 +84,13 @@ export function Sidebar({ role }: SidebarProps) {
     { name: 'Team Management', href: '/hr/teams', icon: Users },
     { name: 'Payroll Records', href: '/hr/payroll', icon: Wallet },
     { name: 'Career Board', href: '/hr/careers', icon: Briefcase },
+    { name: 'Master Reports', href: '/hr/reports', icon: FileText },
     { name: 'Support Tickets', href: '/hr/tickets', icon: HelpCircle },
   ];
 
   const employeeItems = [
     { name: 'My Dashboard', href: '/employee', icon: LayoutDashboard },
+    ...(trackingEnabled ? [{ name: 'Timesheet Tracker', href: '/employee/tracker', icon: Clock }] : []),
     { name: 'My Leaves', href: '/employee/leaves', icon: Clock },
     { name: 'Salary History', href: '/employee/salary', icon: Wallet },
     { name: 'Career Board', href: '/employee/careers', icon: Briefcase },

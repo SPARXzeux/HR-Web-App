@@ -6,6 +6,8 @@ import { TopNav } from '@/components/layout/TopNav';
 import { useRouter } from 'next/navigation';
 import { db, Profile } from '@/lib/db';
 import { Badge } from '@/components/ui/Badge';
+import { Modal } from '@/components/ui/Modal';
+import { compressImageToWebP } from '@/lib/imageCompressor';
 import { CheckCircle2, ChevronRight, BookOpen, User, ShieldCheck, HelpCircle, FileText, Upload } from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -19,37 +21,58 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [signName, setSignName] = useState('');
   const [stepperError, setStepperError] = useState('');
   const [showConsent, setShowConsent] = useState(false);
+  const [activePolicy, setActivePolicy] = useState<'conduct' | 'handbook' | 'privacy' | null>(null);
+
+  // Bank & Profile Pic state
+  const [bankName, setBankName] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [iban, setIban] = useState('');
+  const [region, setRegion] = useState<'USA' | 'Pakistan'>('Pakistan');
+  const [profilePicture, setProfilePicture] = useState<string | null>(null);
+  const [uploadingPic, setUploadingPic] = useState(false);
 
   // Document Upload Simulator States
   const [cvFile, setCvFile] = useState<string | null>(null);
   const [cnicFile, setCnicFile] = useState<string | null>(null);
+  const [passportFile, setPassportFile] = useState<string | null>(null);
   const [uploading, setUploading] = useState({ cv: false, cnic: false });
+  const [uploadingPassport, setUploadingPassport] = useState(false);
 
+  const [dbReady, setDbReady] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
-    const savedRole = localStorage.getItem('user_role') as 'admin' | 'hr' | 'employee' | null;
-    const savedEmail = localStorage.getItem('user_email');
-    
-    if (!savedRole || !savedEmail) {
-      router.push('/auth');
-    } else {
-      setRole(savedRole);
-      setEmail(savedEmail);
+    if (typeof window !== 'undefined') {
+      (window as any).db = db;
+    }
+    db.syncFromSupabase().then(() => {
+      setDbReady(true);
+      const savedRole = localStorage.getItem('user_role') as 'admin' | 'hr' | 'employee' | null;
+      const savedEmail = localStorage.getItem('user_email');
       
-      const employees = db.getEmployees();
-      const userProfile = employees.find(e => e.email === savedEmail);
-      if (userProfile) {
-        setProfile(userProfile);
-      }
+      if (!savedRole || !savedEmail) {
+        router.push('/auth');
+      } else {
+        setRole(savedRole);
+        setEmail(savedEmail);
+        
+        const employees = db.getEmployees();
+        const userProfile = employees.find(e => e.email === savedEmail);
+        if (userProfile) {
+          setProfile(userProfile);
+        }
 
-      if (savedRole === 'employee') {
-        const consent = localStorage.getItem(`consent_accepted_${savedEmail}`);
-        if (!consent) {
-          setShowConsent(true);
+        if (savedRole === 'employee') {
+          const consent = localStorage.getItem(`consent_accepted_${savedEmail}`);
+          if (!consent) {
+            setShowConsent(true);
+          }
         }
       }
-    }
+    }).catch(err => {
+      console.error('[Supabase Sync] Fatal initial sync error:', err);
+      setDbReady(true);
+    });
   }, [router]);
 
   const handleConsentAccept = () => {
@@ -68,13 +91,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }, 1200);
   };
 
+  const simulateProfilePicUpload = (name: string) => {
+    setUploadingPic(true);
+    setTimeout(() => {
+      setUploadingPic(false);
+      setProfilePicture('https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=256&auto=format&fit=crop'); // Mock profile pic
+    }, 1000);
+  };
+
   const handleNextStep = () => {
     setStepperError('');
     if (onboardStep === 1) {
+      if (!bankName.trim() || !accountNumber.trim() || !iban.trim()) {
+        const docLabel = profile?.region === 'USA' ? 'Routing Number' : 'IBAN';
+        setStepperError(`Required: All bank details (Bank Name, Account Number, and ${docLabel}) must be filled to proceed.`);
+        return;
+      }
       setOnboardStep(2);
     } else if (onboardStep === 2) {
-      if (!cvFile || !cnicFile) {
-        setStepperError('Required: CV and CNIC images must be uploaded to proceed.');
+      if (!cvFile || !cnicFile || !profilePicture) {
+        const docLabel = profile?.region === 'USA' ? 'Driver License / Work Permit' : 'CNIC images';
+        setStepperError(`Required: CV, ${docLabel}, and Profile Picture must be uploaded.`);
         return;
       }
       setOnboardStep(3);
@@ -96,6 +133,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
 
     if (email) {
+      db.updateProfileDetails(email, {
+        bankName,
+        accountNumber,
+        iban,
+        profilePicture: profilePicture || undefined
+      });
       db.updateOnboardingStatus(email, true);
       const employees = db.getEmployees();
       const updated = employees.find(e => e.email === email);
@@ -107,7 +150,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   };
 
-  if (!role || (role === 'employee' && !profile)) {
+  if (!dbReady || !role || (role === 'employee' && !profile)) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50">
         <svg className="animate-spin h-8 w-8 text-orange-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -167,26 +210,59 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {onboardStep === 1 && (
             <div className="space-y-6">
               <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <User className="h-5 w-5 text-orange-600" /> Step 1: Verify Profile
+                <User className="h-5 w-5 text-orange-600" /> Step 1: Profile & Bank Details
               </h2>
-              <p className="text-sm text-slate-655">Verify your current organizational details before proceeding:</p>
               
-              <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200/50">
-                <div className="flex justify-between items-center text-sm">
-                  <span className="font-semibold text-slate-500">Full Name</span>
-                  <span className="font-medium text-slate-900">{profile.fullName}</span>
+              <div className="space-y-4">
+                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200/50 space-y-2.5">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-semibold text-slate-500">Full Name</span>
+                    <span className="font-semibold text-slate-900">{profile.fullName}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-semibold text-slate-500">Email</span>
+                    <span className="font-semibold text-slate-900">{profile.email}</span>
+                  </div>
                 </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="font-semibold text-slate-500">Email</span>
-                  <span className="font-medium text-slate-900">{profile.email}</span>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="font-semibold text-slate-500">Role</span>
-                  <span className="font-medium text-slate-900 capitalize">{profile.role}</span>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="font-semibold text-slate-500">Assigned Teams</span>
-                  <span className="font-medium text-slate-900">{profile.teams.join(', ')}</span>
+
+                <div className="space-y-3 pt-2">
+                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest">Bank details (for Salaries)</h3>
+                  
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Bank Name *</label>
+                    <input
+                      type="text"
+                      value={bankName}
+                      onChange={(e) => setBankName(e.target.value)}
+                      placeholder="e.g. Chase Bank / Habib Bank"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs focus:border-orange-500 outline-none font-medium text-slate-800"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Account Number *</label>
+                      <input
+                        type="text"
+                        value={accountNumber}
+                        onChange={(e) => setAccountNumber(e.target.value)}
+                        placeholder="10-16 digits"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs focus:border-orange-500 outline-none font-medium text-slate-800"
+                      />
+                    </div>
+                     <div className="space-y-1">
+                       <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                         {profile?.region === 'USA' ? 'Routing Number *' : 'IBAN *'}
+                       </label>
+                       <input
+                         type="text"
+                         value={iban}
+                         onChange={(e) => setIban(e.target.value)}
+                         placeholder={profile?.region === 'USA' ? 'e.g. 021000021 (9 digits)' : 'e.g. PK98HABB...'}
+                         className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs focus:border-orange-500 outline-none font-medium text-slate-800"
+                       />
+                     </div>
+                  </div>
                 </div>
               </div>
 
@@ -195,7 +271,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   onClick={handleNextStep}
                   className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1"
                 >
-                  Verify & Continue <ChevronRight className="h-4 w-4" />
+                  Confirm & Continue <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
             </div>
@@ -205,16 +281,58 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {onboardStep === 2 && (
             <div className="space-y-6">
               <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <Upload className="h-5 w-5 text-orange-600" /> Step 2: Upload Documents
+                <Upload className="h-5 w-5 text-orange-600" /> Step 2: Upload Documents & Photo
               </h2>
-              <p className="text-sm text-slate-655 font-medium">Please upload CNIC card images (both sides) and CV as requested by HR:</p>
+              <p className="text-sm text-slate-655 font-medium">Please upload CNIC, CV, and a mandatory profile picture:</p>
 
               <div className="space-y-4">
+                {/* Profile Pic box */}
+                <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <span className="text-sm font-bold text-slate-900">1. Profile Picture (Mandatory) *</span>
+                      <p className="text-[10px] text-slate-400 mt-0.5">JPG or PNG format. Front facing photo.</p>
+                    </div>
+                    {profilePicture ? (
+                      <div className="flex items-center gap-2">
+                        <img src={profilePicture} alt="Preview" className="h-8 w-8 rounded-full object-cover border border-slate-200" />
+                        <span className="text-emerald-600 font-bold text-xs flex items-center gap-0.5"><CheckCircle2 className="h-4 w-4" /> Added</span>
+                      </div>
+                    ) : uploadingPic ? (
+                      <span className="text-slate-400 text-xs animate-pulse">Uploading photo...</span>
+                    ) : (
+                      <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97">
+                        Upload Photo
+                        <input 
+                          type="file" 
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              setUploadingPic(true);
+                              compressImageToWebP(file, 0.6)
+                                .then(compressed => {
+                                  setProfilePicture(compressed);
+                                  setUploadingPic(false);
+                                })
+                                .catch(err => {
+                                  console.error('Image compression failed:', err);
+                                  setUploadingPic(false);
+                                });
+                            }
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+
                 {/* CV file box */}
                 <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
                   <div className="flex justify-between items-center">
                     <div>
-                      <span className="text-sm font-bold text-slate-900">1. Curriculum Vitae (CV) *</span>
+                      <span className="text-sm font-bold text-slate-900">2. Curriculum Vitae (CV) *</span>
                       <p className="text-[10px] text-slate-400 mt-0.5">PDF or Word format under 5MB</p>
                     </div>
                     {cvFile ? (
@@ -240,11 +358,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   )}
                 </div>
 
-                {/* CNIC file box */}
+                {/* CNIC or Driver License file box */}
                 <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
                   <div className="flex justify-between items-center">
                     <div>
-                      <span className="text-sm font-bold text-slate-900">2. CNIC Card (Both Sides) *</span>
+                      <span className="text-sm font-bold text-slate-900">
+                        3. {profile?.region === 'USA' ? 'Driver License / Work Permit *' : 'CNIC Card (Both Sides) *'}
+                      </span>
                       <p className="text-[10px] text-slate-400 mt-0.5">JPG or PNG image scan</p>
                     </div>
                     {cnicFile ? (
@@ -258,7 +378,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           type="file" 
                           accept="image/*"
                           className="hidden"
-                          onChange={(e) => simulateUpload('cnic', e.target.files?.[0]?.name || 'Sarah_Connor_CNIC.png')}
+                          onChange={(e) => simulateUpload('cnic', e.target.files?.[0]?.name || (profile?.region === 'USA' ? 'Sarah_Connor_License.png' : 'Sarah_Connor_CNIC.png'))}
                         />
                       </label>
                     )}
@@ -269,16 +389,57 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     </div>
                   )}
                 </div>
+
+                {/* Optional Passport file box for USA only */}
+                {profile?.region === 'USA' && (
+                  <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <span className="text-sm font-bold text-slate-900">4. Passport (Secondary ID) (Optional)</span>
+                        <p className="text-[10px] text-slate-400 mt-0.5">JPG or PNG image scan. Optional.</p>
+                      </div>
+                      {passportFile ? (
+                        <span className="text-emerald-600 font-bold text-xs flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Uploaded</span>
+                      ) : uploadingPassport ? (
+                        <span className="text-slate-400 text-xs animate-pulse">Uploading scans...</span>
+                      ) : (
+                        <label className="text-xs bg-orange-650 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97">
+                          Upload Scan
+                          <input 
+                            type="file" 
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              setUploadingPassport(true);
+                              const fileName = e.target.files?.[0]?.name || 'Sarah_Connor_Passport.png';
+                              setTimeout(() => {
+                                setUploadingPassport(false);
+                                setPassportFile(fileName);
+                              }, 1200);
+                            }}
+                          />
+                        </label>
+                      )}
+                    </div>
+                    {passportFile && (
+                      <div className="text-xs font-semibold text-slate-600 mt-3 flex items-center gap-1 bg-white p-2 rounded border border-slate-200">
+                        <FileText className="h-4 w-4 text-orange-600" /> {passportFile}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-between pt-4 border-t border-slate-200">
                 <button 
+                  type="button"
                   onClick={() => setOnboardStep(1)}
                   className="bg-white border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all"
                 >
                   Back
                 </button>
                 <button 
+                  type="button"
                   onClick={handleNextStep}
                   className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1"
                 >
@@ -337,9 +498,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <p className="text-sm text-slate-655 font-medium">Please read and acknowledge the shared corporate guidelines:</p>
 
               <div className="space-y-4 max-h-[200px] overflow-y-auto pr-2">
-                <div className="border border-slate-200 rounded-lg p-4">
+                <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/20">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold text-slate-900">Code of Conduct</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-1.5">
+                      <span className="text-sm font-semibold text-slate-900">Code of Conduct</span>
+                      <button 
+                        type="button" 
+                        onClick={() => setActivePolicy('conduct')} 
+                        className="text-[10px] font-bold text-orange-600 hover:underline text-left"
+                      >
+                        (Read Agreement)
+                      </button>
+                    </div>
                     <input 
                       type="checkbox" 
                       checked={acceptedDocs.conduct}
@@ -350,9 +520,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <p className="text-xs text-slate-555">Professional interaction guidelines and conflict resolution frameworks.</p>
                 </div>
 
-                <div className="border border-slate-200 rounded-lg p-4">
+                <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/20">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold text-slate-900">Employee Handbook</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-1.5">
+                      <span className="text-sm font-semibold text-slate-900">Employee Handbook</span>
+                      <button 
+                        type="button" 
+                        onClick={() => setActivePolicy('handbook')} 
+                        className="text-[10px] font-bold text-orange-600 hover:underline text-left"
+                      >
+                        (Read Agreement)
+                      </button>
+                    </div>
                     <input 
                       type="checkbox" 
                       checked={acceptedDocs.handbook}
@@ -363,9 +542,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <p className="text-xs text-slate-555">Detailed guidelines on leave policies, salary increment cycles, and tools usage.</p>
                 </div>
 
-                <div className="border border-slate-200 rounded-lg p-4">
+                <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/20">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold text-slate-900">Privacy & Data Policy</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-1.5">
+                      <span className="text-sm font-semibold text-slate-900">Privacy & Data Policy</span>
+                      <button 
+                        type="button" 
+                        onClick={() => setActivePolicy('privacy')} 
+                        className="text-[10px] font-bold text-orange-600 hover:underline text-left"
+                      >
+                        (Read Agreement)
+                      </button>
+                    </div>
                     <input 
                       type="checkbox" 
                       checked={acceptedDocs.privacy}
@@ -472,6 +660,53 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           </div>
         </div>
+      )}
+
+      {activePolicy && (
+        <Modal 
+          isOpen 
+          onClose={() => setActivePolicy(null)} 
+          title={
+            activePolicy === 'conduct' ? 'Code of Conduct' :
+            activePolicy === 'handbook' ? 'Employee Handbook' :
+            'Privacy & Data Policy'
+          }
+        >
+          <div className="space-y-4 pt-1 font-sans text-xs text-slate-700 leading-relaxed font-semibold">
+            {activePolicy === 'conduct' && (
+              <p>
+                DelCargo is committed to maintaining a workplace that is respectful, inclusive, and professional. 
+                All staff members are expected to act with high integrity, communicate transparently across remote teams, 
+                and report conflicts directly to HR coordinators. Performance reviews are executed periodically.
+              </p>
+            )}
+            {activePolicy === 'handbook' && (
+              <div className="space-y-2">
+                <p>The Employee Handbook sets forth our workplace expectations, leave management timelines, and payroll processing parameters.</p>
+                <ul className="list-disc pl-4 space-y-1">
+                  <li>Leave requests require 2 weeks notice except for emergency leaves.</li>
+                  <li>Salary releases occur on the designated payouts schedules.</li>
+                  <li>Annual promotion increments are calculated natively by regional status.</li>
+                </ul>
+              </div>
+            )}
+            {activePolicy === 'privacy' && (
+              <p>
+                Your privacy is paramount. Personal banking details, files, and location access records are kept strictly confidential. 
+                Our monitoring systems verify workstation logs and geofencing checkpoints to maintain secure log chains. 
+                Data processing complies with local regional standards.
+              </p>
+            )}
+            <div className="flex justify-end pt-4 border-t border-slate-200 mt-4">
+              <button
+                onClick={() => setActivePolicy(null)}
+                className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-xs"
+              >
+                Close Policy
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

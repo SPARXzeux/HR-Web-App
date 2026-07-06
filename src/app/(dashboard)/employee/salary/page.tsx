@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
-import { db, Profile, PayrollRecord } from '@/lib/db';
+import { db, Profile, PayrollRecord, formatMoney } from '@/lib/db';
 import { FileText, Download, CheckCircle2, ShieldCheck, Printer } from 'lucide-react';
 
 export default function EmployeeSalaryPage() {
@@ -49,12 +49,12 @@ export default function EmployeeSalaryPage() {
           <CardContent className="pt-6">
             <h3 className="font-semibold text-slate-500 text-xs uppercase tracking-wider">Current Base Salary</h3>
             <p className="text-3xl font-bold text-slate-900 mt-2">
-              PKR {baseSalary.toLocaleString()}{' '}
+              {formatMoney(baseSalary, userProfile?.region)}{' '}
               <span className="text-xs text-slate-500 font-normal">/ month</span>
             </p>
             {totalIncrement > 0 && (
               <p className="text-[10px] text-emerald-600 font-semibold mt-1">
-                Includes PKR {totalIncrement.toLocaleString()} dynamic annual increments (+PKR 10,000/yr)
+                Includes {formatMoney(totalIncrement, userProfile?.region)} dynamic annual increments (+{formatMoney(10000, userProfile?.region)}/yr)
               </p>
             )}
           </CardContent>
@@ -87,14 +87,14 @@ export default function EmployeeSalaryPage() {
               {slips.map((slip, i) => (
                 <tr key={i} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4 font-semibold text-slate-900">{slip.month}</td>
-                  <td className="px-6 py-4 text-right font-medium">PKR {slip.base.toLocaleString()}</td>
+                  <td className="px-6 py-4 text-right font-medium">{formatMoney(slip.base, userProfile?.region)}</td>
                   <td className="px-6 py-4 text-right text-rose-600 font-semibold">
-                    {slip.deductions > 0 ? `-PKR ${slip.deductions.toLocaleString()}` : 'PKR 0'}
+                    {slip.deductions > 0 ? `-${formatMoney(slip.deductions, userProfile?.region)}` : formatMoney(0, userProfile?.region)}
                   </td>
                   <td className="px-6 py-4 text-right text-emerald-600 font-semibold">
-                    {slip.bonus > 0 ? `+PKR ${slip.bonus.toLocaleString()}` : 'PKR 0'}
+                    {slip.bonus > 0 ? `+${formatMoney(slip.bonus, userProfile?.region)}` : formatMoney(0, userProfile?.region)}
                   </td>
-                  <td className="px-6 py-4 text-right font-bold text-slate-900">PKR {slip.net.toLocaleString()}</td>
+                  <td className="px-6 py-4 text-right font-bold text-slate-900">{formatMoney(slip.net, userProfile?.region)}</td>
                   <td className="px-6 py-4 text-center">
                     <button 
                       onClick={() => setSelectedSlip(slip)}
@@ -149,27 +149,27 @@ export default function EmployeeSalaryPage() {
               <div className="space-y-2 divide-y divide-slate-100 text-xs border border-slate-150 rounded-lg p-4 bg-white">
                 <div className="flex justify-between items-center py-1">
                   <span className="text-slate-500 font-semibold">Base salary contract</span>
-                  <span className="text-slate-900 font-semibold">PKR {originalBase.toLocaleString()}</span>
+                  <span className="text-slate-900 font-semibold">{formatMoney(originalBase, userProfile?.region)}</span>
                 </div>
                 {totalIncrement > 0 && (
                   <div className="flex justify-between items-center py-2 pt-2">
                     <span className="text-slate-500 font-semibold">Annual promotions increment</span>
-                    <span className="text-emerald-600 font-semibold">+PKR {totalIncrement.toLocaleString()}</span>
+                    <span className="text-emerald-600 font-semibold">+{formatMoney(totalIncrement, userProfile?.region)}</span>
                   </div>
                 )}
                 <div className="flex justify-between items-center py-2">
                   <span className="text-slate-500 font-semibold">Performance bonuses</span>
-                  <span className="text-emerald-600 font-semibold">+PKR {selectedSlip.bonus.toLocaleString()}</span>
+                  <span className="text-emerald-600 font-semibold">+{formatMoney(selectedSlip.bonus, userProfile?.region)}</span>
                 </div>
                 <div className="flex justify-between items-center py-2">
                   <span className="text-slate-500 font-semibold">Leave & penalty deductions</span>
                   <span className="text-rose-600 font-semibold">
-                    {selectedSlip.deductions > 0 ? `-PKR ${selectedSlip.deductions.toLocaleString()}` : 'PKR 0'}
+                    {selectedSlip.deductions > 0 ? `-${formatMoney(selectedSlip.deductions, userProfile?.region)}` : formatMoney(0, userProfile?.region)}
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-2 pt-3 font-bold text-sm text-slate-900 border-t border-slate-200">
                   <span>Net Payable Outflow</span>
-                  <span className="text-orange-600">PKR {selectedSlip.net.toLocaleString()}</span>
+                  <span className="text-orange-600">{formatMoney(selectedSlip.net, userProfile?.region)}</span>
                 </div>
               </div>
             </div>

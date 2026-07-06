@@ -198,29 +198,105 @@ export function CareersView({ role }: CareersViewProps) {
         </div>
       </div>
 
-      {/* Culture & Benefits Section */}
-      <section className="bg-slate-50/50 py-12 px-6 sm:px-12 border border-slate-200 space-y-8">
-        <div className="text-center space-y-2">
-          <h3 className="text-xl font-light text-slate-900 uppercase tracking-widest" style={{ fontFamily: 'Georgia, serif' }}>
-            Life at DelCargo
+      {role === 'public' && (
+        <>
+          {/* About Us Section */}
+          <section className="bg-white border border-slate-200 rounded-3xl p-8 sm:p-12 mb-8 shadow-sm overflow-hidden font-sans">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+              
+              {/* Left Column: Descriptive texts & stats */}
+              <div className="lg:col-span-7 space-y-6">
+                <div className="space-y-2">
+                  <span className="text-[10px] font-bold text-orange-600 uppercase tracking-widest bg-orange-50 border border-orange-100 px-3 py-1 rounded-full">
+                    Global Freight & Software
+                  </span>
+                  <h3 className="text-2xl font-light text-slate-900 uppercase tracking-wider mt-2" style={{ fontFamily: 'Georgia, serif' }}>
+                    Who We Are
+                  </h3>
+                </div>
+
+                <p className="text-xs text-slate-600 leading-relaxed font-semibold">
+                  DelCargo is a leading-edge global logistics and software engineering provider. We combine digital shipping architectures with physical distribution hubs to enable intelligent supply chain management. By fusing freight yards with automated tracking platforms, we help scale global commerce.
+                </p>
+
+                <p className="text-xs text-slate-550 leading-relaxed font-medium">
+                  We maintain strategic warehousing facilities in major transit centers across North America and remote design cells in South Asia, operating with around-the-clock synchrony to keep supply lines operating optimally.
+                </p>
+
+                {/* Metrics */}
+                <div className="grid grid-cols-3 gap-4 pt-4 border-t border-slate-100">
+                  <div>
+                    <p className="text-lg font-bold text-slate-900">34+</p>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Transit Hubs</p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold text-slate-900">1.2M+</p>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Packages/Yr</p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold text-slate-900">99.8%</p>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">On-Time Rate</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Image */}
+              <div className="lg:col-span-5 relative group overflow-hidden rounded-2xl border border-slate-200 shadow">
+                <img 
+                  src="/delcargo_warehouse_hightech.png" 
+                  alt="High Tech Warehouse" 
+                  className="w-full h-64 object-cover object-center group-hover:scale-103 transition-transform duration-500"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent flex flex-col justify-end p-4">
+                  <p className="text-[10px] text-orange-400 font-bold uppercase tracking-wider">Operations Hub</p>
+                  <p className="text-white text-xs font-bold mt-0.5">Automated Warehouse JFK Center</p>
+                </div>
+              </div>
+
+            </div>
+          </section>
+
+          {/* Culture & Benefits Section */}
+          <section className="bg-slate-50/50 py-12 px-6 sm:px-12 border border-slate-200 space-y-8">
+          <div className="text-center space-y-2">
+            <h3 className="text-xl font-light text-slate-900 uppercase tracking-widest" style={{ fontFamily: 'Georgia, serif' }}>
+              Life at DelCargo
+            </h3>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Perks & Compensation</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-8 text-center sm:text-left">
+            <div className="space-y-2">
+              <h4 className="font-bold text-xs uppercase tracking-wider text-slate-800">Good Salary</h4>
+              <p className="text-xs text-slate-500 leading-relaxed font-light">We offer competitive salaries calibrated for regional standards, with guaranteed annual increments.</p>
+            </div>
+            <div className="space-y-2">
+              <h4 className="font-bold text-xs uppercase tracking-wider text-slate-800">Accrued PTOs</h4>
+              <p className="text-xs text-slate-500 leading-relaxed font-light">Accrue leave balance every month with cashing out settlements.</p>
+            </div>
+            <div className="space-y-2">
+              <h4 className="font-bold text-xs uppercase tracking-wider text-slate-800">Learning & Tech</h4>
+              <p className="text-xs text-slate-500 leading-relaxed font-light">Collaborate using modern architectures, framework toolsets, and clean design structures.</p>
+            </div>
+            <div className="space-y-2">
+              <h4 className="font-bold text-xs uppercase tracking-wider text-slate-800">Parental Leaves</h4>
+              <p className="text-xs text-slate-500 leading-relaxed font-light">Gender-balanced opportunities including fully paid Parental Leaves.</p>
+            </div>
+          </div>
+        </section>
+      </>
+    )}
+
+      {role === 'employee' && (
+        /* Referral Program Info Block */
+        <section className="bg-orange-50/40 py-12 px-6 sm:px-12 border border-orange-100 rounded-2xl space-y-4">
+          <h3 className="text-lg font-bold text-slate-950 flex items-center gap-1.5">
+            🎁 Employee Referral Program
           </h3>
-          <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Perks & Compensation</p>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center sm:text-left">
-          <div className="space-y-2">
-            <h4 className="font-bold text-xs uppercase tracking-wider text-slate-800">Accrued Benefits</h4>
-            <p className="text-xs text-slate-500 leading-relaxed font-light">Accrue leave balance every month with cashing out settlements or rolling over up to 5 days on Jan 31.</p>
-          </div>
-          <div className="space-y-2">
-            <h4 className="font-bold text-xs uppercase tracking-wider text-slate-800">Learning & Tech</h4>
-            <p className="text-xs text-slate-500 leading-relaxed font-light">Collaborate using modern architectures, framework toolsets, and clean design structures.</p>
-          </div>
-          <div className="space-y-2">
-            <h4 className="font-bold text-xs uppercase tracking-wider text-slate-800">Inclusive Growth</h4>
-            <p className="text-xs text-slate-500 leading-relaxed font-light">Gender-balanced opportunities including fully paid Parental Leaves for female staff members.</p>
-          </div>
-        </div>
-      </section>
+          <p className="text-xs text-slate-655 max-w-3xl leading-relaxed font-medium">
+            Know someone who would be a perfect fit? Refer them! If your referred candidate gets selected and successfully completes <strong>6 months</strong> of service with DelCargo, you will receive a cash referral reward of <strong>PKR 10,000</strong>. Submissions can be sent directly to HR.
+          </p>
+        </section>
+      )}
 
       {/* Add job listing Modal */}
       <Modal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} title="Create New Job Listing">

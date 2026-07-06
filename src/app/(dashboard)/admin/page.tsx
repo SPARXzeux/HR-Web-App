@@ -3,9 +3,10 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
+import { Modal } from '@/components/ui/Modal';
 import { OrgCalendar } from '@/components/ui/OrgCalendar';
 import { TaskModal } from '@/components/ui/TaskModal';
-import { DollarSign, TrendingUp, Users, Clock, ClipboardList, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { DollarSign, TrendingUp, Users, Clock, ClipboardList, CheckCircle2, AlertTriangle, PlusCircle } from 'lucide-react';
 import { db, LeaveApplication, Profile, Task } from '@/lib/db';
 import { useRouter } from 'next/navigation';
 
@@ -16,11 +17,43 @@ export default function AdminDashboard() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isTaskOpen, setIsTaskOpen] = useState(false);
 
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [isAnnounceOpen, setIsAnnounceOpen] = useState(false);
+
+  // Announcement form states
+  const [annTitle, setAnnTitle] = useState('');
+  const [annContent, setAnnContent] = useState('');
+  const [annTargetType, setAnnTargetType] = useState<'all' | 'usa' | 'pakistan' | 'warehouses'>('all');
+  const [annSelectedWarehouses, setAnnSelectedWarehouses] = useState<string[]>([]);
+  const [annSuccess, setAnnSuccess] = useState('');
+
   useEffect(() => {
     setEmployees(db.getEmployees());
     setLeaves(db.getLeaves());
     setTasks(db.getTasks());
+    setAnnouncements(db.getAnnouncements());
+    setWarehouses(db.getWarehouses());
   }, []);
+
+  const handleAnnouncementSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!annTitle.trim() || !annContent.trim()) return;
+
+    const targetVal = annTargetType === 'warehouses' ? annSelectedWarehouses : annTargetType;
+    db.addAnnouncement(annTitle, annContent, targetVal, 'CEO Admin');
+    setAnnouncements(db.getAnnouncements());
+    setAnnSuccess('Announcement posted successfully!');
+
+    setTimeout(() => {
+      setIsAnnounceOpen(false);
+      setAnnTitle('');
+      setAnnContent('');
+      setAnnTargetType('all');
+      setAnnSelectedWarehouses([]);
+      setAnnSuccess('');
+    }, 1200);
+  };
 
   const handleCEOAction = (id: string, action: 'approve' | 'reject') => {
     const updated: LeaveApplication[] = leaves.map(l => {
@@ -51,6 +84,12 @@ export default function AdminDashboard() {
           <p className="text-slate-500">High-level metrics, leave approvals, and organisation calendar.</p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => setIsAnnounceOpen(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+          >
+            <PlusCircle className="h-4 w-4" /> Post Announcement
+          </button>
           <button
             onClick={() => setIsTaskOpen(true)}
             className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
@@ -134,6 +173,40 @@ export default function AdminDashboard() {
         </div>
       </Card>
 
+      {/* Announcements Panel */}
+      <Card className="p-0">
+        <div className="px-6 pt-5 pb-2 border-b border-slate-100 flex justify-between items-center">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Recent Announcements</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Corporate updates and targeted broadcast messages.</p>
+          </div>
+        </div>
+        <CardContent className="p-6 space-y-4">
+          {announcements.map(ann => (
+            <div key={ann.id} className="p-4 rounded-xl border border-slate-150 bg-slate-50/50 flex flex-col justify-between">
+              <div className="flex justify-between items-start gap-3">
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm">{ann.title}</h4>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">{ann.content}</p>
+                </div>
+                <Badge variant={ann.target === 'all' ? 'default' : 'warning'}>
+                  Target: {Array.isArray(ann.target) 
+                    ? `Warehouses (${ann.target.map((tId: string) => warehouses.find(w => w.id === tId)?.name || tId).join(', ')})`
+                    : ann.target.toUpperCase()}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center text-[10px] text-slate-400 font-bold mt-3 pt-2 border-t border-slate-100">
+                <span>By {ann.createdBy}</span>
+                <span>{ann.timestamp}</span>
+              </div>
+            </div>
+          ))}
+          {announcements.length === 0 && (
+            <p className="text-xs text-slate-400 font-semibold italic text-center py-4">No announcements posted yet.</p>
+          )}
+        </CardContent>
+      </Card>
+
       {/* CEO Leave Approval Queue */}
       <div className="space-y-3">
         <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
@@ -186,6 +259,85 @@ export default function AdminDashboard() {
           </div>
         </Card>
       </div>
+
+      {/* Announcement Modal */}
+      <Modal isOpen={isAnnounceOpen} onClose={() => setIsAnnounceOpen(false)} title="Create New Announcement">
+        <form onSubmit={handleAnnouncementSubmit} className="space-y-4 pt-1">
+          {annSuccess && (
+            <div className="p-3 text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-xl font-semibold flex items-center gap-1.5">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" /> {annSuccess}
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Announcement Title *</label>
+            <input 
+              type="text" 
+              required 
+              value={annTitle} 
+              onChange={e => setAnnTitle(e.target.value)} 
+              className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+              placeholder="e.g. System Maintenance Notice" 
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Content *</label>
+            <textarea 
+              required 
+              rows={4} 
+              value={annContent} 
+              onChange={e => setAnnContent(e.target.value)} 
+              className="w-full bg-slate-50/50 hover:bg-slate-55 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold resize-none" 
+              placeholder="Type announcement details here..." 
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Target Audience *</label>
+            <select
+              value={annTargetType}
+              onChange={e => setAnnTargetType(e.target.value as any)}
+              className="w-full bg-slate-50/50 hover:bg-slate-55 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer"
+            >
+              <option value="all">All Employees</option>
+              <option value="usa">USA Employees Only</option>
+              <option value="pakistan">Pakistani Employees (Remote) Only</option>
+              <option value="warehouses">Specific Warehouses</option>
+            </select>
+          </div>
+
+          {annTargetType === 'warehouses' && (
+            <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-xl max-h-36 overflow-y-auto">
+              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Select Warehouses</label>
+              <div className="space-y-1.5">
+                {warehouses.map(wh => (
+                  <label key={wh.id} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                    <input 
+                      type="checkbox"
+                      checked={annSelectedWarehouses.includes(wh.id)}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setAnnSelectedWarehouses(prev => [...prev, wh.id]);
+                        } else {
+                          setAnnSelectedWarehouses(prev => prev.filter(id => id !== wh.id));
+                        }
+                      }}
+                      className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                    />
+                    {wh.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+            <button type="button" onClick={() => setIsAnnounceOpen(false)} className="bg-white hover:bg-slate-55 border border-slate-200 text-slate-655 hover:text-slate-800 font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all">Cancel</button>
+            <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all shadow-sm">Post Announcement</button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Task Modal */}
       <TaskModal

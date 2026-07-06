@@ -1,4 +1,5 @@
 'use client';
+import { supabase } from './supabase';
 
 export interface Profile {
   id: string;
@@ -14,6 +15,30 @@ export interface Profile {
   leadTeams?: string[]; // teams this person is lead of
   jobTitle?: string;
   gender?: 'male' | 'female';
+  bankName?: string;
+  accountNumber?: string;
+  iban?: string;
+  profilePicture?: string; // base64 string
+  region?: 'USA' | 'Pakistan';
+  assignedWarehouses?: string[];
+  trackingEnabled?: boolean;
+}
+
+export interface Warehouse {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  radius: number; // in meters
+}
+
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  timestamp: string;
+  createdBy: string;
+  target: 'all' | 'usa' | 'pakistan' | string[]; // specific warehouse IDs
 }
 
 export interface LeaveApplication {
@@ -90,10 +115,21 @@ export interface Ticket {
 const isClient = typeof window !== 'undefined';
 
 const defaultEmployees: Profile[] = [
-  { id: 'emp_1', fullName: 'John Doe', email: 'john@company.com', role: 'employee', joinedDate: '2024-01-15', onboardingCompleted: true, baseSalary: 62000, teams: ['Engineering'], password: 'john123', isTeamLead: true, leadTeams: ['Engineering'], jobTitle: 'Software Architect', gender: 'male' },
-  { id: 'emp_2', fullName: 'Jane Smith', email: 'jane@company.com', role: 'employee', joinedDate: '2025-06-15', onboardingCompleted: true, baseSalary: 58000, teams: ['Design', 'Engineering'], password: 'jane123', jobTitle: 'Lead Product Designer', gender: 'female' },
-  { id: 'emp_3', fullName: 'Sarah Connor', email: 'employee@company.com', role: 'employee', joinedDate: '2023-03-01', onboardingCompleted: false, baseSalary: 65000, teams: ['Operations'], password: 'employee123', jobTitle: 'Operations Manager', gender: 'female' },
-  { id: 'emp_4', fullName: 'Alex Mercer', email: 'alex@company.com', role: 'employee', joinedDate: '2026-07-01', onboardingCompleted: false, baseSalary: 48000, teams: ['Engineering'], password: 'alex123', jobTitle: 'QA Specialist', gender: 'male' }
+  { id: 'emp_1', fullName: 'John Doe', email: 'john@company.com', role: 'employee', joinedDate: '2024-01-15', onboardingCompleted: true, baseSalary: 6200, teams: ['Engineering'], password: 'john123', isTeamLead: true, leadTeams: ['Engineering'], jobTitle: 'Software Architect', gender: 'male', region: 'USA', assignedWarehouses: ['wh_1'], bankName: 'Chase Bank', accountNumber: '123456789', iban: 'US12CHAS34567890', trackingEnabled: true },
+  { id: 'emp_2', fullName: 'Jane Smith', email: 'jane@company.com', role: 'employee', joinedDate: '2025-06-15', onboardingCompleted: true, baseSalary: 58000, teams: ['Design', 'Engineering'], password: 'jane123', jobTitle: 'Lead Product Designer', gender: 'female', region: 'Pakistan', bankName: 'Habib Bank Limited', accountNumber: '987654321', iban: 'PK98HABB0987654321', trackingEnabled: false },
+  { id: 'emp_3', fullName: 'Sarah Connor', email: 'employee@company.com', role: 'employee', joinedDate: '2023-03-01', onboardingCompleted: false, baseSalary: 6500, teams: ['Operations'], password: 'employee123', jobTitle: 'Operations Manager', gender: 'female', region: 'USA', assignedWarehouses: ['wh_2'], trackingEnabled: true },
+  { id: 'emp_4', fullName: 'Alex Mercer', email: 'alex@company.com', role: 'employee', joinedDate: '2026-07-01', onboardingCompleted: false, baseSalary: 48000, teams: ['Engineering'], password: 'alex123', jobTitle: 'QA Specialist', gender: 'male', region: 'Pakistan', trackingEnabled: false }
+];
+
+const defaultWarehouses: Warehouse[] = [
+  { id: 'wh_1', name: 'New York JFK Center', latitude: 40.6413, longitude: -73.7781, radius: 500 },
+  { id: 'wh_2', name: 'Chicago O\'Hare Hub', latitude: 41.9742, longitude: -87.9073, radius: 600 },
+  { id: 'wh_3', name: 'Houston Intercontinental Storage', latitude: 29.9902, longitude: -95.3368, radius: 450 }
+];
+
+const defaultAnnouncements: Announcement[] = [
+  { id: 'ann_1', title: 'Welcome to the New HR Portal', content: 'We have updated our internal system. All employees are requested to complete their profiles and update bank details.', timestamp: '10:00 AM', createdBy: 'HR Admin', target: 'all' },
+  { id: 'ann_2', title: 'USA Summer Safety Guidelines', content: 'Please review the new safety guidelines for USA warehouses regarding warm weather operations.', timestamp: '02:30 PM', createdBy: 'Admin', target: 'usa' }
 ];
 
 const defaultLeaves: LeaveApplication[] = [
@@ -127,6 +163,209 @@ const defaultTickets: Ticket[] = [
   }
 ];
 
+async function syncFromSupabase() {
+  if (typeof window === 'undefined') return;
+  try {
+    // 1. Sync Profiles
+    const { data: dbProfiles } = await supabase.from('profiles').select('*');
+    if (dbProfiles && dbProfiles.length > 0) {
+      const mapped = dbProfiles.map(p => ({
+        id: p.id,
+        fullName: p.full_name,
+        email: p.email,
+        role: p.role,
+        joinedDate: p.joined_date,
+        onboardingCompleted: p.onboarding_completed,
+        baseSalary: Number(p.base_salary),
+        teams: p.teams || [],
+        password: p.password,
+        isTeamLead: p.is_team_lead,
+        leadTeams: p.lead_teams || [],
+        jobTitle: p.job_title,
+        gender: p.gender,
+        bankName: p.bank_name,
+        accountNumber: p.account_number,
+        iban: p.iban,
+        profilePicture: p.profile_picture,
+        region: p.region,
+        assignedWarehouses: p.assigned_warehouses || [],
+        trackingEnabled: p.tracking_enabled
+      }));
+      localStorage.setItem('hr_employees_v6', JSON.stringify(mapped));
+    } else {
+      const seed = defaultEmployees.map(p => ({
+        id: p.id,
+        full_name: p.fullName,
+        email: p.email,
+        role: p.role,
+        joined_date: p.joinedDate,
+        onboarding_completed: p.onboardingCompleted,
+        base_salary: p.baseSalary,
+        teams: p.teams,
+        password: p.password,
+        is_team_lead: p.isTeamLead,
+        lead_teams: p.leadTeams,
+        job_title: p.jobTitle,
+        gender: p.gender,
+        bank_name: p.bankName,
+        account_number: p.accountNumber,
+        iban: p.iban,
+        profile_picture: p.profilePicture,
+        region: p.region,
+        assigned_warehouses: p.assignedWarehouses,
+        tracking_enabled: p.trackingEnabled
+      }));
+      await supabase.from('profiles').upsert(seed);
+    }
+
+    // 2. Sync Leaves
+    const { data: dbLeaves } = await supabase.from('leaves').select('*');
+    if (dbLeaves && dbLeaves.length > 0) {
+      const mapped = dbLeaves.map(l => ({
+        id: l.id,
+        employeeName: l.employee_name,
+        type: l.type,
+        duration: l.duration,
+        reason: l.reason,
+        status: l.status
+      }));
+      localStorage.setItem('hr_leaves_v6', JSON.stringify(mapped));
+    } else {
+      const seed = defaultLeaves.map(l => ({
+        id: l.id,
+        employee_name: l.employeeName,
+        type: l.type,
+        duration: l.duration,
+        reason: l.reason,
+        status: l.status
+      }));
+      await supabase.from('leaves').upsert(seed);
+    }
+
+    // 3. Sync Tasks
+    const { data: dbTasks } = await supabase.from('tasks').select('*');
+    if (dbTasks && dbTasks.length > 0) {
+      const mapped = dbTasks.map(t => ({
+        id: t.id,
+        title: t.title,
+        description: t.description,
+        assignedTo: t.assigned_to,
+        assignedEmail: t.assigned_email,
+        team: t.team,
+        dueDate: t.due_date,
+        priority: t.priority,
+        status: t.status,
+        createdBy: t.created_by
+      }));
+      localStorage.setItem('hr_tasks_v6', JSON.stringify(mapped));
+    } else {
+      const seed = defaultTasks.map(t => ({
+        id: t.id,
+        title: t.title,
+        description: t.description,
+        assigned_to: t.assignedTo,
+        assigned_email: t.assignedEmail,
+        team: t.team,
+        due_date: t.dueDate,
+        priority: t.priority,
+        status: t.status,
+        created_by: t.createdBy
+      }));
+      await supabase.from('tasks').upsert(seed);
+    }
+
+    // 4. Sync Timesheets
+    const { data: dbTimesheets } = await supabase.from('timesheets').select('*');
+    if (dbTimesheets && dbTimesheets.length > 0) {
+      const mapped = dbTimesheets.map(ts => ({
+        id: ts.id,
+        employeeEmail: ts.employee_email,
+        date: ts.date,
+        clockIn: ts.clock_in,
+        clockOut: ts.clock_out,
+        duration: ts.duration,
+        status: ts.status,
+        score: Number(ts.score)
+      }));
+      localStorage.setItem('hr_timesheets_v6', JSON.stringify(mapped));
+    }
+
+    // 5. Sync Announcements
+    const { data: dbAnnouncements } = await supabase.from('announcements').select('*');
+    if (dbAnnouncements && dbAnnouncements.length > 0) {
+      const mapped = dbAnnouncements.map(ann => ({
+        id: ann.id,
+        title: ann.title,
+        content: ann.content,
+        timestamp: ann.timestamp,
+        createdBy: ann.created_by,
+        target: ann.target.startsWith('[') ? JSON.parse(ann.target) : ann.target
+      }));
+      localStorage.setItem('hr_announcements_v6', JSON.stringify(mapped));
+    } else {
+      const seed = defaultAnnouncements.map(ann => ({
+        id: ann.id,
+        title: ann.title,
+        content: ann.content,
+        timestamp: ann.timestamp,
+        created_by: ann.createdBy,
+        target: typeof ann.target === 'string' ? ann.target : JSON.stringify(ann.target)
+      }));
+      await supabase.from('announcements').upsert(seed);
+    }
+
+    // 6. Sync Notifications
+    const { data: dbNotifications } = await supabase.from('notifications').select('*');
+    if (dbNotifications && dbNotifications.length > 0) {
+      const mapped = dbNotifications.map(n => ({
+        id: n.id,
+        recipientEmail: n.recipient_email,
+        recipientRole: n.recipient_role,
+        message: n.message,
+        timestamp: n.timestamp,
+        read: n.read
+      }));
+      localStorage.setItem('hr_notifications_v6', JSON.stringify(mapped));
+    }
+
+    // 7. Sync Warehouses
+    const { data: dbWarehouses } = await supabase.from('warehouses').select('*');
+    if (dbWarehouses && dbWarehouses.length > 0) {
+      const mapped = dbWarehouses.map(w => ({
+        id: w.id,
+        name: w.name,
+        latitude: Number(w.latitude),
+        longitude: Number(w.longitude),
+        radius: Number(w.radius)
+      }));
+      localStorage.setItem('hr_warehouses_v6', JSON.stringify(mapped));
+    } else {
+      const seed = defaultWarehouses.map(w => ({
+        id: w.id,
+        name: w.name,
+        latitude: w.latitude,
+        longitude: w.longitude,
+        radius: w.radius
+      }));
+      await supabase.from('warehouses').upsert(seed);
+    }
+
+    // 8. Key-Value Sync Fallback for tickets, custom teams, careers
+    const { data: kvStore } = await supabase.from('delcargo_store').select('*');
+    if (kvStore && kvStore.length > 0) {
+      kvStore.forEach((row: any) => {
+        if (['hr_tickets_v6', 'hr_custom_teams_v6', 'hr_careers_v6', 'hr_payroll_v6'].includes(row.key)) {
+          localStorage.setItem(row.key, JSON.stringify(row.value));
+        }
+      });
+    }
+
+    console.log('[Supabase Sync] SQL relational databases synchronized successfully.');
+  } catch (err) {
+    console.error('[Supabase Sync] Relational fetch error:', err);
+  }
+}
+
 function getInitialData<T>(key: string, fallback: T): T {
   if (!isClient) return fallback;
   const data = localStorage.getItem(key);
@@ -140,10 +379,112 @@ function getInitialData<T>(key: string, fallback: T): T {
 function saveData<T>(key: string, data: T) {
   if (isClient) {
     localStorage.setItem(key, JSON.stringify(data));
+    
+    (async () => {
+      try {
+        if (key === 'hr_employees_v6') {
+          const rows = (data as Profile[]).map(p => ({
+            id: p.id,
+            full_name: p.fullName,
+            email: p.email,
+            role: p.role,
+            joined_date: p.joinedDate,
+            onboarding_completed: p.onboardingCompleted,
+            base_salary: p.baseSalary,
+            teams: p.teams,
+            password: p.password,
+            is_team_lead: p.isTeamLead,
+            lead_teams: p.leadTeams,
+            job_title: p.jobTitle,
+            gender: p.gender,
+            bank_name: p.bankName,
+            account_number: p.accountNumber,
+            iban: p.iban,
+            profile_picture: p.profilePicture,
+            region: p.region,
+            assigned_warehouses: p.assignedWarehouses,
+            tracking_enabled: p.trackingEnabled
+          }));
+          await supabase.from('profiles').upsert(rows);
+        } else if (key === 'hr_leaves_v6') {
+          const rows = (data as LeaveApplication[]).map(l => ({
+            id: l.id,
+            employee_name: l.employeeName,
+            type: l.type,
+            duration: l.duration,
+            reason: l.reason,
+            status: l.status
+          }));
+          await supabase.from('leaves').upsert(rows);
+        } else if (key === 'hr_tasks_v6') {
+          const rows = (data as Task[]).map(t => ({
+            id: t.id,
+            title: t.title,
+            description: t.description,
+            assigned_to: t.assignedTo,
+            assigned_email: t.assignedEmail,
+            team: t.team,
+            due_date: t.dueDate,
+            priority: t.priority,
+            status: t.status,
+            created_by: t.createdBy
+          }));
+          await supabase.from('tasks').upsert(rows);
+        } else if (key === 'hr_timesheets_v6') {
+          const rows = (data as any[]).map(ts => ({
+            id: ts.id,
+            employee_email: ts.employeeEmail,
+            date: ts.date,
+            clock_in: ts.clockIn,
+            clock_out: ts.clockOut,
+            duration: ts.duration,
+            status: ts.status,
+            score: ts.score
+          }));
+          await supabase.from('timesheets').upsert(rows);
+        } else if (key === 'hr_announcements_v6') {
+          const rows = (data as Announcement[]).map(ann => ({
+            id: ann.id,
+            title: ann.title,
+            content: ann.content,
+            timestamp: ann.timestamp,
+            created_by: ann.createdBy,
+            target: typeof ann.target === 'string' ? ann.target : JSON.stringify(ann.target)
+          }));
+          await supabase.from('announcements').upsert(rows);
+        } else if (key === 'hr_notifications_v6') {
+          const rows = (data as Notification[]).map(n => ({
+            id: n.id,
+            recipient_email: n.recipientEmail,
+            recipient_role: n.recipientRole,
+            message: n.message,
+            timestamp: n.timestamp,
+            read: n.read
+          }));
+          await supabase.from('notifications').upsert(rows);
+        } else if (key === 'hr_warehouses_v6') {
+          const rows = (data as Warehouse[]).map(w => ({
+            id: w.id,
+            name: w.name,
+            latitude: w.latitude,
+            longitude: w.longitude,
+            radius: w.radius
+          }));
+          await supabase.from('warehouses').upsert(rows);
+        } else {
+          // Fallback key-value upsert for custom teams, support tickets, career positions
+          await supabase.from('delcargo_store').upsert({ key: key, value: data });
+        }
+        console.log(`[Supabase Sync] Saved SQL/KV key ${key} successfully.`);
+      } catch (err: any) {
+        console.error(`[Supabase Sync] Unexpected save error for ${key}:`, err);
+      }
+    })();
   }
 }
 
 export const db = {
+  syncFromSupabase,
   getEmployees: (): Profile[] => getInitialData('hr_employees_v6', defaultEmployees),
   saveEmployees: (data: Profile[]) => saveData('hr_employees_v6', data),
 
@@ -319,7 +660,8 @@ export const db = {
     const joinedYear = new Date(profile.joinedDate).getFullYear();
     const currentYear = new Date().getFullYear();
     const years = Math.max(0, currentYear - joinedYear);
-    return profile.baseSalary + (years * 10000);
+    const increment = profile.region === 'USA' ? 100 : 10000;
+    return profile.baseSalary + (years * increment);
   },
 
   getPayroll: (): PayrollRecord[] => {
@@ -344,6 +686,7 @@ export const db = {
 
       const dailyRate = computedSalary / 30;
       const urgentDeduction = Math.round(urgentDays * 2 * dailyRate);
+      const onboardingPenalty = emp.onboardingCompleted ? 0 : (emp.region === 'USA' ? 10 : 200);
 
       if (existing) {
         return { ...existing, baseSalary: computedSalary, deductions: urgentDeduction };
@@ -356,7 +699,7 @@ export const db = {
         baseSalary: computedSalary,
         unpaidLeaves: emp.onboardingCompleted ? 0 : 2,
         bonus: 0,
-        deductions: urgentDeduction + (emp.onboardingCompleted ? 0 : 200),
+        deductions: urgentDeduction + onboardingPenalty,
         processed: false
       };
     });
@@ -464,5 +807,44 @@ export const db = {
       return n;
     });
     db.saveNotifications(updated);
+  },
+
+  getWarehouses: (): Warehouse[] => getInitialData('hr_warehouses_v6', defaultWarehouses),
+  saveWarehouses: (data: Warehouse[]) => saveData('hr_warehouses_v6', data),
+  addWarehouse: (wh: Omit<Warehouse, 'id'>) => {
+    const list = db.getWarehouses();
+    const newWh = { ...wh, id: `wh_${Date.now()}` };
+    db.saveWarehouses([...list, newWh]);
+    return newWh;
+  },
+
+  getAnnouncements: (): Announcement[] => getInitialData('hr_announcements_v6', defaultAnnouncements),
+  saveAnnouncements: (data: Announcement[]) => saveData('hr_announcements_v6', data),
+  addAnnouncement: (title: string, content: string, target: Announcement['target'], createdBy: string) => {
+    const list = db.getAnnouncements();
+    const newAnn: Announcement = {
+      id: `ann_${Date.now()}`,
+      title,
+      content,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' ' + new Date().toLocaleDateString(),
+      createdBy,
+      target
+    };
+    db.saveAnnouncements([newAnn, ...list]);
+    return newAnn;
+  },
+
+  updateProfileDetails: (email: string, updates: Partial<Profile>) => {
+    const employees = db.getEmployees();
+    const updated = employees.map(emp => emp.email === email ? { ...emp, ...updates } : emp);
+    db.saveEmployees(updated);
+    return updated;
   }
+};
+
+export const formatMoney = (amount: number, region?: 'USA' | 'Pakistan') => {
+  if (region === 'USA') {
+    return `$${amount.toLocaleString()}`;
+  }
+  return `PKR ${amount.toLocaleString()}`;
 };

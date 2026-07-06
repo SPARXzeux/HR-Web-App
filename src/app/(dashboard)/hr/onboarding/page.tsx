@@ -21,6 +21,7 @@ export default function HROnboardingPage() {
   const [tempPassword, setTempPassword] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [gender, setGender] = useState<'male' | 'female'>('male');
+  const [region, setRegion] = useState<'USA' | 'Pakistan'>('Pakistan');
   const [onboardError, setOnboardError] = useState('');
   const [onboardSuccess, setOnboardSuccess] = useState('');
 
@@ -54,6 +55,7 @@ export default function HROnboardingPage() {
       password: tempPassword || 'employee123',
       jobTitle,
       gender,
+      region,
     });
 
     db.addNotification('all', 'hr', `New employee ${fullName} onboarded onto team ${team}.`);
@@ -69,6 +71,7 @@ export default function HROnboardingPage() {
       setTempPassword('');
       setJobTitle('');
       setGender('male');
+      setRegion('Pakistan');
       setOnboardSuccess('');
     }, 1500);
   };
@@ -124,7 +127,7 @@ export default function HROnboardingPage() {
       </Card>
 
       {/* Onboard Employee Modal */}
-      <Modal isOpen={isOnboardOpen} onClose={() => setIsOnboardOpen(false)} title="Onboard New Employee">
+      <Modal isOpen={isOnboardOpen} onClose={() => setIsOnboardOpen(false)} title="Onboard New Employee" className="md:max-w-2xl">
         <form onSubmit={handleOnboardSubmit} className="space-y-4 pt-1">
           {onboardError && (
             <div className="p-3.5 text-xs bg-rose-50 text-rose-700 border border-rose-100 rounded-xl font-semibold flex items-center gap-2">
@@ -214,19 +217,38 @@ export default function HROnboardingPage() {
               </select>
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Base Salary (PKR) *</label>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Region / Base Location Mode</label>
+              <select 
+                value={region} 
+                onChange={e => setRegion(e.target.value as 'USA' | 'Pakistan')} 
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer appearance-none"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 0.875rem center',
+                  backgroundSize: '1rem'
+                }}
+              >
+                <option value="Pakistan">Pakistan (Remote Employee)</option>
+                <option value="USA">USA Employee (Warehouse Geofencing)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                Base Salary ({region === 'USA' ? 'USD $' : 'PKR'}) *
+              </label>
               <input 
                 type="text" 
                 required 
                 value={salary} 
                 onChange={e => setSalary(e.target.value)} 
                 className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
-                placeholder="e.g. 50000" 
+                placeholder={region === 'USA' ? 'e.g. 5000' : 'e.g. 50000'} 
               />
             </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Assign Team</label>
               <select 
@@ -243,6 +265,9 @@ export default function HROnboardingPage() {
                 {teams.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Temporary Password</label>
               <input 

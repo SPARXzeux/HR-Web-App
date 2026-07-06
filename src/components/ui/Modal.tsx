@@ -8,9 +8,10 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  className?: string;
 }
 
-export function Modal({ isOpen, onClose, title, children }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, className }: ModalProps) {
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -37,7 +38,7 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
       
       {/* Modal Container */}
       <div 
-        className="relative bg-white w-full max-w-lg rounded-xl border border-slate-200 shadow-xl overflow-hidden"
+        className={`relative bg-white w-full max-w-lg rounded-xl border border-slate-200 shadow-xl overflow-hidden ${className || ''}`}
         style={{
           animation: 'enter-modal 180ms cubic-bezier(0.23, 1, 0.32, 1) forwards'
         }}

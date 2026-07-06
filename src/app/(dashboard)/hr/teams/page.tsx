@@ -13,6 +13,14 @@ export default function HRTeamsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [newTeamName, setNewTeamName] = useState('');
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+
+  // Warehouse states
+  const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [whName, setWhName] = useState('');
+  const [whLat, setWhLat] = useState('');
+  const [whLon, setWhLon] = useState('');
+  const [whRadius, setWhRadius] = useState('500');
+  const [whSuccess, setWhSuccess] = useState('');
   
   // Drag and Drop & Prompt Modal State
   const [draggedEmployee, setDraggedEmployee] = useState<Profile | null>(null);
@@ -28,6 +36,7 @@ export default function HRTeamsPage() {
   useEffect(() => {
     setEmployees(db.getEmployees());
     setTeams(db.getTeams());
+    setWarehouses(db.getWarehouses());
 
     const handleSearch = (e: Event) => {
       setSearchQuery((e as CustomEvent).detail || '');
@@ -131,6 +140,42 @@ export default function HRTeamsPage() {
     const emp = employees.find(e => e.id === leadEmployeeId);
     setLeadSuccess(`${emp?.fullName} is now team lead of: ${leadTeamSelections.join(', ') || '(none)'}`);
     setTimeout(() => { setIsTeamLeadOpen(false); setLeadSuccess(''); setLeadEmployeeId(''); setLeadTeamSelections([]); }, 1400);
+  };
+
+  const handleCreateWarehouse = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!whName.trim() || !whLat || !whLon) return;
+
+    db.addWarehouse({
+      name: whName.trim(),
+      latitude: Number(whLat),
+      longitude: Number(whLon),
+      radius: Number(whRadius)
+    });
+    setWarehouses(db.getWarehouses());
+    setWhName('');
+    setWhLat('');
+    setWhLon('');
+    setWhRadius('500');
+    setWhSuccess('Warehouse created successfully!');
+    setTimeout(() => setWhSuccess(''), 1500);
+  };
+
+  const handleAssignWarehouse = (empId: string, whId: string, checked: boolean) => {
+    const emp = employees.find(e => e.id === empId);
+    if (!emp) return;
+
+    let current = emp.assignedWarehouses || [];
+    if (checked) {
+      current = [...current, whId];
+    } else {
+      current = current.filter(id => id !== whId);
+    }
+
+    db.updateProfileDetails(emp.email, { assignedWarehouses: current });
+    setEmployees(db.getEmployees());
+    setWhSuccess(`Warehouse assignment updated for ${emp.fullName}`);
+    setTimeout(() => setWhSuccess(''), 1500);
   };
 
   const filteredEmployees = employees.filter(emp => {
@@ -407,6 +452,150 @@ export default function HRTeamsPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Warehouse Geofence configuration and Employee Assignment section */}
+      <div className="border-t border-slate-200 pt-8 mt-8 space-y-6">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">USA Warehouse Geofencing & Assignments</h2>
+          <p className="text-sm text-slate-500">Configure logistics warehouses and assign them to USA employees for auto check-in geofencing.</p>
+        </div>
+
+        {whSuccess && (
+          <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            {whSuccess}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Configure warehouses list and add form */}
+          <div className="lg:col-span-6 space-y-4">
+            <Card className="border border-slate-200">
+              <div className="px-6 py-4 border-b border-slate-100">
+                <h3 className="font-bold text-slate-900 text-sm">Add Warehouse Location</h3>
+              </div>
+              <CardContent className="p-6">
+                <form onSubmit={handleCreateWarehouse} className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider">Warehouse Name *</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={whName}
+                      onChange={e => setWhName(e.target.value)}
+                      placeholder="e.g. Seattle Logistics Yard"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs focus:border-orange-500 outline-none text-slate-900"
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider">Latitude *</label>
+                      <input 
+                        type="number" 
+                        step="0.000001"
+                        required
+                        value={whLat}
+                        onChange={e => setWhLat(e.target.value)}
+                        placeholder="e.g. 47.6062"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs focus:border-orange-500 outline-none text-slate-900"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider">Longitude *</label>
+                      <input 
+                        type="number" 
+                        step="0.000001"
+                        required
+                        value={whLon}
+                        onChange={e => setWhLon(e.target.value)}
+                        placeholder="e.g. -122.3321"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs focus:border-orange-500 outline-none text-slate-900"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider">Radius (meters) *</label>
+                      <input 
+                        type="number" 
+                        required
+                        value={whRadius}
+                        onChange={e => setWhRadius(e.target.value)}
+                        placeholder="e.g. 500"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs focus:border-orange-500 outline-none text-slate-900"
+                      />
+                    </div>
+                  </div>
+                  <button 
+                    type="submit" 
+                    className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 rounded-lg text-xs transition-all shadow-sm active:scale-97"
+                  >
+                    Add Warehouse
+                  </button>
+                </form>
+              </CardContent>
+            </Card>
+
+            <Card className="border border-slate-200">
+              <div className="px-6 py-4 border-b border-slate-100">
+                <h3 className="font-bold text-slate-900 text-sm">Active Warehouses ({warehouses.length})</h3>
+              </div>
+              <CardContent className="p-4 space-y-2 max-h-60 overflow-y-auto">
+                {warehouses.map(wh => (
+                  <div key={wh.id} className="p-3 rounded-lg border border-slate-150 bg-slate-50/50 flex justify-between items-center text-xs">
+                    <div>
+                      <div className="font-bold text-slate-800">{wh.name}</div>
+                      <div className="text-[10px] text-slate-450 mt-0.5">Coords: {wh.latitude}, {wh.longitude} · Radius: {wh.radius}m</div>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Assign Warehouses to USA Employees */}
+          <div className="lg:col-span-6 space-y-4">
+            <Card className="border border-slate-200 h-full">
+              <div className="px-6 py-4 border-b border-slate-100">
+                <h3 className="font-bold text-slate-900 text-sm">USA Warehouse Assignments</h3>
+              </div>
+              <CardContent className="p-6 space-y-4 max-h-[460px] overflow-y-auto">
+                {employees.filter(e => e.region === 'USA').map(emp => (
+                  <div key={emp.id} className="p-4 rounded-xl border border-slate-150 bg-slate-50/50 space-y-3">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <div className="font-bold text-slate-900 text-sm">{emp.fullName}</div>
+                        <div className="text-[10px] text-slate-400 font-semibold">{emp.email} · {emp.jobTitle || 'USA Staff'}</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Assigned Warehouses</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {warehouses.map(wh => {
+                          const isAssigned = (emp.assignedWarehouses || []).includes(wh.id);
+                          return (
+                            <label key={wh.id} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer bg-white border border-slate-200 p-2 rounded-lg hover:bg-slate-50">
+                              <input 
+                                type="checkbox"
+                                checked={isAssigned}
+                                onChange={e => handleAssignWarehouse(emp.id, wh.id, e.target.checked)}
+                                className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                              />
+                              <span className="truncate" title={wh.name}>{wh.name}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {employees.filter(e => e.region === 'USA').length === 0 && (
+                  <p className="text-xs text-slate-400 italic text-center py-6">No USA region employees found.</p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
