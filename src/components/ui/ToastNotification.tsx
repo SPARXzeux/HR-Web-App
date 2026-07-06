@@ -14,8 +14,22 @@ export function ToastNotification() {
   useEffect(() => {
     const handleNewPush = (e: Event) => {
       const notif = (e as CustomEvent).detail as Notification;
+
+      // RBAC check: every db.addNotification() call dispatches this event in
+      // whichever browser tab triggered it — e.g. HR closing a ticket also
+      // fires the employee's "your ticket was closed" notification in HR's
+      // own tab. Without this check, HR/Admin would see toasts meant for
+      // other people. Only pop a toast if it's actually addressed to the
+      // current viewer — same rule the notification bell uses.
+      const savedRole = localStorage.getItem('user_role');
+      const savedEmail = localStorage.getItem('user_email');
+      const isForMe =
+        notif.recipientEmail === savedEmail ||
+        (notif.recipientRole === savedRole && notif.recipientEmail === 'all');
+      if (!isForMe) return;
+
       const newToast: ToastMsg = { ...notif, visible: true };
-      
+
       setToasts(prev => [...prev, newToast]);
 
       // Auto fade out after 4 seconds

@@ -44,9 +44,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      (window as any).db = db;
-    }
     db.syncFromSupabase().then(() => {
       setDbReady(true);
       const savedRole = localStorage.getItem('user_role') as 'admin' | 'hr' | 'employee' | null;
