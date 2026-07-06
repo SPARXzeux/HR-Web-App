@@ -192,12 +192,12 @@ export default function EmployeeLeavesPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">My Leave Requests</h1>
-          <p className="text-slate-500 text-sm">View accrued time-off metrics and submit applications.</p>
+          <h1 className="text-lg md:text-2xl font-bold text-slate-900">My Leave Requests</h1>
+          <p className="text-xs md:text-sm text-slate-500">View accrued time-off metrics and submit applications.</p>
         </div>
         <button
           onClick={() => setIsLeaveOpen(true)}
-          className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+          className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
         >
           <PlusCircle className="h-4.5 w-4.5" /> Apply for Leave
         </button>
@@ -277,7 +277,8 @@ export default function EmployeeLeavesPage() {
 
       {/* History log */}
       <Card className="overflow-hidden p-0 border border-slate-200">
-        <div className="overflow-x-auto">
+        {/* Desktop table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full min-w-[700px] text-sm text-left border-collapse">
             <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
               <tr>
@@ -305,6 +306,30 @@ export default function EmployeeLeavesPage() {
               )}
             </tbody>
           </table>
+        </div>
+        {/* Mobile card stack */}
+        <div className="md:hidden space-y-2 p-3">
+          {filteredLeaves.map(leave => (
+            <div key={leave.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-2 shadow-sm">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold text-slate-900">{leave.type}</p>
+                {getStatusBadge(leave.status)}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Dates</p>
+                  <p className="text-xs font-semibold text-slate-700">{leave.duration}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Reason</p>
+                  <p className="text-xs font-semibold text-slate-700">{leave.reason}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+          {filteredLeaves.length === 0 && (
+            <p className="text-center py-12 text-slate-400 font-semibold italic text-xs">No leave requests found</p>
+          )}
         </div>
       </Card>
 
@@ -340,7 +365,7 @@ export default function EmployeeLeavesPage() {
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-555 uppercase tracking-wider">Start Date *</label>
               <input
@@ -372,9 +397,9 @@ export default function EmployeeLeavesPage() {
             />
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-            <button type="button" onClick={() => setIsLeaveOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
-            <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Submit Request</button>
+          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-200">
+            <button type="button" onClick={() => setIsLeaveOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
+            <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Submit Request</button>
           </div>
         </form>
       </Modal>
