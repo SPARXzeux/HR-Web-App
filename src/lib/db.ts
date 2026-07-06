@@ -13,6 +13,8 @@ export interface Profile {
   password?: string;
   isTeamLead?: boolean;
   leadTeams?: string[]; // teams this person is lead of
+  isWarehouseLead?: boolean;
+  managedWarehouses?: string[]; // warehouses this person manages
   jobTitle?: string;
   gender?: 'male' | 'female';
   bankName?: string;
@@ -138,10 +140,28 @@ const defaultTickets: Ticket[] = [];
 async function syncFromSupabase() {
   if (typeof window === 'undefined') return;
   try {
-    // 1. Sync Profiles
-    const { data: dbProfiles } = await supabase.from('profiles').select('*');
+    // Fetch all datasets in parallel to reduce load time
+    const [
+      { data: dbProfiles },
+      { data: dbLeaves },
+      { data: dbTasks },
+      { data: dbTimesheets },
+      { data: dbAnnouncements },
+      { data: dbNotifications },
+      { data: dbWarehouses },
+      { data: kvStore }
+    ] = await Promise.all([
+      supabase.from('profiles').select('*'),
+      supabase.from('leaves').select('*'),
+      supabase.from('tasks').select('*'),
+      supabase.from('timesheets').select('*'),
+      supabase.from('announcements').select('*'),
+      supabase.from('notifications').select('*'),
+      supabase.from('warehouses').select('*'),
+      supabase.from('delcargo_store').select('*')
+    ]);
+
     let finalProfiles = dbProfiles || [];
-    
     const hasAdmin = finalProfiles.some(p => p.email === 'admin@delcargo.us');
     const hasHr = finalProfiles.some(p => p.email === 'hr@delcargo.us');
     const missingSeeds = [];
@@ -176,6 +196,8 @@ async function syncFromSupabase() {
         password: p.password,
         isTeamLead: p.is_team_lead,
         leadTeams: p.lead_teams || [],
+        isWarehouseLead: p.is_warehouse_lead,
+        managedWarehouses: p.managed_warehouses || [],
         jobTitle: p.job_title,
         gender: p.gender,
         bankName: p.bank_name,
@@ -190,7 +212,6 @@ async function syncFromSupabase() {
     }
 
     // 2. Sync Leaves
-    const { data: dbLeaves } = await supabase.from('leaves').select('*');
     if (dbLeaves && dbLeaves.length > 0) {
       const mapped = dbLeaves.map(l => ({
         id: l.id,
@@ -214,7 +235,6 @@ async function syncFromSupabase() {
     }
 
     // 3. Sync Tasks
-    const { data: dbTasks } = await supabase.from('tasks').select('*');
     if (dbTasks && dbTasks.length > 0) {
       const mapped = dbTasks.map(t => ({
         id: t.id,
@@ -246,7 +266,6 @@ async function syncFromSupabase() {
     }
 
     // 4. Sync Timesheets
-    const { data: dbTimesheets } = await supabase.from('timesheets').select('*');
     if (dbTimesheets && dbTimesheets.length > 0) {
       const mapped = dbTimesheets.map(ts => ({
         id: ts.id,
@@ -262,7 +281,6 @@ async function syncFromSupabase() {
     }
 
     // 5. Sync Announcements
-    const { data: dbAnnouncements } = await supabase.from('announcements').select('*');
     if (dbAnnouncements && dbAnnouncements.length > 0) {
       const mapped = dbAnnouncements.map(ann => ({
         id: ann.id,
@@ -286,7 +304,6 @@ async function syncFromSupabase() {
     }
 
     // 6. Sync Notifications
-    const { data: dbNotifications } = await supabase.from('notifications').select('*');
     if (dbNotifications && dbNotifications.length > 0) {
       const mapped = dbNotifications.map(n => ({
         id: n.id,
@@ -300,7 +317,6 @@ async function syncFromSupabase() {
     }
 
     // 7. Sync Warehouses
-    const { data: dbWarehouses } = await supabase.from('warehouses').select('*');
     if (dbWarehouses && dbWarehouses.length > 0) {
       const mapped = dbWarehouses.map(w => ({
         id: w.id,
@@ -322,7 +338,6 @@ async function syncFromSupabase() {
     }
 
     // 8. Key-Value Sync Fallback for tickets, custom teams, careers
-    const { data: kvStore } = await supabase.from('delcargo_store').select('*');
     if (kvStore && kvStore.length > 0) {
       kvStore.forEach((row: any) => {
         if (['hr_tickets_prod_v1', 'hr_custom_teams_prod_v1', 'hr_careers_prod_v1', 'hr_payroll_prod_v1'].includes(row.key)) {
@@ -366,6 +381,8 @@ function saveData<T>(key: string, data: T) {
             password: p.password,
             is_team_lead: p.isTeamLead,
             lead_teams: p.leadTeams,
+            is_warehouse_lead: p.isWarehouseLead,
+            managed_warehouses: p.managedWarehouses,
             job_title: p.jobTitle,
             gender: p.gender,
             bank_name: p.bankName,

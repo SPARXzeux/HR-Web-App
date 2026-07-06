@@ -33,6 +33,12 @@ export default function HRTeamsPage() {
   const [leadTeamSelections, setLeadTeamSelections] = useState<string[]>([]);
   const [leadSuccess, setLeadSuccess] = useState('');
 
+  // Manage Warehouse Leads Modal State
+  const [isWhLeadOpen, setIsWhLeadOpen] = useState(false);
+  const [whLeadEmployeeId, setWhLeadEmployeeId] = useState('');
+  const [whLeadSelections, setWhLeadSelections] = useState<string[]>([]);
+  const [whLeadSuccess, setWhLeadSuccess] = useState('');
+
   useEffect(() => {
     setEmployees(db.getEmployees());
     setTeams(db.getTeams());
@@ -142,6 +148,36 @@ export default function HRTeamsPage() {
     setTimeout(() => { setIsTeamLeadOpen(false); setLeadSuccess(''); setLeadEmployeeId(''); setLeadTeamSelections([]); }, 1400);
   };
 
+  const handleWhLeadToggle = (whId: string) => {
+    setWhLeadSelections(prev =>
+      prev.includes(whId) ? prev.filter(id => id !== whId) : [...prev, whId]
+    );
+  };
+
+  const handleSaveWhLead = () => {
+    if (!whLeadEmployeeId) return;
+    const emp = employees.find(e => e.id === whLeadEmployeeId);
+    if (!emp) return;
+
+    const isNowLead = whLeadSelections.length > 0;
+    db.updateProfileDetails(emp.email, {
+      isWarehouseLead: isNowLead,
+      managedWarehouses: whLeadSelections,
+      jobTitle: isNowLead ? 'Warehouse Manager' : emp.jobTitle
+    });
+
+    setEmployees(db.getEmployees());
+    setWhLeadSuccess(`${emp.fullName} is now Warehouse Manager for: ${
+      whLeadSelections.map(id => warehouses.find(w => w.id === id)?.name || id).join(', ') || '(none)'
+    }`);
+    setTimeout(() => { 
+      setIsWhLeadOpen(false); 
+      setWhLeadSuccess(''); 
+      setWhLeadEmployeeId(''); 
+      setWhLeadSelections([]); 
+    }, 1500);
+  };
+
   const handleCreateWarehouse = (e: React.FormEvent) => {
     e.preventDefault();
     if (!whName.trim() || !whLat || !whLon) return;
@@ -178,6 +214,22 @@ export default function HRTeamsPage() {
     setTimeout(() => setWhSuccess(''), 1500);
   };
 
+  const handleAssignWarehouseToTeam = (teamName: string, whId: string) => {
+    const updatedEmployees = employees.map(emp => {
+      if (emp.teams.includes(teamName)) {
+        const current = emp.assignedWarehouses || [];
+        if (!current.includes(whId)) {
+          const newWhs = [...current, whId];
+          db.updateProfileDetails(emp.email, { assignedWarehouses: newWhs });
+        }
+      }
+      return emp;
+    });
+    setEmployees(db.getEmployees());
+    setWhSuccess(`Warehouse assigned to all members of team: ${teamName}`);
+    setTimeout(() => setWhSuccess(''), 1500);
+  };
+
   const filteredEmployees = employees.filter(emp => {
     return emp.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
            emp.role.toLowerCase().includes(searchQuery.toLowerCase());
@@ -193,9 +245,15 @@ export default function HRTeamsPage() {
         <div className="flex items-center gap-3">
           <button 
             onClick={() => setIsTeamLeadOpen(true)}
-            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+            className="bg-orange-650 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
           >
             <UserCog className="h-4 w-4" /> Manage Team Leads
+          </button>
+          <button 
+            onClick={() => setIsWhLeadOpen(true)}
+            className="bg-purple-650 hover:bg-purple-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+          >
+            <UserCog className="h-4 w-4" /> Manage Warehouse Managers
           </button>
           {saveSuccess && (
             <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 animate-in fade-in duration-150 shadow-sm">
@@ -250,6 +308,9 @@ export default function HRTeamsPage() {
                         {emp.isTeamLead && (emp.leadTeams?.length ?? 0) > 0 && (
                           <span title={`Lead of: ${emp.leadTeams?.join(', ')}`} className="text-amber-500">⭐</span>
                         )}
+                        {emp.isWarehouseLead && (emp.managedWarehouses?.length ?? 0) > 0 && (
+                          <span title="Warehouse Manager" className="text-purple-650 font-bold text-xs" style={{ cursor: 'help' }}>🏢 Manager</span>
+                        )}
                       </div>
                       <div className="text-[10px] text-slate-550 mt-0.5 uppercase tracking-wide font-medium">{emp.jobTitle || emp.role}</div>
                     </div>
@@ -299,13 +360,29 @@ export default function HRTeamsPage() {
                 >
                   <div className="flex justify-between items-center mb-3">
                     <span className="font-bold text-xs text-slate-700 uppercase tracking-wider">{teamName}</span>
-                    <button 
-                      onClick={() => handleDeleteTeam(teamName)}
-                      className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-white transition-colors"
-                      title="Delete Team"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            handleAssignWarehouseToTeam(teamName, e.target.value);
+                            e.target.value = '';
+                          }
+                        }}
+                        className="text-[10px] font-bold bg-white border border-slate-200 rounded-lg px-1.5 py-0.5 text-slate-500 focus:border-orange-500 outline-none max-w-[110px] truncate"
+                      >
+                        <option value="">+ Assign Wh</option>
+                        {warehouses.map(wh => (
+                          <option key={wh.id} value={wh.id}>{wh.name}</option>
+                        ))}
+                      </select>
+                      <button 
+                        onClick={() => handleDeleteTeam(teamName)}
+                        className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-white transition-colors"
+                        title="Delete Team"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex-1 space-y-2">
@@ -409,6 +486,78 @@ export default function HRTeamsPage() {
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
             <button onClick={() => setIsTeamLeadOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
             <button onClick={handleSaveTeamLead} disabled={!leadEmployeeId} className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Save Changes</button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Warehouse Lead / Manager Management Modal */}
+      <Modal isOpen={isWhLeadOpen} onClose={() => setIsWhLeadOpen(false)} title="Manage Warehouse Managers">
+        <div className="space-y-4">
+          {whLeadSuccess && (
+            <div className="p-3 text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg font-semibold flex items-center gap-1.5">
+              <CheckCircle2 className="h-4 w-4" />{whLeadSuccess}
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Select USA Employee</label>
+            <select
+              value={whLeadEmployeeId}
+              onChange={e => {
+                setWhLeadEmployeeId(e.target.value);
+                const emp = employees.find(em => em.id === e.target.value);
+                setWhLeadSelections(emp?.managedWarehouses || []);
+              }}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900"
+            >
+              <option value="">— Select employee —</option>
+              {employees.filter(e => e.region === 'USA' && e.role === 'employee').map(emp => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.fullName} {emp.isWarehouseLead ? '🏢 (Manager)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {whLeadEmployeeId && (
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Assign as Manager of Warehouses</label>
+              <div className="space-y-2 mt-1">
+                {warehouses.map(w => (
+                  <label key={w.id} className="flex items-center gap-2.5 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={whLeadSelections.includes(w.id)}
+                      onChange={() => handleWhLeadToggle(w.id)}
+                      className="h-4 w-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                    />
+                    <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900">{w.name}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-2">Deselecting all warehouses removes the Warehouse Manager designation.</p>
+            </div>
+          )}
+
+          {/* Current Warehouse Managers List */}
+          <div className="border-t border-slate-200 pt-4 space-y-2">
+            <p className="text-xs font-bold text-slate-550 uppercase tracking-wider">Current Warehouse Managers</p>
+            {employees.filter(e => e.isWarehouseLead && (e.managedWarehouses?.length ?? 0) > 0).map(emp => (
+              <div key={emp.id} className="flex items-center justify-between text-xs bg-purple-50 border border-purple-100 rounded-lg px-3 py-2">
+                <span className="font-semibold text-slate-800">🏢 {emp.fullName}</span>
+                <span className="text-purple-700 font-semibold">
+                  {emp.managedWarehouses?.map(id => warehouses.find(w => w.id === id)?.name || id).join(', ')}
+                </span>
+              </div>
+            ))}
+            {employees.filter(e => e.isWarehouseLead && (e.managedWarehouses?.length ?? 0) > 0).length === 0 && (
+              <p className="text-xs text-slate-400 italic">No warehouse managers assigned yet.</p>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+            <button onClick={() => setIsWhLeadOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
+            <button onClick={handleSaveWhLead} disabled={!whLeadEmployeeId} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Save Changes</button>
           </div>
         </div>
       </Modal>
