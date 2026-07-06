@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, Menu, X, FileText } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, Menu, X, FileText, MapPin } from 'lucide-react';
 import { db } from '@/lib/db';
 
 interface SidebarProps {
@@ -68,6 +68,7 @@ export function Sidebar({ role }: SidebarProps) {
 
   const adminItems = [
     { name: 'Overview', href: '/admin', icon: LayoutDashboard },
+    { name: 'Warehouses', href: '/admin/warehouses', icon: MapPin },
     { name: 'Tasks', href: '/admin/tasks', icon: ClipboardList },
     { name: 'Leaves Approval', href: '/admin/leaves', icon: Clock },
     { name: 'Payroll & Salary', href: '/admin/payroll', icon: Wallet },
