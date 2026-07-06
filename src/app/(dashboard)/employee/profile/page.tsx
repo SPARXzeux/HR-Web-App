@@ -7,7 +7,7 @@ import { db, Profile } from '@/lib/db';
 import { PasswordInput } from '@/components/ui/PasswordInput';
 import {
   User, Mail, Briefcase, Calendar, Users, ShieldCheck,
-  KeyRound, CheckCircle2, AlertCircle, Star
+  KeyRound, CheckCircle2, AlertCircle, Star, Landmark, Pencil
 } from 'lucide-react';
 
 export default function EmployeeProfilePage() {
@@ -21,12 +21,55 @@ export default function EmployeeProfilePage() {
   const [resetError, setResetError] = useState('');
   const [resetSuccess, setResetSuccess] = useState('');
 
+  // Bank details self-service edit
+  const [isBankEditOpen, setIsBankEditOpen] = useState(false);
+  const [bankNameInput, setBankNameInput] = useState('');
+  const [accountNumberInput, setAccountNumberInput] = useState('');
+  const [ibanInput, setIbanInput] = useState('');
+  const [bankError, setBankError] = useState('');
+  const [bankSuccess, setBankSuccess] = useState('');
+
   useEffect(() => {
     const email = localStorage.getItem('user_email');
     const employees = db.getEmployees();
     const p = employees.find(e => e.email === email);
     if (p) setProfile(p);
   }, []);
+
+  const openBankEdit = () => {
+    if (!profile) return;
+    setBankNameInput(profile.bankName || '');
+    setAccountNumberInput(profile.accountNumber || '');
+    setIbanInput(profile.iban || '');
+    setBankError('');
+    setBankSuccess('');
+    setIsBankEditOpen(true);
+  };
+
+  const handleBankSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBankError('');
+    setBankSuccess('');
+
+    if (!bankNameInput.trim() || !accountNumberInput.trim() || !ibanInput.trim()) {
+      setBankError('Please fill in all bank detail fields.');
+      return;
+    }
+
+    const email = localStorage.getItem('user_email');
+    if (!email) return;
+
+    await db.updateProfileDetails(email, {
+      bankName: bankNameInput.trim(),
+      accountNumber: accountNumberInput.trim(),
+      iban: ibanInput.trim()
+    });
+    const employees = db.getEmployees();
+    const updated = employees.find(e => e.email === email);
+    if (updated) setProfile(updated);
+    setBankSuccess('Bank details updated successfully!');
+    setTimeout(() => { setIsBankEditOpen(false); setBankSuccess(''); }, 1400);
+  };
 
   const handleResetSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -157,6 +200,54 @@ export default function EmployeeProfilePage() {
         </div>
       </Card>
 
+      {/* Bank Details section */}
+      <Card className="border border-slate-200 p-0 overflow-hidden">
+        <div className="px-6 pt-5 pb-2 border-b border-slate-100 flex items-center justify-between">
+          <h3 className="font-bold text-slate-900 text-sm">Bank Details</h3>
+          <button
+            onClick={openBankEdit}
+            className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition-all border border-slate-200 active:scale-97"
+          >
+            <Pencil className="h-3.5 w-3.5" /> Edit
+          </button>
+        </div>
+        {profile.bankName ? (
+          <div className="divide-y divide-slate-100">
+            <div className="flex items-center gap-4 px-6 py-4">
+              <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                <Landmark className="h-4 w-4 text-slate-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bank Name</p>
+                <p className="text-sm font-semibold text-slate-900 mt-0.5 truncate">{profile.bankName}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 px-6 py-4">
+              <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                <Landmark className="h-4 w-4 text-slate-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Account Number</p>
+                <p className="text-sm font-semibold text-slate-900 mt-0.5 font-mono truncate">{profile.accountNumber || '—'}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 px-6 py-4">
+              <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                <Landmark className="h-4 w-4 text-slate-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{profile.region === 'USA' ? 'Routing Number' : 'IBAN'}</p>
+                <p className="text-sm font-semibold text-slate-900 mt-0.5 font-mono truncate">{profile.iban || '—'}</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="px-6 py-6 text-center">
+            <p className="text-xs text-slate-400 italic font-semibold">No bank details on file yet. Add them so payroll can process your salary correctly.</p>
+          </div>
+        )}
+      </Card>
+
       {/* Security section */}
       <Card className="border border-slate-200 p-0 overflow-hidden">
         <div className="px-6 pt-5 pb-2 border-b border-slate-100">
@@ -226,6 +317,64 @@ export default function EmployeeProfilePage() {
           <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-200">
             <button type="button" onClick={() => setIsResetOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
             <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Update Password</button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Bank Details Edit Modal */}
+      <Modal isOpen={isBankEditOpen} onClose={() => { setIsBankEditOpen(false); setBankError(''); setBankSuccess(''); }} title="Edit Bank Details">
+        <form onSubmit={handleBankSubmit} className="space-y-4">
+          {bankError && (
+            <div className="p-3 text-xs bg-rose-50 text-rose-600 border border-rose-100 rounded-lg font-semibold flex items-center gap-1.5">
+              <AlertCircle className="h-4 w-4" />{bankError}
+            </div>
+          )}
+          {bankSuccess && (
+            <div className="p-3 text-xs bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-lg font-semibold flex items-center gap-1.5">
+              <CheckCircle2 className="h-4 w-4" />{bankSuccess}
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Bank Name</label>
+            <input
+              type="text"
+              value={bankNameInput}
+              onChange={e => setBankNameInput(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900"
+              placeholder="e.g. Habib Bank Limited"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Account Number</label>
+            <input
+              type="text"
+              value={accountNumberInput}
+              onChange={e => setAccountNumberInput(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900 font-mono"
+              placeholder="Enter your account number"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">
+              {profile.region === 'USA' ? 'Routing Number' : 'IBAN'}
+            </label>
+            <input
+              type="text"
+              value={ibanInput}
+              onChange={e => setIbanInput(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900 font-mono"
+              placeholder={profile.region === 'USA' ? 'e.g. 021000021' : 'e.g. PK12ABCD0000001234567890'}
+            />
+          </div>
+
+          <p className="text-[10px] text-slate-400 leading-relaxed">
+            Changes to your bank details are saved immediately and visible to HR/Payroll for your next salary cycle.
+          </p>
+
+          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-200">
+            <button type="button" onClick={() => setIsBankEditOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
+            <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Save Bank Details</button>
           </div>
         </form>
       </Modal>

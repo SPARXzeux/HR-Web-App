@@ -10,6 +10,7 @@ import { FileText, Download, CheckCircle2, ShieldCheck, Printer } from 'lucide-r
 interface Payslip {
   month: string;
   base: number;
+  increment: number;
   deductions: number;
   bonus: number;
   net: number;
@@ -35,9 +36,24 @@ export default function EmployeeSalaryPage() {
     }
   }, []);
 
-  const baseSalary = payrollRecord ? payrollRecord.baseSalary : 0;
-  const originalBase = userProfile ? userProfile.baseSalary : 0;
-  const totalIncrement = baseSalary - originalBase;
+  // Real, currently-effective base salary — this already reflects every
+  // anniversary increment that's actually been processed in the past.
+  const baseSalary = userProfile ? userProfile.baseSalary : 0;
+  // Pending increment for THIS cycle only (0 unless this is the anniversary
+  // month and HR/Admin hasn't processed it yet). Once processed, it folds
+  // permanently into baseSalary above and this goes back to 0 next cycle.
+  const pendingIncrement = payrollRecord?.incrementAmount || 0;
+
+  const nextAnniversaryDate = (() => {
+    if (!userProfile) return null;
+    const source = userProfile.salaryStartDate || userProfile.joinedDate;
+    if (!source) return null;
+    const anniversary = new Date(source);
+    const next = new Date();
+    next.setMonth(anniversary.getMonth(), anniversary.getDate());
+    if (next < new Date()) next.setFullYear(next.getFullYear() + 1);
+    return next;
+  })();
 
   // Real current-cycle payslip only — sourced directly from the actual
   // payroll record (bonus/deductions default to 0 until HR/Finance actually
@@ -47,9 +63,10 @@ export default function EmployeeSalaryPage() {
   const currentSlip: Payslip | null = payrollRecord ? {
     month: currentMonthLabel,
     base: baseSalary,
+    increment: pendingIncrement,
     deductions: payrollRecord.deductions || 0,
     bonus: payrollRecord.bonus || 0,
-    net: baseSalary + (payrollRecord.bonus || 0) - (payrollRecord.deductions || 0),
+    net: baseSalary + pendingIncrement + (payrollRecord.bonus || 0) - (payrollRecord.deductions || 0),
     processed: !!payrollRecord.processed
   } : null;
 
@@ -70,9 +87,9 @@ export default function EmployeeSalaryPage() {
               {formatMoney(baseSalary, userProfile?.region)}{' '}
               <span className="text-xs text-slate-500 font-normal">/ month</span>
             </p>
-            {totalIncrement > 0 && (
-              <p className="text-[10px] text-emerald-600 font-semibold mt-1">
-                Includes {formatMoney(totalIncrement, userProfile?.region)} dynamic annual increments (+{formatMoney(10000, userProfile?.region)}/yr)
+            {pendingIncrement > 0 && (
+              <p className="text-[10px] text-amber-600 font-semibold mt-1">
+                +{formatMoney(pendingIncrement, userProfile?.region)} anniversary increment pending this cycle — applies to base once processed
               </p>
             )}
           </CardContent>
@@ -81,7 +98,7 @@ export default function EmployeeSalaryPage() {
           <CardContent className="pt-6">
             <h3 className="font-semibold text-slate-500 text-xs uppercase tracking-wider">Next Increment Date</h3>
             <p className="text-3xl font-bold text-slate-900 mt-2">
-              {userProfile ? new Date(new Date(userProfile.joinedDate).setFullYear(new Date().getFullYear() + 1)).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : 'N/A'}
+              {nextAnniversaryDate ? nextAnniversaryDate.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : 'N/A'}
             </p>
           </CardContent>
         </Card>
@@ -96,6 +113,7 @@ export default function EmployeeSalaryPage() {
               <tr>
                 <th className="px-6 py-4">Month</th>
                 <th className="px-6 py-4 text-right">Base Amount</th>
+                <th className="px-6 py-4 text-right">Increment</th>
                 <th className="px-6 py-4 text-right">Deductions</th>
                 <th className="px-6 py-4 text-right">Bonuses</th>
                 <th className="px-6 py-4 text-right">Net Received</th>
@@ -108,6 +126,9 @@ export default function EmployeeSalaryPage() {
                 <tr key={i} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4 font-semibold text-slate-900">{slip.month}</td>
                   <td className="px-6 py-4 text-right font-medium">{formatMoney(slip.base, userProfile?.region)}</td>
+                  <td className="px-6 py-4 text-right text-emerald-600 font-semibold">
+                    {slip.increment > 0 ? `+${formatMoney(slip.increment, userProfile?.region)}` : '—'}
+                  </td>
                   <td className="px-6 py-4 text-right text-rose-600 font-semibold">
                     {slip.deductions > 0 ? `-${formatMoney(slip.deductions, userProfile?.region)}` : formatMoney(0, userProfile?.region)}
                   </td>
@@ -130,7 +151,7 @@ export default function EmployeeSalaryPage() {
               ))}
               {filteredSlips.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-slate-400 font-semibold italic text-xs">
+                  <td colSpan={8} className="py-8 text-center text-slate-400 font-semibold italic text-xs">
                     No salary slips recorded or tracking has not started yet.
                   </td>
                 </tr>
@@ -155,6 +176,12 @@ export default function EmployeeSalaryPage() {
                   <p className="text-[10px] text-slate-400 font-semibold uppercase">Net Received</p>
                   <p className="text-xs font-bold text-slate-900">{formatMoney(slip.net, userProfile?.region)}</p>
                 </div>
+                {slip.increment > 0 && (
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase">Increment</p>
+                    <p className="text-xs font-semibold text-emerald-600">+{formatMoney(slip.increment, userProfile?.region)}</p>
+                  </div>
+                )}
                 <div>
                   <p className="text-[10px] text-slate-400 font-semibold uppercase">Deductions</p>
                   <p className="text-xs font-semibold text-rose-600">{slip.deductions > 0 ? `-${formatMoney(slip.deductions, userProfile?.region)}` : '—'}</p>
@@ -218,13 +245,13 @@ export default function EmployeeSalaryPage() {
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Salary Breakdown</p>
               <div className="space-y-2 divide-y divide-slate-100 text-xs border border-slate-150 rounded-lg p-4 bg-white">
                 <div className="flex justify-between items-center py-1">
-                  <span className="text-slate-500 font-semibold">Base salary contract</span>
-                  <span className="text-slate-900 font-semibold">{formatMoney(originalBase, userProfile?.region)}</span>
+                  <span className="text-slate-500 font-semibold">Base salary</span>
+                  <span className="text-slate-900 font-semibold">{formatMoney(selectedSlip.base, userProfile?.region)}</span>
                 </div>
-                {totalIncrement > 0 && (
+                {selectedSlip.increment > 0 && (
                   <div className="flex justify-between items-center py-2 pt-2">
-                    <span className="text-slate-500 font-semibold">Annual promotions increment</span>
-                    <span className="text-emerald-600 font-semibold">+{formatMoney(totalIncrement, userProfile?.region)}</span>
+                    <span className="text-slate-500 font-semibold">Anniversary increment</span>
+                    <span className="text-emerald-600 font-semibold">+{formatMoney(selectedSlip.increment, userProfile?.region)}</span>
                   </div>
                 )}
                 <div className="flex justify-between items-center py-2">

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { DollarSign, CheckCircle2, TrendingUp } from 'lucide-react';
-import { db, PayrollRecord } from '@/lib/db';
+import { db, PayrollRecord, formatMoney } from '@/lib/db';
 
 interface PayrollSummary {
   department: string;
@@ -12,6 +12,19 @@ interface PayrollSummary {
   totalBase: number;
   totalBonuses: number;
   totalDeductions: number;
+  totalIncrements: number;
+  // Departments can span both regions, so USD and PKR totals must stay
+  // separate — they are not the same currency and must never be added.
+  totalBaseUSD: number;
+  totalBasePKR: number;
+  totalIncrementsUSD: number;
+  totalIncrementsPKR: number;
+  totalBonusesUSD: number;
+  totalBonusesPKR: number;
+  totalDeductionsUSD: number;
+  totalDeductionsPKR: number;
+  totalNetUSD: number;
+  totalNetPKR: number;
 }
 
 export default function AdminPayrollPage() {
@@ -29,13 +42,27 @@ export default function AdminPayrollPage() {
     const calculatedSummaries = depts.map(dept => {
       const deptEmployees = employees.filter(e => e.teams.includes(dept));
       const deptPayroll = freshPayroll.filter(p => deptEmployees.some(e => e.id === p.employeeId));
+      const usdPayroll = deptPayroll.filter(p => p.region === 'USA');
+      const pkrPayroll = deptPayroll.filter(p => p.region !== 'USA');
+      const netOf = (p: PayrollRecord) => p.baseSalary + p.incrementAmount + p.bonus - p.deductions;
 
       return {
         department: dept,
         headcount: deptEmployees.length,
         totalBase: deptPayroll.reduce((acc, p) => acc + p.baseSalary, 0),
         totalBonuses: deptPayroll.reduce((acc, p) => acc + p.bonus, 0),
-        totalDeductions: deptPayroll.reduce((acc, p) => acc + p.deductions, 0)
+        totalDeductions: deptPayroll.reduce((acc, p) => acc + p.deductions, 0),
+        totalIncrements: deptPayroll.reduce((acc, p) => acc + p.incrementAmount, 0),
+        totalBaseUSD: usdPayroll.reduce((acc, p) => acc + p.baseSalary, 0),
+        totalBasePKR: pkrPayroll.reduce((acc, p) => acc + p.baseSalary, 0),
+        totalIncrementsUSD: usdPayroll.reduce((acc, p) => acc + p.incrementAmount, 0),
+        totalIncrementsPKR: pkrPayroll.reduce((acc, p) => acc + p.incrementAmount, 0),
+        totalBonusesUSD: usdPayroll.reduce((acc, p) => acc + p.bonus, 0),
+        totalBonusesPKR: pkrPayroll.reduce((acc, p) => acc + p.bonus, 0),
+        totalDeductionsUSD: usdPayroll.reduce((acc, p) => acc + p.deductions, 0),
+        totalDeductionsPKR: pkrPayroll.reduce((acc, p) => acc + p.deductions, 0),
+        totalNetUSD: usdPayroll.reduce((acc, p) => acc + netOf(p), 0),
+        totalNetPKR: pkrPayroll.reduce((acc, p) => acc + netOf(p), 0)
       };
     });
 
@@ -51,21 +78,33 @@ export default function AdminPayrollPage() {
   // processed (same `processed` flag HR's per-employee Process button sets).
   const isReleased = payroll.length > 0 && payroll.every(p => p.processed);
 
-  const handleReleaseMonthlyFunds = () => {
-    const confirmed = window.confirm(`This will mark all ${payroll.filter(p => !p.processed).length} pending payroll record(s) as processed. Continue?`);
+  const handleReleaseMonthlyFunds = async () => {
+    const pending = payroll.filter(p => !p.processed);
+    const confirmed = window.confirm(`This will mark all ${pending.length} pending payroll record(s) as processed. Continue?`);
     if (!confirmed) return;
 
     setIsReleasing(true);
+
+    // Permanently fold any pending anniversary increments into each
+    // employee's real base salary before finalizing the cycle.
+    for (const record of pending) {
+      if (record.incrementAmount > 0) {
+        await db.applyAnniversaryIncrement(record.employeeId, record.incrementAmount);
+      }
+    }
+
     const updated = payroll.map(p => ({ ...p, processed: true }));
-    db.savePayroll(updated);
+    await db.savePayroll(updated);
     setIsReleasing(false);
     loadPayroll();
   };
 
-  const grandTotalBase = summaries.reduce((acc, s) => acc + s.totalBase, 0);
-  const grandTotalBonuses = summaries.reduce((acc, s) => acc + s.totalBonuses, 0);
-  const grandTotalDeductions = summaries.reduce((acc, s) => acc + s.totalDeductions, 0);
-  const grandNetPayable = grandTotalBase + grandTotalBonuses - grandTotalDeductions;
+  // Net payable and bonuses must stay split by currency — USA (USD) and
+  // Pakistan (PKR) amounts are never combined into a single figure.
+  const grandNetUSD = summaries.reduce((acc, s) => acc + s.totalNetUSD, 0);
+  const grandNetPKR = summaries.reduce((acc, s) => acc + s.totalNetPKR, 0);
+  const grandBonusesUSD = summaries.reduce((acc, s) => acc + s.totalBonusesUSD, 0);
+  const grandBonusesPKR = summaries.reduce((acc, s) => acc + s.totalBonusesPKR, 0);
 
   return (
     <div className="space-y-6 px-4 py-4 md:px-0 md:py-0">
@@ -97,7 +136,8 @@ export default function AdminPayrollPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs md:text-sm font-semibold text-slate-500">Total Net Outflow</p>
-                <p className="text-2xl md:text-3xl font-bold text-slate-900 mt-2">${grandNetPayable.toLocaleString()}</p>
+                <p className="text-xl md:text-2xl font-bold text-slate-900 mt-2">{formatMoney(grandNetUSD, 'USA')}</p>
+                <p className="text-xs md:text-sm font-semibold text-slate-500 mt-1">{formatMoney(grandNetPKR, 'Pakistan')}</p>
               </div>
               <div className="h-11 w-11 md:h-12 md:w-12 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
                 <DollarSign className="h-5 w-5 md:h-6 md:w-6" />
@@ -110,7 +150,8 @@ export default function AdminPayrollPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs md:text-sm font-semibold text-slate-500">Accumulated Bonuses</p>
-                <p className="text-2xl md:text-3xl font-bold text-slate-900 mt-2">${grandTotalBonuses.toLocaleString()}</p>
+                <p className="text-xl md:text-2xl font-bold text-slate-900 mt-2">{formatMoney(grandBonusesUSD, 'USA')}</p>
+                <p className="text-xs md:text-sm font-semibold text-slate-500 mt-1">{formatMoney(grandBonusesPKR, 'Pakistan')}</p>
               </div>
               <div className="h-11 w-11 md:h-12 md:w-12 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-orange-650">
                 <TrendingUp className="h-5 w-5 md:h-6 md:w-6" />
@@ -146,25 +187,44 @@ export default function AdminPayrollPage() {
                 <th className="px-6 py-4">Department</th>
                 <th className="px-6 py-4 text-center">Headcount</th>
                 <th className="px-6 py-4 text-right">Total Base</th>
+                <th className="px-6 py-4 text-right">Increments</th>
                 <th className="px-6 py-4 text-right">Total Bonuses</th>
                 <th className="px-6 py-4 text-right">Total Deductions</th>
                 <th className="px-6 py-4 text-right">Department Net</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {summaries.map(s => {
-                const deptNet = s.totalBase + s.totalBonuses - s.totalDeductions;
-                return (
-                  <tr key={s.department} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4 font-semibold text-slate-900">{s.department}</td>
-                    <td className="px-6 py-4 text-center font-semibold text-slate-550">{s.headcount}</td>
-                    <td className="px-6 py-4 text-right text-slate-900 font-medium">${s.totalBase.toLocaleString()}</td>
-                    <td className="px-6 py-4 text-right text-emerald-600 font-semibold">+${s.totalBonuses.toLocaleString()}</td>
-                    <td className="px-6 py-4 text-right text-rose-600 font-semibold">-${s.totalDeductions.toLocaleString()}</td>
-                    <td className="px-6 py-4 text-right font-bold text-slate-900">${deptNet.toLocaleString()}</td>
-                  </tr>
-                );
-              })}
+              {summaries.map(s => (
+                <tr key={s.department} className="hover:bg-slate-50/50 transition-colors">
+                  <td className="px-6 py-4 font-semibold text-slate-900">{s.department}</td>
+                  <td className="px-6 py-4 text-center font-semibold text-slate-550">{s.headcount}</td>
+                  <td className="px-6 py-4 text-right text-slate-900 font-medium">
+                    {s.totalBaseUSD > 0 && <div>{formatMoney(s.totalBaseUSD, 'USA')}</div>}
+                    {s.totalBasePKR > 0 && <div>{formatMoney(s.totalBasePKR, 'Pakistan')}</div>}
+                    {s.totalBaseUSD === 0 && s.totalBasePKR === 0 && '—'}
+                  </td>
+                  <td className="px-6 py-4 text-right text-emerald-600 font-semibold">
+                    {s.totalIncrementsUSD > 0 && <div>+{formatMoney(s.totalIncrementsUSD, 'USA')}</div>}
+                    {s.totalIncrementsPKR > 0 && <div>+{formatMoney(s.totalIncrementsPKR, 'Pakistan')}</div>}
+                    {s.totalIncrementsUSD === 0 && s.totalIncrementsPKR === 0 && '—'}
+                  </td>
+                  <td className="px-6 py-4 text-right text-emerald-600 font-semibold">
+                    {s.totalBonusesUSD > 0 && <div>+{formatMoney(s.totalBonusesUSD, 'USA')}</div>}
+                    {s.totalBonusesPKR > 0 && <div>+{formatMoney(s.totalBonusesPKR, 'Pakistan')}</div>}
+                    {s.totalBonusesUSD === 0 && s.totalBonusesPKR === 0 && '—'}
+                  </td>
+                  <td className="px-6 py-4 text-right text-rose-600 font-semibold">
+                    {s.totalDeductionsUSD > 0 && <div>-{formatMoney(s.totalDeductionsUSD, 'USA')}</div>}
+                    {s.totalDeductionsPKR > 0 && <div>-{formatMoney(s.totalDeductionsPKR, 'Pakistan')}</div>}
+                    {s.totalDeductionsUSD === 0 && s.totalDeductionsPKR === 0 && '—'}
+                  </td>
+                  <td className="px-6 py-4 text-right font-bold text-slate-900">
+                    {s.totalNetUSD !== 0 && <div>{formatMoney(s.totalNetUSD, 'USA')}</div>}
+                    {s.totalNetPKR !== 0 && <div>{formatMoney(s.totalNetPKR, 'Pakistan')}</div>}
+                    {s.totalNetUSD === 0 && s.totalNetPKR === 0 && '—'}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -172,7 +232,6 @@ export default function AdminPayrollPage() {
         {/* Mobile card stack */}
         <div className="md:hidden space-y-3 p-4">
           {summaries.map(s => {
-            const deptNet = s.totalBase + s.totalBonuses - s.totalDeductions;
             return (
               <div key={s.department} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
                 <div className="flex items-center justify-between">
@@ -182,19 +241,30 @@ export default function AdminPayrollPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <p className="text-[10px] text-slate-400 font-semibold uppercase">Total Base</p>
-                    <p className="text-xs font-bold text-slate-800">${s.totalBase.toLocaleString()}</p>
+                    {s.totalBaseUSD > 0 && <p className="text-xs font-bold text-slate-800">{formatMoney(s.totalBaseUSD, 'USA')}</p>}
+                    {s.totalBasePKR > 0 && <p className="text-xs font-bold text-slate-800">{formatMoney(s.totalBasePKR, 'Pakistan')}</p>}
                   </div>
+                  {(s.totalIncrementsUSD > 0 || s.totalIncrementsPKR > 0) && (
+                    <div>
+                      <p className="text-[10px] text-slate-400 font-semibold uppercase">Increments</p>
+                      {s.totalIncrementsUSD > 0 && <p className="text-xs font-bold text-emerald-600">+{formatMoney(s.totalIncrementsUSD, 'USA')}</p>}
+                      {s.totalIncrementsPKR > 0 && <p className="text-xs font-bold text-emerald-600">+{formatMoney(s.totalIncrementsPKR, 'Pakistan')}</p>}
+                    </div>
+                  )}
                   <div>
                     <p className="text-[10px] text-slate-400 font-semibold uppercase">Bonuses</p>
-                    <p className="text-xs font-bold text-emerald-600">+${s.totalBonuses.toLocaleString()}</p>
+                    {s.totalBonusesUSD > 0 && <p className="text-xs font-bold text-emerald-600">+{formatMoney(s.totalBonusesUSD, 'USA')}</p>}
+                    {s.totalBonusesPKR > 0 && <p className="text-xs font-bold text-emerald-600">+{formatMoney(s.totalBonusesPKR, 'Pakistan')}</p>}
                   </div>
                   <div>
                     <p className="text-[10px] text-slate-400 font-semibold uppercase">Deductions</p>
-                    <p className="text-xs font-bold text-rose-600">-${s.totalDeductions.toLocaleString()}</p>
+                    {s.totalDeductionsUSD > 0 && <p className="text-xs font-bold text-rose-600">-{formatMoney(s.totalDeductionsUSD, 'USA')}</p>}
+                    {s.totalDeductionsPKR > 0 && <p className="text-xs font-bold text-rose-600">-{formatMoney(s.totalDeductionsPKR, 'Pakistan')}</p>}
                   </div>
                   <div>
                     <p className="text-[10px] text-slate-400 font-semibold uppercase">Net Payable</p>
-                    <p className="text-xs font-bold text-slate-900">${deptNet.toLocaleString()}</p>
+                    {s.totalNetUSD !== 0 && <p className="text-xs font-bold text-slate-900">{formatMoney(s.totalNetUSD, 'USA')}</p>}
+                    {s.totalNetPKR !== 0 && <p className="text-xs font-bold text-slate-900">{formatMoney(s.totalNetPKR, 'Pakistan')}</p>}
                   </div>
                 </div>
               </div>

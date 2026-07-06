@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
-import { db, PayrollRecord, LeaveApplication } from '@/lib/db';
+import { db, PayrollRecord, LeaveApplication, formatMoney } from '@/lib/db';
 
 export default function HRPayrollPage() {
   const [payrollData, setPayrollData] = useState<PayrollRecord[]>([]);
@@ -52,13 +52,21 @@ export default function HRPayrollPage() {
 
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'processed'>('all');
 
-  const handleProcess = (id: string) => {
-    const updated = payrollData.map(emp => {
-      if (emp.id === id) {
-        return { ...emp, processed: true };
-      }
-      return emp;
-    });
+  const handleProcess = async (id: string) => {
+    const record = payrollData.find(emp => emp.id === id);
+    if (!record) return;
+
+    // Permanently fold any pending anniversary increment into the
+    // employee's real base salary the moment their payroll is processed —
+    // from the next cycle onward getPayroll() will show 0 increment and the
+    // new, higher baseSalary.
+    if (record.incrementAmount > 0) {
+      await db.applyAnniversaryIncrement(record.employeeId, record.incrementAmount);
+    }
+
+    const updated = payrollData.map(emp =>
+      emp.id === id ? { ...emp, processed: true } : emp
+    );
     setPayrollData(updated);
     db.savePayroll(updated);
   };
@@ -87,7 +95,14 @@ export default function HRPayrollPage() {
     return true;
   });
 
-  const totalPayroll = payrollData.reduce((acc, emp) => acc + (emp.baseSalary + emp.bonus - emp.deductions), 0);
+  // Base + increment + bonus - deductions must be summed separately per
+  // currency — USA (USD) and Pakistan (PKR) salaries are not interchangeable.
+  const totalPayrollUSD = payrollData
+    .filter(emp => emp.region === 'USA')
+    .reduce((acc, emp) => acc + (emp.baseSalary + emp.incrementAmount + emp.bonus - emp.deductions), 0);
+  const totalPayrollPKR = payrollData
+    .filter(emp => emp.region !== 'USA')
+    .reduce((acc, emp) => acc + (emp.baseSalary + emp.incrementAmount + emp.bonus - emp.deductions), 0);
   const totalPending = payrollData.filter(e => !e.processed).length;
 
   return (
@@ -135,7 +150,8 @@ export default function HRPayrollPage() {
         <Card>
           <CardContent className="pt-5 md:pt-6">
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Projected Payout</p>
-            <p className="text-2xl md:text-3xl font-bold text-slate-900 mt-2">${totalPayroll.toLocaleString()}</p>
+            <p className="text-xl md:text-2xl font-bold text-slate-900 mt-2">{formatMoney(totalPayrollUSD, 'USA')}</p>
+            <p className="text-xs md:text-sm font-semibold text-slate-500 mt-1">{formatMoney(totalPayrollPKR, 'Pakistan')}</p>
           </CardContent>
         </Card>
         <Card>
@@ -167,6 +183,7 @@ export default function HRPayrollPage() {
                 <tr>
                   <th className="px-6 py-4">Employee Details</th>
                   <th className="px-6 py-4 text-right">Base Salary</th>
+                  <th className="px-6 py-4 text-right">Increment</th>
                   <th className="px-6 py-4 text-center">Unpaid Leaves</th>
                   <th className="px-6 py-4 text-right">Bonus ($)</th>
                   <th className="px-6 py-4 text-right">Deductions ($)</th>
@@ -177,7 +194,7 @@ export default function HRPayrollPage() {
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {filteredData.map(emp => {
-                  const netPayable = emp.baseSalary + emp.bonus - emp.deductions;
+                  const netPayable = emp.baseSalary + emp.incrementAmount + emp.bonus - emp.deductions;
                   return (
                     <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-4">
@@ -185,7 +202,17 @@ export default function HRPayrollPage() {
                         <div className="text-xs text-slate-500 mt-0.5">{emp.role}</div>
                       </td>
                       <td className="px-6 py-4 text-right font-medium text-slate-900">
-                        ${emp.baseSalary.toLocaleString()}
+                        {formatMoney(emp.baseSalary, emp.region)}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        {emp.incrementAmount > 0 ? (
+                          <div>
+                            <span className="text-emerald-600 font-bold">+{formatMoney(emp.incrementAmount, emp.region)}</span>
+                            <div className="text-[9px] text-emerald-500 font-bold uppercase">Anniversary</div>
+                          </div>
+                        ) : (
+                          <span className="text-slate-300 font-medium">—</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-center">
                         <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
@@ -198,7 +225,7 @@ export default function HRPayrollPage() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         {emp.processed ? (
-                          <span className="text-slate-900 font-medium">${emp.bonus}</span>
+                          <span className="text-slate-900 font-medium">{formatMoney(emp.bonus, emp.region)}</span>
                         ) : (
                           <input 
                             type="text" 
@@ -211,7 +238,7 @@ export default function HRPayrollPage() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         {emp.processed ? (
-                          <span className="text-slate-900 font-medium">${emp.deductions.toLocaleString()}</span>
+                          <span className="text-slate-900 font-medium">{formatMoney(emp.deductions, emp.region)}</span>
                         ) : (
                           <input 
                             type="text" 
@@ -232,7 +259,7 @@ export default function HRPayrollPage() {
                         })()}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <div className="font-semibold text-slate-900">${netPayable.toLocaleString()}</div>
+                        <div className="font-semibold text-slate-900">{formatMoney(netPayable, emp.region)}</div>
                       </td>
                       <td className="px-6 py-4 text-center">
                         {emp.processed ? (
@@ -265,7 +292,7 @@ export default function HRPayrollPage() {
       {/* Mobile Card Stack */}
       <div className="md:hidden space-y-3">
         {filteredData.map(emp => {
-          const netPayable = emp.baseSalary + emp.bonus - emp.deductions;
+          const netPayable = emp.baseSalary + emp.incrementAmount + emp.bonus - emp.deductions;
           const urgentCount = leavesList.filter(l => l.employeeName === emp.name && l.type === 'Urgent').length;
           return (
             <div key={emp.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
@@ -283,19 +310,25 @@ export default function HRPayrollPage() {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <p className="text-[10px] text-slate-400 font-semibold uppercase">Base Salary</p>
-                  <p className="text-xs font-bold text-slate-800">${emp.baseSalary.toLocaleString()}</p>
+                  <p className="text-xs font-bold text-slate-800">{formatMoney(emp.baseSalary, emp.region)}</p>
                 </div>
                 <div>
                   <p className="text-[10px] text-slate-400 font-semibold uppercase">Net Payable</p>
-                  <p className="text-xs font-bold text-slate-800">${netPayable.toLocaleString()}</p>
+                  <p className="text-xs font-bold text-slate-800">{formatMoney(netPayable, emp.region)}</p>
                 </div>
+                {emp.incrementAmount > 0 && (
+                  <div className="col-span-2">
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase">Anniversary Increment</p>
+                    <p className="text-xs font-bold text-emerald-600">+{formatMoney(emp.incrementAmount, emp.region)}</p>
+                  </div>
+                )}
                 <div>
                   <p className="text-[10px] text-slate-400 font-semibold uppercase">Unpaid Leaves</p>
                   <p className="text-xs font-bold text-slate-800">{emp.unpaidLeaves} day(s)</p>
                 </div>
                 <div>
                   <p className="text-[10px] text-slate-400 font-semibold uppercase">Bonus / Deductions</p>
-                  <p className="text-xs font-bold text-slate-800">${emp.bonus} / ${emp.deductions.toLocaleString()}</p>
+                  <p className="text-xs font-bold text-slate-800">{formatMoney(emp.bonus, emp.region)} / {formatMoney(emp.deductions, emp.region)}</p>
                 </div>
               </div>
               {urgentCount > 0 && (

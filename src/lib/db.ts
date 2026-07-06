@@ -34,6 +34,11 @@ export interface Profile {
     notes?: string;
     finalLeavePayout?: number; // full payout of remaining PTO/Sick bank at contract end
   };
+  // Calendar year in which this employee's anniversary salary increment was
+  // last actually folded into baseSalary (permanently). Prevents the same
+  // year's increment from being applied twice if payroll is processed more
+  // than once during the anniversary month.
+  lastIncrementProcessedYear?: number;
 }
 
 export interface Warehouse {
@@ -93,11 +98,18 @@ export interface PayrollRecord {
   employeeId: string;
   name: string;
   role: string;
+  region?: 'USA' | 'Pakistan';
   baseSalary: number;
   unpaidLeaves: number;
   bonus: number;
   deductions: number;
   processed: boolean;
+  // Pending anniversary increment for THIS cycle only (0 unless this is the
+  // employee's anniversary month and it hasn't been processed yet this
+  // year). Shown as a distinct payslip line item. Once this record is
+  // processed, the amount is folded permanently into the employee's real
+  // baseSalary and this goes back to 0 for all future cycles.
+  incrementAmount: number;
 }
 
 export interface Notification {
@@ -235,7 +247,26 @@ async function syncFromSupabase() {
           return [];
         }
       })();
-      const localOnly = localProfiles.filter(p => p && p.email && !dbEmails.has(p.email.toLowerCase()));
+
+      // Tombstone list of permanently-deleted employee emails, synced via the
+      // generic delcargo_store KV table (see deleteEmployee()). Without this,
+      // any device whose local cache still has a profile that was deleted
+      // from Supabase by ANOTHER user/device would misclassify it as a
+      // "local-only, not-yet-synced" profile below and re-upload it —
+      // resurrecting deleted/offboarded accounts forever.
+      const deletedEmailsRow = kvStore?.find((row: any) => row.key === 'hr_deleted_profile_emails_v1');
+      const deletedEmails = new Set<string>(
+        (Array.isArray(deletedEmailsRow?.value) ? deletedEmailsRow.value : []).map((e: string) => e.toLowerCase())
+      );
+      if (deletedEmails.size > 0) {
+        localStorage.setItem('hr_deleted_profile_emails_v1', JSON.stringify(Array.from(deletedEmails)));
+      }
+
+      const localOnly = localProfiles.filter(p =>
+        p && p.email &&
+        !dbEmails.has(p.email.toLowerCase()) &&
+        !deletedEmails.has(p.email.toLowerCase())
+      );
 
       if (localOnly.length > 0) {
         console.log(`[Supabase Sync] Migrating ${localOnly.length} local-only profiles to Supabase...`);
@@ -822,12 +853,53 @@ export const db = {
     return Math.max(0, Math.round((accrued - takenDays) * 100) / 100);
   },
 
+  // Real, currently-effective base salary. Anniversary increments are no
+  // longer computed on the fly every render — they're permanently folded
+  // into profile.baseSalary exactly once, the moment that anniversary
+  // month's payroll is actually processed (see getPendingIncrement /
+  // applyAnniversaryIncrement below). This IS the number that's actually
+  // paid out; nothing here is a projection.
   calculateCurrentSalary: (profile: Profile): number => {
-    const joinedYear = new Date(profile.joinedDate).getFullYear();
+    return profile.baseSalary;
+  },
+
+  // Determines whether THIS calendar cycle is this employee's anniversary
+  // month, whether they've completed at least one full year of tenure (no
+  // increment during the hire year itself), and whether that year's
+  // increment has already been processed — using the individual anniversary
+  // date (month + day), not a Jan 1 calendar-year cutoff.
+  getPendingIncrement: (profile: Profile): number => {
+    const anniversarySource = profile.salaryStartDate || profile.joinedDate;
+    if (!anniversarySource) return 0;
+
+    const anniversaryDate = new Date(anniversarySource);
+    const now = new Date();
+    const isAnniversaryMonth = now.getMonth() === anniversaryDate.getMonth();
+    const { years } = db.calculateTenure(anniversarySource);
+    const currentYear = now.getFullYear();
+    const alreadyProcessedThisYear = profile.lastIncrementProcessedYear === currentYear;
+
+    if (isAnniversaryMonth && years >= 1 && !alreadyProcessedThisYear) {
+      return profile.region === 'USA' ? 100 : 10000;
+    }
+    return 0;
+  },
+
+  // Permanently applies a processed anniversary increment: bumps the
+  // employee's real baseSalary and marks this year as done so it can't be
+  // applied again. Called only when HR/Admin actually finalizes ("Process"
+  // or "Release Monthly Funds") that employee's payroll for the cycle —
+  // never just from viewing/computing payroll.
+  applyAnniversaryIncrement: async (employeeId: string, incrementAmount: number): Promise<void> => {
+    if (incrementAmount <= 0) return;
+    const employees = db.getEmployees();
     const currentYear = new Date().getFullYear();
-    const years = Math.max(0, currentYear - joinedYear);
-    const increment = profile.region === 'USA' ? 100 : 10000;
-    return profile.baseSalary + (years * increment);
+    const updated = employees.map(emp =>
+      emp.id === employeeId
+        ? { ...emp, baseSalary: emp.baseSalary + incrementAmount, lastIncrementProcessedYear: currentYear }
+        : emp
+    );
+    await db.saveEmployees(updated);
   },
 
   // Full payout of the remaining combined PTO/Sick bank at contract end,
@@ -846,7 +918,8 @@ export const db = {
 
     const updatedPayroll = employees.map(emp => {
       const existing = payroll.find(p => p.employeeId === emp.id);
-      const computedSalary = db.calculateCurrentSalary(emp);
+      const realBaseSalary = emp.baseSalary;
+      const pendingIncrement = db.getPendingIncrement(emp);
 
       const employeeUrgentLeaves = leaves.filter(l => l.employeeName === emp.fullName && l.type === 'Urgent' && l.status === 'approved');
       const urgentDays = employeeUrgentLeaves.reduce((acc, l) => {
@@ -859,22 +932,34 @@ export const db = {
         return acc + days;
       }, 0);
 
-      const dailyRate = computedSalary / 30;
+      const dailyRate = realBaseSalary / 30;
       const urgentDeduction = Math.round(urgentDays * 2 * dailyRate);
       const onboardingPenalty = emp.onboardingCompleted ? 0 : (emp.region === 'USA' ? 10 : 200);
 
       if (existing) {
-        return { ...existing, baseSalary: computedSalary, deductions: urgentDeduction };
+        // Once processed, this record's incrementAmount stays frozen at
+        // whatever it was when finalized (historical record for that
+        // payslip); unprocessed records keep tracking the live pending
+        // increment so it reflects reality if leaves/tenure change.
+        return {
+          ...existing,
+          region: emp.region,
+          baseSalary: realBaseSalary,
+          deductions: urgentDeduction,
+          incrementAmount: existing.processed ? existing.incrementAmount : pendingIncrement
+        };
       }
       return {
         id: `pay_${emp.id}`,
         employeeId: emp.id,
         name: emp.fullName,
         role: emp.jobTitle || (emp.teams.includes('Design') ? 'UX Designer' : emp.teams.includes('Engineering') ? 'Software Engineer' : 'Operations Specialist'),
-        baseSalary: computedSalary,
+        region: emp.region,
+        baseSalary: realBaseSalary,
         unpaidLeaves: emp.onboardingCompleted ? 0 : 2,
         bonus: 0,
         deductions: urgentDeduction + onboardingPenalty,
+        incrementAmount: pendingIncrement,
         processed: false
       };
     });
@@ -889,11 +974,36 @@ export const db = {
     const employees = db.getEmployees();
     const newEmp: Profile = { ...emp, id: `emp_${Date.now()}`, onboardingCompleted: false };
     await db.saveEmployees([...employees, newEmp]);
+
+    // If this email was previously deleted/offboarded, clear its tombstone
+    // so the freshly (re-)onboarded profile is allowed to sync normally.
+    if (newEmp.email) {
+      try {
+        const { data: existingRow } = await supabase
+          .from('delcargo_store')
+          .select('value')
+          .eq('key', 'hr_deleted_profile_emails_v1')
+          .maybeSingle();
+        const existingList: string[] = Array.isArray(existingRow?.value) ? existingRow.value : [];
+        const emailLower = newEmp.email.toLowerCase();
+        if (existingList.map(e => e.toLowerCase()).includes(emailLower)) {
+          const updatedList = existingList.filter(e => e.toLowerCase() !== emailLower);
+          await supabase.from('delcargo_store').upsert({ key: 'hr_deleted_profile_emails_v1', value: updatedList });
+          if (isClient) {
+            localStorage.setItem('hr_deleted_profile_emails_v1', JSON.stringify(updatedList));
+          }
+        }
+      } catch (err: any) {
+        console.error('[Supabase Sync] Failed to clear deletion tombstone:', err);
+      }
+    }
+
     return newEmp;
   },
 
   deleteEmployee: async (id: string): Promise<Profile[]> => {
     const employees = db.getEmployees();
+    const deletedEmployee = employees.find(emp => emp.id === id);
     const updated = employees.filter(emp => emp.id !== id);
 
     // Update local cache immediately
@@ -911,6 +1021,31 @@ export const db = {
       }
     } catch (err: any) {
       console.error('[Supabase Sync] Unexpected delete error:', err);
+    }
+
+    // Record a tombstone for this email so that OTHER devices/users whose
+    // local cache still has this profile don't mistake it for a "local-only,
+    // not-yet-synced" record on their next sync and re-upload it to Supabase
+    // (this was the root cause of deleted/offboarded employees "coming back").
+    if (deletedEmployee?.email) {
+      try {
+        const { data: existingRow } = await supabase
+          .from('delcargo_store')
+          .select('value')
+          .eq('key', 'hr_deleted_profile_emails_v1')
+          .maybeSingle();
+        const existingList: string[] = Array.isArray(existingRow?.value) ? existingRow.value : [];
+        const emailLower = deletedEmployee.email.toLowerCase();
+        if (!existingList.map(e => e.toLowerCase()).includes(emailLower)) {
+          const updatedList = [...existingList, emailLower];
+          await supabase.from('delcargo_store').upsert({ key: 'hr_deleted_profile_emails_v1', value: updatedList });
+          if (isClient) {
+            localStorage.setItem('hr_deleted_profile_emails_v1', JSON.stringify(updatedList));
+          }
+        }
+      } catch (err: any) {
+        console.error('[Supabase Sync] Failed to record deletion tombstone:', err);
+      }
     }
 
     return updated;
