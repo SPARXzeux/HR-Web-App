@@ -37,6 +37,24 @@ export default function EmployeeSalaryPage() {
     { month: 'April 2026', base: baseSalary, deductions: 1000, bonus: 0, net: baseSalary - 1000 }
   ];
 
+  const getMonthDate = (monthStr: string) => {
+    const [month, year] = monthStr.split(' ');
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const monthIndex = months.indexOf(month);
+    return new Date(Number(year), monthIndex, 1);
+  };
+
+  const startDate = userProfile?.salaryStartDate 
+    ? new Date(userProfile.salaryStartDate)
+    : (userProfile?.joinedDate ? new Date(userProfile.joinedDate) : new Date());
+  
+  const startCompareDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+
+  const filteredSlips = slips.filter(slip => {
+    const slipDate = getMonthDate(slip.month);
+    return slipDate >= startCompareDate;
+  });
+
   return (
     <div className="space-y-4 md:space-y-6">
       <div>
@@ -85,7 +103,7 @@ export default function EmployeeSalaryPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {slips.map((slip, i) => (
+              {filteredSlips.map((slip, i) => (
                 <tr key={i} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4 font-semibold text-slate-900">{slip.month}</td>
                   <td className="px-6 py-4 text-right font-medium">{formatMoney(slip.base, userProfile?.region)}</td>
@@ -99,19 +117,26 @@ export default function EmployeeSalaryPage() {
                   <td className="px-6 py-4 text-center">
                     <button 
                       onClick={() => setSelectedSlip(slip)}
-                      className="text-xs font-semibold text-orange-650 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded transition-all active:scale-97 flex items-center gap-1.5 mx-auto"
+                      className="text-xs font-semibold text-orange-655 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded transition-all active:scale-97 flex items-center gap-1.5 mx-auto"
                     >
                       <FileText className="h-3.5 w-3.5" /> View Payslip
                     </button>
                   </td>
                 </tr>
               ))}
+              {filteredSlips.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-slate-400 font-semibold italic text-xs">
+                    No salary slips recorded or tracking has not started yet.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
         {/* Mobile card stack */}
         <div className="md:hidden space-y-2 p-3">
-          {slips.map((slip, i) => (
+          {filteredSlips.map((slip, i) => (
             <div key={i} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-bold text-slate-900">{slip.month}</p>
@@ -137,12 +162,17 @@ export default function EmployeeSalaryPage() {
               </div>
               <button
                 onClick={() => setSelectedSlip(slip)}
-                className="w-full text-xs font-semibold text-orange-650 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-2.5 rounded-lg transition-all active:scale-97 flex items-center justify-center gap-1.5"
+                className="w-full text-xs font-semibold text-orange-655 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-2.5 rounded-lg transition-all active:scale-97 flex items-center justify-center gap-1.5"
               >
                 <FileText className="h-3.5 w-3.5" /> View Payslip
               </button>
             </div>
           ))}
+          {filteredSlips.length === 0 && (
+            <p className="py-8 text-center text-slate-400 font-semibold italic text-xs">
+              No salary slips recorded or tracking has not started yet.
+            </p>
+          )}
         </div>
       </Card>
 

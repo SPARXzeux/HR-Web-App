@@ -26,6 +26,7 @@ export interface Profile {
   trackingEnabled?: boolean;
   offboarded?: boolean;
   offboardDate?: string;
+  salaryStartDate?: string;
   offboardingStatus?: {
     itClearance: boolean;
     financeClearance: boolean;

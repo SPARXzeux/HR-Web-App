@@ -30,6 +30,8 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
   const [gender, setGender] = useState<'male' | 'female'>('male');
   const [role, setRole] = useState<'employee' | 'hr' | 'admin' | 'team_lead'>('employee');
   const [assignedWarehouses, setAssignedWarehouses] = useState<string[]>([]);
+  const [joinedDate, setJoinedDate] = useState('');
+  const [salaryStartDate, setSalaryStartDate] = useState('');
 
   // Offboarding fields
   const [itClearance, setItClearance] = useState(false);
@@ -56,6 +58,8 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
         setRegion(match.region || 'Pakistan');
         setGender(match.gender || 'male');
         setRole(match.role);
+        setJoinedDate(match.joinedDate || new Date().toISOString().split('T')[0]);
+        setSalaryStartDate(match.salaryStartDate || match.joinedDate || new Date().toISOString().split('T')[0]);
         setAssignedWarehouses(match.assignedWarehouses || []);
         
         if (match.offboardingStatus) {
@@ -130,6 +134,8 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
       region,
       gender,
       role,
+      joinedDate,
+      salaryStartDate,
       assignedWarehouses
     });
 
@@ -390,6 +396,29 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                   <option value="hr">HR Admin</option>
                   {currentUserRole === 'admin' && <option value="admin">System Admin</option>}
                 </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Joining Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={joinedDate}
+                    onChange={e => setJoinedDate(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs outline-none focus:border-orange-500 font-semibold cursor-pointer"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase" title="Salary tracking starts from this month">Salary Track Month *</label>
+                  <input
+                    type="date"
+                    required
+                    value={salaryStartDate}
+                    onChange={e => setSalaryStartDate(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs outline-none focus:border-orange-500 font-semibold cursor-pointer"
+                  />
+                </div>
               </div>
 
               {/* Warehouse selector */}
