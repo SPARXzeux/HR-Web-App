@@ -385,120 +385,118 @@ function getInitialData<T>(key: string, fallback: T): T {
   return JSON.parse(data);
 }
 
-function saveData<T>(key: string, data: T) {
+async function saveData<T>(key: string, data: T): Promise<void> {
   if (isClient) {
     localStorage.setItem(key, JSON.stringify(data));
     
-    (async () => {
-      try {
-        if (key === 'hr_employees_prod_v1') {
-          const rows = (data as Profile[]).map(p => ({
-            id: p.id,
-            full_name: p.fullName,
-            email: p.email,
-            role: p.role,
-            joined_date: p.joinedDate,
-            onboarding_completed: p.onboardingCompleted,
-            base_salary: p.baseSalary,
-            teams: p.teams,
-            password: p.password,
-            is_team_lead: p.isTeamLead,
-            lead_teams: p.leadTeams,
-            is_warehouse_lead: p.isWarehouseLead,
-            managed_warehouses: p.managedWarehouses,
-            job_title: p.jobTitle,
-            gender: p.gender,
-            bank_name: p.bankName,
-            account_number: p.accountNumber,
-            iban: p.iban,
-            profile_picture: p.profilePicture,
-            region: p.region,
-            assigned_warehouses: p.assignedWarehouses,
-            tracking_enabled: p.trackingEnabled,
-            salary_start_date: p.salaryStartDate || p.joinedDate || null
-          }));
-          const { error } = await supabase.from('profiles').upsert(rows);
-          if (error && error.code === '42703') {
-            console.warn('[Supabase Sync] salary_start_date column not found in Supabase schema. Retrying without it.');
-            const fallbackRows = rows.map(({ salary_start_date, ...rest }) => rest);
-            await supabase.from('profiles').upsert(fallbackRows);
-          } else if (error) {
-            throw error;
-          }
-        } else if (key === 'hr_leaves_prod_v1') {
-          const rows = (data as LeaveApplication[]).map(l => ({
-            id: l.id,
-            employee_name: l.employeeName,
-            type: l.type,
-            duration: l.duration,
-            reason: l.reason,
-            status: l.status
-          }));
-          await supabase.from('leaves').upsert(rows);
-        } else if (key === 'hr_tasks_prod_v1') {
-          const rows = (data as Task[]).map(t => ({
-            id: t.id,
-            title: t.title,
-            description: t.description,
-            assigned_to: t.assignedTo,
-            assigned_email: t.assignedEmail,
-            team: t.team,
-            due_date: t.dueDate,
-            priority: t.priority,
-            status: t.status,
-            created_by: t.createdBy
-          }));
-          await supabase.from('tasks').upsert(rows);
-        } else if (key === 'hr_timesheets_prod_v1') {
-          const rows = (data as any[]).map(ts => ({
-            id: ts.id,
-            employee_email: ts.employeeEmail,
-            date: ts.date,
-            clock_in: ts.clockIn,
-            clock_out: ts.clockOut,
-            duration: ts.duration,
-            status: ts.status,
-            score: ts.score
-          }));
-          await supabase.from('timesheets').upsert(rows);
-        } else if (key === 'hr_announcements_prod_v1') {
-          const rows = (data as Announcement[]).map(ann => ({
-            id: ann.id,
-            title: ann.title,
-            content: ann.content,
-            timestamp: ann.timestamp,
-            created_by: ann.createdBy,
-            target: typeof ann.target === 'string' ? ann.target : JSON.stringify(ann.target)
-          }));
-          await supabase.from('announcements').upsert(rows);
-        } else if (key === 'hr_notifications_prod_v1') {
-          const rows = (data as Notification[]).map(n => ({
-            id: n.id,
-            recipient_email: n.recipientEmail,
-            recipient_role: n.recipientRole,
-            message: n.message,
-            timestamp: n.timestamp,
-            read: n.read
-          }));
-          await supabase.from('notifications').upsert(rows);
-        } else if (key === 'hr_warehouses_prod_v1') {
-          const rows = (data as Warehouse[]).map(w => ({
-            id: w.id,
-            name: w.name,
-            latitude: w.latitude,
-            longitude: w.longitude,
-            radius: w.radius
-          }));
-          await supabase.from('warehouses').upsert(rows);
-        } else {
-          // Fallback key-value upsert for custom teams, support tickets, career positions
-          await supabase.from('delcargo_store').upsert({ key: key, value: data });
+    try {
+      if (key === 'hr_employees_prod_v1') {
+        const rows = (data as Profile[]).map(p => ({
+          id: p.id,
+          full_name: p.fullName,
+          email: p.email,
+          role: p.role,
+          joined_date: p.joinedDate,
+          onboarding_completed: p.onboardingCompleted,
+          base_salary: p.baseSalary,
+          teams: p.teams,
+          password: p.password,
+          is_team_lead: p.isTeamLead,
+          lead_teams: p.leadTeams,
+          is_warehouse_lead: p.isWarehouseLead,
+          managed_warehouses: p.managedWarehouses,
+          job_title: p.jobTitle,
+          gender: p.gender,
+          bank_name: p.bankName,
+          account_number: p.accountNumber,
+          iban: p.iban,
+          profile_picture: p.profilePicture,
+          region: p.region,
+          assigned_warehouses: p.assignedWarehouses,
+          tracking_enabled: p.trackingEnabled,
+          salary_start_date: p.salaryStartDate || p.joinedDate || null
+        }));
+        const { error } = await supabase.from('profiles').upsert(rows);
+        if (error && error.code === '42703') {
+          console.warn('[Supabase Sync] salary_start_date column not found in Supabase schema. Retrying without it.');
+          const fallbackRows = rows.map(({ salary_start_date, ...rest }) => rest);
+          await supabase.from('profiles').upsert(fallbackRows);
+        } else if (error) {
+          throw error;
         }
-        console.log(`[Supabase Sync] Saved SQL/KV key ${key} successfully.`);
-      } catch (err: any) {
-        console.error(`[Supabase Sync] Unexpected save error for ${key}:`, err);
+      } else if (key === 'hr_leaves_prod_v1') {
+        const rows = (data as LeaveApplication[]).map(l => ({
+          id: l.id,
+          employee_name: l.employeeName,
+          type: l.type,
+          duration: l.duration,
+          reason: l.reason,
+          status: l.status
+        }));
+        await supabase.from('leaves').upsert(rows);
+      } else if (key === 'hr_tasks_prod_v1') {
+        const rows = (data as Task[]).map(t => ({
+          id: t.id,
+          title: t.title,
+          description: t.description,
+          assigned_to: t.assignedTo,
+          assigned_email: t.assignedEmail,
+          team: t.team,
+          due_date: t.dueDate,
+          priority: t.priority,
+          status: t.status,
+          created_by: t.createdBy
+        }));
+        await supabase.from('tasks').upsert(rows);
+      } else if (key === 'hr_timesheets_prod_v1') {
+        const rows = (data as any[]).map(ts => ({
+          id: ts.id,
+          employee_email: ts.employeeEmail,
+          date: ts.date,
+          clock_in: ts.clockIn,
+          clock_out: ts.clockOut,
+          duration: ts.duration,
+          status: ts.status,
+          score: ts.score
+        }));
+        await supabase.from('timesheets').upsert(rows);
+      } else if (key === 'hr_announcements_prod_v1') {
+        const rows = (data as Announcement[]).map(ann => ({
+          id: ann.id,
+          title: ann.title,
+          content: ann.content,
+          timestamp: ann.timestamp,
+          created_by: ann.createdBy,
+          target: typeof ann.target === 'string' ? ann.target : JSON.stringify(ann.target)
+        }));
+        await supabase.from('announcements').upsert(rows);
+      } else if (key === 'hr_notifications_prod_v1') {
+        const rows = (data as Notification[]).map(n => ({
+          id: n.id,
+          recipient_email: n.recipientEmail,
+          recipient_role: n.recipientRole,
+          message: n.message,
+          timestamp: n.timestamp,
+          read: n.read
+        }));
+        await supabase.from('notifications').upsert(rows);
+      } else if (key === 'hr_warehouses_prod_v1') {
+        const rows = (data as Warehouse[]).map(w => ({
+          id: w.id,
+          name: w.name,
+          latitude: w.latitude,
+          longitude: w.longitude,
+          radius: w.radius
+        }));
+        await supabase.from('warehouses').upsert(rows);
+      } else {
+        // Fallback key-value upsert for custom teams, support tickets, career positions
+        await supabase.from('delcargo_store').upsert({ key: key, value: data });
       }
-    })();
+      console.log(`[Supabase Sync] Saved SQL/KV key ${key} successfully.`);
+    } catch (err: any) {
+      console.error(`[Supabase Sync] Unexpected save error for ${key}:`, err);
+    }
   }
 }
 
@@ -729,17 +727,17 @@ export const db = {
 
   savePayroll: (data: PayrollRecord[]) => saveData('hr_payroll_prod_v1', data),
 
-  addEmployee: (emp: Omit<Profile, 'id' | 'onboardingCompleted'>) => {
+  addEmployee: async (emp: Omit<Profile, 'id' | 'onboardingCompleted'>) => {
     const employees = db.getEmployees();
     const newEmp: Profile = { ...emp, id: `emp_${Date.now()}`, onboardingCompleted: false };
-    db.saveEmployees([...employees, newEmp]);
+    await db.saveEmployees([...employees, newEmp]);
     return newEmp;
   },
 
-  updateOnboardingStatus: (email: string, completed: boolean) => {
+  updateOnboardingStatus: async (email: string, completed: boolean) => {
     const employees = db.getEmployees();
     const updated = employees.map(emp => emp.email === email ? { ...emp, onboardingCompleted: completed } : emp);
-    db.saveEmployees(updated);
+    await db.saveEmployees(updated);
   },
 
   updateEmployeeTeams: (employeeId: string, newTeams: string[]) => {

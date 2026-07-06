@@ -30,7 +30,7 @@ export default function HROnboardingPage() {
     setTeams(db.getTeams());
   }, []);
 
-  const handleOnboardSubmit = (e: React.FormEvent) => {
+  const handleOnboardSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setOnboardError('');
     setOnboardSuccess('');
@@ -45,7 +45,7 @@ export default function HROnboardingPage() {
       return;
     }
 
-    db.addEmployee({
+    await db.addEmployee({
       fullName,
       email,
       role: role as 'employee' | 'hr' | 'admin',
