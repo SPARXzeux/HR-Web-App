@@ -186,7 +186,7 @@ async function syncFromSupabase() {
         assignedWarehouses: p.assigned_warehouses || [],
         trackingEnabled: p.tracking_enabled
       }));
-      localStorage.setItem('hr_employees_v6', JSON.stringify(mapped));
+      localStorage.setItem('hr_employees_prod_v1', JSON.stringify(mapped));
     }
 
     // 2. Sync Leaves
@@ -200,7 +200,7 @@ async function syncFromSupabase() {
         reason: l.reason,
         status: l.status
       }));
-      localStorage.setItem('hr_leaves_v6', JSON.stringify(mapped));
+      localStorage.setItem('hr_leaves_prod_v1', JSON.stringify(mapped));
     } else {
       const seed = defaultLeaves.map(l => ({
         id: l.id,
@@ -228,7 +228,7 @@ async function syncFromSupabase() {
         status: t.status,
         createdBy: t.created_by
       }));
-      localStorage.setItem('hr_tasks_v6', JSON.stringify(mapped));
+      localStorage.setItem('hr_tasks_prod_v1', JSON.stringify(mapped));
     } else {
       const seed = defaultTasks.map(t => ({
         id: t.id,
@@ -258,7 +258,7 @@ async function syncFromSupabase() {
         status: ts.status,
         score: Number(ts.score)
       }));
-      localStorage.setItem('hr_timesheets_v6', JSON.stringify(mapped));
+      localStorage.setItem('hr_timesheets_prod_v1', JSON.stringify(mapped));
     }
 
     // 5. Sync Announcements
@@ -272,7 +272,7 @@ async function syncFromSupabase() {
         createdBy: ann.created_by,
         target: ann.target.startsWith('[') ? JSON.parse(ann.target) : ann.target
       }));
-      localStorage.setItem('hr_announcements_v6', JSON.stringify(mapped));
+      localStorage.setItem('hr_announcements_prod_v1', JSON.stringify(mapped));
     } else {
       const seed = defaultAnnouncements.map(ann => ({
         id: ann.id,
@@ -296,7 +296,7 @@ async function syncFromSupabase() {
         timestamp: n.timestamp,
         read: n.read
       }));
-      localStorage.setItem('hr_notifications_v6', JSON.stringify(mapped));
+      localStorage.setItem('hr_notifications_prod_v1', JSON.stringify(mapped));
     }
 
     // 7. Sync Warehouses
@@ -309,7 +309,7 @@ async function syncFromSupabase() {
         longitude: Number(w.longitude),
         radius: Number(w.radius)
       }));
-      localStorage.setItem('hr_warehouses_v6', JSON.stringify(mapped));
+      localStorage.setItem('hr_warehouses_prod_v1', JSON.stringify(mapped));
     } else {
       const seed = defaultWarehouses.map(w => ({
         id: w.id,
@@ -325,7 +325,7 @@ async function syncFromSupabase() {
     const { data: kvStore } = await supabase.from('delcargo_store').select('*');
     if (kvStore && kvStore.length > 0) {
       kvStore.forEach((row: any) => {
-        if (['hr_tickets_v6', 'hr_custom_teams_v6', 'hr_careers_v6', 'hr_payroll_v6'].includes(row.key)) {
+        if (['hr_tickets_prod_v1', 'hr_custom_teams_prod_v1', 'hr_careers_prod_v1', 'hr_payroll_prod_v1'].includes(row.key)) {
           localStorage.setItem(row.key, JSON.stringify(row.value));
         }
       });
@@ -353,7 +353,7 @@ function saveData<T>(key: string, data: T) {
     
     (async () => {
       try {
-        if (key === 'hr_employees_v6') {
+        if (key === 'hr_employees_prod_v1') {
           const rows = (data as Profile[]).map(p => ({
             id: p.id,
             full_name: p.fullName,
@@ -377,7 +377,7 @@ function saveData<T>(key: string, data: T) {
             tracking_enabled: p.trackingEnabled
           }));
           await supabase.from('profiles').upsert(rows);
-        } else if (key === 'hr_leaves_v6') {
+        } else if (key === 'hr_leaves_prod_v1') {
           const rows = (data as LeaveApplication[]).map(l => ({
             id: l.id,
             employee_name: l.employeeName,
@@ -387,7 +387,7 @@ function saveData<T>(key: string, data: T) {
             status: l.status
           }));
           await supabase.from('leaves').upsert(rows);
-        } else if (key === 'hr_tasks_v6') {
+        } else if (key === 'hr_tasks_prod_v1') {
           const rows = (data as Task[]).map(t => ({
             id: t.id,
             title: t.title,
@@ -401,7 +401,7 @@ function saveData<T>(key: string, data: T) {
             created_by: t.createdBy
           }));
           await supabase.from('tasks').upsert(rows);
-        } else if (key === 'hr_timesheets_v6') {
+        } else if (key === 'hr_timesheets_prod_v1') {
           const rows = (data as any[]).map(ts => ({
             id: ts.id,
             employee_email: ts.employeeEmail,
@@ -413,7 +413,7 @@ function saveData<T>(key: string, data: T) {
             score: ts.score
           }));
           await supabase.from('timesheets').upsert(rows);
-        } else if (key === 'hr_announcements_v6') {
+        } else if (key === 'hr_announcements_prod_v1') {
           const rows = (data as Announcement[]).map(ann => ({
             id: ann.id,
             title: ann.title,
@@ -423,7 +423,7 @@ function saveData<T>(key: string, data: T) {
             target: typeof ann.target === 'string' ? ann.target : JSON.stringify(ann.target)
           }));
           await supabase.from('announcements').upsert(rows);
-        } else if (key === 'hr_notifications_v6') {
+        } else if (key === 'hr_notifications_prod_v1') {
           const rows = (data as Notification[]).map(n => ({
             id: n.id,
             recipient_email: n.recipientEmail,
@@ -433,7 +433,7 @@ function saveData<T>(key: string, data: T) {
             read: n.read
           }));
           await supabase.from('notifications').upsert(rows);
-        } else if (key === 'hr_warehouses_v6') {
+        } else if (key === 'hr_warehouses_prod_v1') {
           const rows = (data as Warehouse[]).map(w => ({
             id: w.id,
             name: w.name,
@@ -456,20 +456,20 @@ function saveData<T>(key: string, data: T) {
 
 export const db = {
   syncFromSupabase,
-  getEmployees: (): Profile[] => getInitialData('hr_employees_v6', defaultEmployees),
-  saveEmployees: (data: Profile[]) => saveData('hr_employees_v6', data),
+  getEmployees: (): Profile[] => getInitialData('hr_employees_prod_v1', defaultEmployees),
+  saveEmployees: (data: Profile[]) => saveData('hr_employees_prod_v1', data),
 
-  getLeaves: (): LeaveApplication[] => getInitialData('hr_leaves_v6', defaultLeaves),
-  saveLeaves: (data: LeaveApplication[]) => saveData('hr_leaves_v6', data),
+  getLeaves: (): LeaveApplication[] => getInitialData('hr_leaves_prod_v1', defaultLeaves),
+  saveLeaves: (data: LeaveApplication[]) => saveData('hr_leaves_prod_v1', data),
 
-  getTasks: (): Task[] => getInitialData('hr_tasks_v6', defaultTasks),
-  saveTasks: (data: Task[]) => saveData('hr_tasks_v6', data),
+  getTasks: (): Task[] => getInitialData('hr_tasks_prod_v1', defaultTasks),
+  saveTasks: (data: Task[]) => saveData('hr_tasks_prod_v1', data),
 
-  getCareers: (): CareerPosition[] => getInitialData('hr_careers_v6', defaultCareers),
-  saveCareers: (data: CareerPosition[]) => saveData('hr_careers_v6', data),
+  getCareers: (): CareerPosition[] => getInitialData('hr_careers_prod_v1', defaultCareers),
+  saveCareers: (data: CareerPosition[]) => saveData('hr_careers_prod_v1', data),
 
-  getTickets: (): Ticket[] => getInitialData('hr_tickets_v6', defaultTickets),
-  saveTickets: (data: Ticket[]) => saveData('hr_tickets_v6', data),
+  getTickets: (): Ticket[] => getInitialData('hr_tickets_prod_v1', defaultTickets),
+  saveTickets: (data: Ticket[]) => saveData('hr_tickets_prod_v1', data),
 
   createTicket: (ticket: Omit<Ticket, 'id' | 'status' | 'createdAt' | 'replies'>) => {
     const list = db.getTickets();
@@ -636,8 +636,8 @@ export const db = {
   },
 
   getPayroll: (): PayrollRecord[] => {
-    const employees = db.getEmployees();
-    const payroll: PayrollRecord[] = getInitialData('hr_payroll_v6', []);
+    const employees = db.getEmployees().filter(emp => emp.role === 'employee' || emp.role === 'team_lead');
+    const payroll: PayrollRecord[] = getInitialData('hr_payroll_prod_v1', []);
     const leaves = db.getLeaves();
 
     const updatedPayroll = employees.map(emp => {
@@ -679,7 +679,7 @@ export const db = {
     return updatedPayroll;
   },
 
-  savePayroll: (data: PayrollRecord[]) => saveData('hr_payroll_v6', data),
+  savePayroll: (data: PayrollRecord[]) => saveData('hr_payroll_prod_v1', data),
 
   addEmployee: (emp: Omit<Profile, 'id' | 'onboardingCompleted'>) => {
     const employees = db.getEmployees();
@@ -715,10 +715,10 @@ export const db = {
 
   getTeams: (): string[] => {
     const defaultTeams = ['Engineering', 'Design', 'Marketing', 'Operations', 'Sales'];
-    return getInitialData('hr_custom_teams_v6', defaultTeams);
+    return getInitialData('hr_custom_teams_prod_v1', defaultTeams);
   },
 
-  saveTeams: (data: string[]) => saveData('hr_custom_teams_v6', data),
+  saveTeams: (data: string[]) => saveData('hr_custom_teams_prod_v1', data),
 
   addTeam: (name: string) => {
     const teams = db.getTeams();
@@ -747,8 +747,8 @@ export const db = {
     return true;
   },
 
-  getNotifications: (): Notification[] => getInitialData('hr_notifications_v6', []),
-  saveNotifications: (data: Notification[]) => saveData('hr_notifications_v6', data),
+  getNotifications: (): Notification[] => getInitialData('hr_notifications_prod_v1', []),
+  saveNotifications: (data: Notification[]) => saveData('hr_notifications_prod_v1', data),
 
   addNotification: (email: string, role: string, message: string) => {
     const notifications = db.getNotifications();
@@ -780,8 +780,8 @@ export const db = {
     db.saveNotifications(updated);
   },
 
-  getWarehouses: (): Warehouse[] => getInitialData('hr_warehouses_v6', defaultWarehouses),
-  saveWarehouses: (data: Warehouse[]) => saveData('hr_warehouses_v6', data),
+  getWarehouses: (): Warehouse[] => getInitialData('hr_warehouses_prod_v1', defaultWarehouses),
+  saveWarehouses: (data: Warehouse[]) => saveData('hr_warehouses_prod_v1', data),
   addWarehouse: (wh: Omit<Warehouse, 'id'>) => {
     const list = db.getWarehouses();
     const newWh = { ...wh, id: `wh_${Date.now()}` };
@@ -789,8 +789,8 @@ export const db = {
     return newWh;
   },
 
-  getAnnouncements: (): Announcement[] => getInitialData('hr_announcements_v6', defaultAnnouncements),
-  saveAnnouncements: (data: Announcement[]) => saveData('hr_announcements_v6', data),
+  getAnnouncements: (): Announcement[] => getInitialData('hr_announcements_prod_v1', defaultAnnouncements),
+  saveAnnouncements: (data: Announcement[]) => saveData('hr_announcements_prod_v1', data),
   addAnnouncement: (title: string, content: string, target: Announcement['target'], createdBy: string) => {
     const list = db.getAnnouncements();
     const newAnn: Announcement = {
