@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { useRouter } from 'next/navigation';
 import { db } from '@/lib/db';
@@ -11,6 +11,13 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
+
+  useEffect(() => {
+    // Warm up the database by syncing from Supabase immediately on mount
+    db.syncFromSupabase().catch(err => {
+      console.error('[Auth Sync] Pre-login database synchronization failed:', err);
+    });
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
