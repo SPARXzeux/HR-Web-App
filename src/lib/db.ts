@@ -140,8 +140,31 @@ async function syncFromSupabase() {
   try {
     // 1. Sync Profiles
     const { data: dbProfiles } = await supabase.from('profiles').select('*');
-    if (dbProfiles && dbProfiles.length > 0) {
-      const mapped = dbProfiles.map(p => ({
+    let finalProfiles = dbProfiles || [];
+    
+    const hasAdmin = finalProfiles.some(p => p.email === 'admin@delcargo.us');
+    const hasHr = finalProfiles.some(p => p.email === 'hr@delcargo.us');
+    const missingSeeds = [];
+    if (!hasAdmin) {
+      const p = defaultEmployees[0];
+      missingSeeds.push({
+        id: p.id, full_name: p.fullName, email: p.email, role: p.role, joined_date: p.joinedDate, onboarding_completed: p.onboardingCompleted, base_salary: p.baseSalary, teams: p.teams, password: p.password, is_team_lead: p.isTeamLead, lead_teams: p.leadTeams, job_title: p.jobTitle, gender: p.gender, bank_name: p.bankName, account_number: p.accountNumber, iban: p.iban, profile_picture: p.profilePicture, region: p.region, assigned_warehouses: p.assignedWarehouses, tracking_enabled: p.trackingEnabled
+      });
+    }
+    if (!hasHr) {
+      const p = defaultEmployees[1];
+      missingSeeds.push({
+        id: p.id, full_name: p.fullName, email: p.email, role: p.role, joined_date: p.joinedDate, onboarding_completed: p.onboardingCompleted, base_salary: p.baseSalary, teams: p.teams, password: p.password, is_team_lead: p.isTeamLead, lead_teams: p.leadTeams, job_title: p.jobTitle, gender: p.gender, bank_name: p.bankName, account_number: p.accountNumber, iban: p.iban, profile_picture: p.profilePicture, region: p.region, assigned_warehouses: p.assignedWarehouses, tracking_enabled: p.trackingEnabled
+      });
+    }
+    if (missingSeeds.length > 0) {
+      await supabase.from('profiles').upsert(missingSeeds);
+      const { data: refetched } = await supabase.from('profiles').select('*');
+      if (refetched) finalProfiles = refetched;
+    }
+
+    if (finalProfiles.length > 0) {
+      const mapped = finalProfiles.map(p => ({
         id: p.id,
         fullName: p.full_name,
         email: p.email,
@@ -164,30 +187,6 @@ async function syncFromSupabase() {
         trackingEnabled: p.tracking_enabled
       }));
       localStorage.setItem('hr_employees_v6', JSON.stringify(mapped));
-    } else {
-      const seed = defaultEmployees.map(p => ({
-        id: p.id,
-        full_name: p.fullName,
-        email: p.email,
-        role: p.role,
-        joined_date: p.joinedDate,
-        onboarding_completed: p.onboardingCompleted,
-        base_salary: p.baseSalary,
-        teams: p.teams,
-        password: p.password,
-        is_team_lead: p.isTeamLead,
-        lead_teams: p.leadTeams,
-        job_title: p.jobTitle,
-        gender: p.gender,
-        bank_name: p.bankName,
-        account_number: p.accountNumber,
-        iban: p.iban,
-        profile_picture: p.profilePicture,
-        region: p.region,
-        assigned_warehouses: p.assignedWarehouses,
-        tracking_enabled: p.trackingEnabled
-      }));
-      await supabase.from('profiles').upsert(seed);
     }
 
     // 2. Sync Leaves
