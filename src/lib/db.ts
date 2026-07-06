@@ -393,27 +393,27 @@ async function saveData<T>(key: string, data: T): Promise<void> {
       if (key === 'hr_employees_prod_v1') {
         const rows = (data as Profile[]).map(p => ({
           id: p.id,
-          full_name: p.fullName,
-          email: p.email,
-          role: p.role,
-          joined_date: p.joinedDate,
-          onboarding_completed: p.onboardingCompleted,
-          base_salary: p.baseSalary,
-          teams: p.teams,
-          password: p.password,
-          is_team_lead: p.isTeamLead,
-          lead_teams: p.leadTeams,
-          is_warehouse_lead: p.isWarehouseLead,
-          managed_warehouses: p.managedWarehouses,
-          job_title: p.jobTitle,
-          gender: p.gender,
-          bank_name: p.bankName,
-          account_number: p.accountNumber,
-          iban: p.iban,
-          profile_picture: p.profilePicture,
-          region: p.region,
-          assigned_warehouses: p.assignedWarehouses,
-          tracking_enabled: p.trackingEnabled,
+          full_name: p.fullName || '',
+          email: p.email || '',
+          role: p.role || 'employee',
+          joined_date: p.joinedDate || new Date().toISOString().split('T')[0],
+          onboarding_completed: p.onboardingCompleted !== undefined ? p.onboardingCompleted : false,
+          base_salary: p.baseSalary || 0,
+          teams: p.teams || [],
+          password: p.password || 'employee123',
+          is_team_lead: p.isTeamLead !== undefined ? p.isTeamLead : false,
+          lead_teams: p.leadTeams || [],
+          is_warehouse_lead: p.isWarehouseLead !== undefined ? p.isWarehouseLead : false,
+          managed_warehouses: p.managedWarehouses || [],
+          job_title: p.jobTitle || 'Staff',
+          gender: p.gender || 'male',
+          bank_name: p.bankName || null,
+          account_number: p.accountNumber || null,
+          iban: p.iban || null,
+          profile_picture: p.profilePicture || null,
+          region: p.region || 'Pakistan',
+          assigned_warehouses: p.assignedWarehouses || [],
+          tracking_enabled: p.trackingEnabled !== undefined ? p.trackingEnabled : true,
           salary_start_date: p.salaryStartDate || p.joinedDate || null
         }));
         const { error } = await supabase.from('profiles').upsert(rows);
@@ -427,57 +427,57 @@ async function saveData<T>(key: string, data: T): Promise<void> {
       } else if (key === 'hr_leaves_prod_v1') {
         const rows = (data as LeaveApplication[]).map(l => ({
           id: l.id,
-          employee_name: l.employeeName,
-          type: l.type,
-          duration: l.duration,
-          reason: l.reason,
-          status: l.status
+          employee_name: l.employeeName || '',
+          type: l.type || 'vacation',
+          duration: l.duration || 1,
+          reason: l.reason || '',
+          status: l.status || 'pending'
         }));
         await supabase.from('leaves').upsert(rows);
       } else if (key === 'hr_tasks_prod_v1') {
         const rows = (data as Task[]).map(t => ({
           id: t.id,
-          title: t.title,
-          description: t.description,
-          assigned_to: t.assignedTo,
-          assigned_email: t.assignedEmail,
-          team: t.team,
-          due_date: t.dueDate,
-          priority: t.priority,
-          status: t.status,
-          created_by: t.createdBy
+          title: t.title || '',
+          description: t.description || '',
+          assigned_to: t.assignedTo || '',
+          assigned_email: t.assignedEmail || '',
+          team: t.team || 'General',
+          due_date: t.dueDate || '',
+          priority: t.priority || 'medium',
+          status: t.status || 'todo',
+          created_by: t.createdBy || 'HR'
         }));
         await supabase.from('tasks').upsert(rows);
       } else if (key === 'hr_timesheets_prod_v1') {
         const rows = (data as any[]).map(ts => ({
           id: ts.id,
-          employee_email: ts.employeeEmail,
-          date: ts.date,
-          clock_in: ts.clockIn,
-          clock_out: ts.clockOut,
-          duration: ts.duration,
-          status: ts.status,
-          score: ts.score
+          employee_email: ts.employeeEmail || '',
+          date: ts.date || '',
+          clock_in: ts.clockIn || '',
+          clock_out: ts.clockOut || null,
+          duration: ts.duration || 0,
+          status: ts.status || 'pending',
+          score: ts.score !== undefined ? ts.score : 0
         }));
         await supabase.from('timesheets').upsert(rows);
       } else if (key === 'hr_announcements_prod_v1') {
         const rows = (data as Announcement[]).map(ann => ({
           id: ann.id,
-          title: ann.title,
-          content: ann.content,
-          timestamp: ann.timestamp,
-          created_by: ann.createdBy,
-          target: typeof ann.target === 'string' ? ann.target : JSON.stringify(ann.target)
+          title: ann.title || '',
+          content: ann.content || '',
+          timestamp: ann.timestamp || '',
+          created_by: ann.createdBy || 'Admin',
+          target: typeof ann.target === 'string' ? ann.target : JSON.stringify(ann.target || 'all')
         }));
         await supabase.from('announcements').upsert(rows);
       } else if (key === 'hr_notifications_prod_v1') {
         const rows = (data as Notification[]).map(n => ({
           id: n.id,
-          recipient_email: n.recipientEmail,
-          recipient_role: n.recipientRole,
-          message: n.message,
-          timestamp: n.timestamp,
-          read: n.read
+          recipient_email: n.recipientEmail || '',
+          recipient_role: n.recipientRole || '',
+          message: n.message || '',
+          timestamp: n.timestamp || '',
+          read: n.read !== undefined ? n.read : false
         }));
         await supabase.from('notifications').upsert(rows);
       } else if (key === 'hr_warehouses_prod_v1') {
