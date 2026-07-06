@@ -357,7 +357,6 @@ export default function EmployeeLeavesPage() {
               className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900"
             >
               <option value="pto">PTO / Vacation</option>
-              <option value="sick">Sick Leave</option>
               <option value="urgent">Urgent Leave</option>
               {userProfile?.gender === 'female' && (
                 <option value="parental_leave">Parental Leave (30 Days)</option>
