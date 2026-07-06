@@ -193,7 +193,18 @@ async function syncFromSupabase() {
     }
 
     if (finalProfiles.length > 0) {
-      const mapped = finalProfiles.map(p => ({
+      const dbEmails = new Set(finalProfiles.map(p => p.email.toLowerCase()));
+      const localProfiles = (() => {
+        try {
+          const raw = localStorage.getItem('hr_employees_prod_v1');
+          return raw ? JSON.parse(raw) as Profile[] : [];
+        } catch {
+          return [];
+        }
+      })();
+      const localOnly = localProfiles.filter(p => p && p.email && !dbEmails.has(p.email.toLowerCase()));
+
+      const mappedDb = finalProfiles.map(p => ({
         id: p.id,
         fullName: p.full_name,
         email: p.email,
@@ -215,9 +226,12 @@ async function syncFromSupabase() {
         profilePicture: p.profile_picture,
         region: p.region,
         assignedWarehouses: p.assigned_warehouses || [],
-        trackingEnabled: p.tracking_enabled
+        trackingEnabled: p.tracking_enabled,
+        salaryStartDate: p.salary_start_date || p.joined_date || ''
       }));
-      localStorage.setItem('hr_employees_prod_v1', JSON.stringify(mapped));
+
+      const finalMapped = [...mappedDb, ...localOnly];
+      localStorage.setItem('hr_employees_prod_v1', JSON.stringify(finalMapped));
     }
 
     // 2. Sync Leaves
@@ -400,9 +414,17 @@ function saveData<T>(key: string, data: T) {
             profile_picture: p.profilePicture,
             region: p.region,
             assigned_warehouses: p.assignedWarehouses,
-            tracking_enabled: p.trackingEnabled
+            tracking_enabled: p.trackingEnabled,
+            salary_start_date: p.salaryStartDate || p.joinedDate || null
           }));
-          await supabase.from('profiles').upsert(rows);
+          const { error } = await supabase.from('profiles').upsert(rows);
+          if (error && error.code === '42703') {
+            console.warn('[Supabase Sync] salary_start_date column not found in Supabase schema. Retrying without it.');
+            const fallbackRows = rows.map(({ salary_start_date, ...rest }) => rest);
+            await supabase.from('profiles').upsert(fallbackRows);
+          } else if (error) {
+            throw error;
+          }
         } else if (key === 'hr_leaves_prod_v1') {
           const rows = (data as LeaveApplication[]).map(l => ({
             id: l.id,
