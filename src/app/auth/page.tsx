@@ -30,6 +30,10 @@ export default function AuthPage() {
         const employees = db.getEmployees();
         const profile = employees.find(emp => emp.email === email);
         if (profile && (profile.password === password || (!profile.password && password === 'employee123'))) {
+          if (profile.offboarded) {
+            setError('This account has been deactivated / offboarded.');
+            return;
+          }
           role = profile.role;
         }
       }

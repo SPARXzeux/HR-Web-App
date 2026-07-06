@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { db, Profile, formatMoney } from '@/lib/db';
 import { FileText, Search, Filter, ShieldCheck, Download, MapPin, Edit2, Monitor } from 'lucide-react';
+import { UserProfileModal } from '@/components/ui/UserProfileModal';
 
 export default function ReportsPage() {
   const [employees, setEmployees] = useState<Profile[]>([]);
@@ -25,9 +26,15 @@ export default function ReportsPage() {
   const [selectedReviewEmp, setSelectedReviewEmp] = useState<Profile | null>(null);
   const [reviewEntries, setReviewEntries] = useState<any[]>([]);
 
+  // Profile modal states
+  const [selectedProfileEmail, setSelectedProfileEmail] = useState<string | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
+
   useEffect(() => {
     setEmployees(db.getEmployees());
     setWarehouses(db.getWarehouses());
+    const email = localStorage.getItem('user_email');
+    if (email) setCurrentUserEmail(email);
   }, []);
 
   const filteredEmployees = employees.filter(emp => {
@@ -184,7 +191,7 @@ export default function ReportsPage() {
             <tbody className="divide-y divide-slate-200 bg-white">
               {filteredEmployees.map((emp) => (
                 <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 cursor-pointer hover:bg-slate-100/70" onClick={() => setSelectedProfileEmail(emp.email)}>
                     <div className="flex items-center gap-3">
                       <img 
                         src={emp.profilePicture || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=256&auto=format&fit=crop'} 
@@ -412,6 +419,19 @@ export default function ReportsPage() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {selectedProfileEmail && (
+        <UserProfileModal
+          isOpen={!!selectedProfileEmail}
+          onClose={() => setSelectedProfileEmail(null)}
+          employeeEmail={selectedProfileEmail}
+          currentUserRole="admin"
+          currentUserEmail={currentUserEmail}
+          onUpdate={() => {
+            setEmployees(db.getEmployees());
+          }}
+        />
       )}
     </div>
   );

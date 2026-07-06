@@ -24,6 +24,14 @@ export interface Profile {
   region?: 'USA' | 'Pakistan';
   assignedWarehouses?: string[];
   trackingEnabled?: boolean;
+  offboarded?: boolean;
+  offboardDate?: string;
+  offboardingStatus?: {
+    itClearance: boolean;
+    financeClearance: boolean;
+    hrClearance: boolean;
+    notes?: string;
+  };
 }
 
 export interface Warehouse {
@@ -804,6 +812,27 @@ export const db = {
     const newWh = { ...wh, id: `wh_${Date.now()}` };
     db.saveWarehouses([...list, newWh]);
     return newWh;
+  },
+  updateWarehouse: (id: string, updates: Partial<Warehouse>) => {
+    const list = db.getWarehouses();
+    const updated = list.map(w => w.id === id ? { ...w, ...updates } : w);
+    db.saveWarehouses(updated);
+    return updated;
+  },
+  deleteWarehouse: (id: string) => {
+    const list = db.getWarehouses();
+    const updated = list.filter(w => w.id !== id);
+    db.saveWarehouses(updated);
+    // Also remove this warehouse from employee assignments
+    const employees = db.getEmployees();
+    const updatedEmployees = employees.map(emp => {
+      if (emp.assignedWarehouses) {
+        return { ...emp, assignedWarehouses: emp.assignedWarehouses.filter(wId => wId !== id) };
+      }
+      return emp;
+    });
+    db.saveEmployees(updatedEmployees);
+    return updated;
   },
 
   getAnnouncements: (): Announcement[] => getInitialData('hr_announcements_prod_v1', defaultAnnouncements),

@@ -288,7 +288,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className="space-y-4">
                 {/* Profile Pic box */}
                 <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
                     <div>
                       <span className="text-sm font-bold text-slate-900">1. Profile Picture (Mandatory) *</span>
                       <p className="text-[10px] text-slate-400 mt-0.5">JPG or PNG format. Front facing photo.</p>
@@ -301,7 +301,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     ) : uploadingPic ? (
                       <span className="text-slate-400 text-xs animate-pulse">Uploading photo...</span>
                     ) : (
-                      <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97">
+                      <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
                         Upload Photo
                         <input 
                           type="file" 
@@ -330,7 +330,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
                 {/* CV file box */}
                 <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
                     <div>
                       <span className="text-sm font-bold text-slate-900">2. Curriculum Vitae (CV) *</span>
                       <p className="text-[10px] text-slate-400 mt-0.5">PDF or Word format under 5MB</p>
@@ -340,7 +340,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     ) : uploading.cv ? (
                       <span className="text-slate-400 text-xs animate-pulse">Uploading file...</span>
                     ) : (
-                      <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97">
+                      <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
                         Upload PDF
                         <input 
                           type="file" 
@@ -360,7 +360,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
                 {/* CNIC or Driver License file box */}
                 <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
                     <div>
                       <span className="text-sm font-bold text-slate-900">
                         3. {profile?.region === 'USA' ? 'Driver License / Work Permit *' : 'CNIC Card (Both Sides) *'}
@@ -372,7 +372,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     ) : uploading.cnic ? (
                       <span className="text-slate-400 text-xs animate-pulse">Uploading scans...</span>
                     ) : (
-                      <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97">
+                      <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
                         Upload Scan
                         <input 
                           type="file" 
@@ -393,7 +393,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 {/* Optional Passport file box for USA only */}
                 {profile?.region === 'USA' && (
                   <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
-                    <div className="flex justify-between items-center">
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
                       <div>
                         <span className="text-sm font-bold text-slate-900">4. Passport (Secondary ID) (Optional)</span>
                         <p className="text-[10px] text-slate-400 mt-0.5">JPG or PNG image scan. Optional.</p>
@@ -403,7 +403,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       ) : uploadingPassport ? (
                         <span className="text-slate-400 text-xs animate-pulse">Uploading scans...</span>
                       ) : (
-                        <label className="text-xs bg-orange-650 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97">
+                        <label className="text-xs bg-orange-655 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
                           Upload Scan
                           <input 
                             type="file" 

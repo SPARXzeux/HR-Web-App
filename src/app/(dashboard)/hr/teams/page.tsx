@@ -5,7 +5,8 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { db, Profile } from '@/lib/db';
-import { Users, Trash2, Plus, AlertTriangle, CheckCircle2, UserCog, Star } from 'lucide-react';
+import { Users, Trash2, Plus, AlertTriangle, CheckCircle2, UserCog, Star, Edit, Trash } from 'lucide-react';
+import { UserProfileModal } from '@/components/ui/UserProfileModal';
 
 export default function HRTeamsPage() {
   const [employees, setEmployees] = useState<Profile[]>([]);
@@ -14,6 +15,10 @@ export default function HRTeamsPage() {
   const [newTeamName, setNewTeamName] = useState('');
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
+  // Profile modal states
+  const [selectedProfileEmail, setSelectedProfileEmail] = useState<string | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
+
   // Warehouse states
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [whName, setWhName] = useState('');
@@ -21,6 +26,13 @@ export default function HRTeamsPage() {
   const [whLon, setWhLon] = useState('');
   const [whRadius, setWhRadius] = useState('500');
   const [whSuccess, setWhSuccess] = useState('');
+
+  // Warehouse editing states
+  const [editingWhId, setEditingWhId] = useState<string | null>(null);
+  const [editingWhName, setEditingWhName] = useState('');
+  const [editingWhLat, setEditingWhLat] = useState('');
+  const [editingWhLon, setEditingWhLon] = useState('');
+  const [editingWhRadius, setEditingWhRadius] = useState('');
   
   // Drag and Drop & Prompt Modal State
   const [draggedEmployee, setDraggedEmployee] = useState<Profile | null>(null);
@@ -43,6 +55,8 @@ export default function HRTeamsPage() {
     setEmployees(db.getEmployees());
     setTeams(db.getTeams());
     setWarehouses(db.getWarehouses());
+    const email = localStorage.getItem('user_email');
+    if (email) setCurrentUserEmail(email);
 
     const handleSearch = (e: Event) => {
       setSearchQuery((e as CustomEvent).detail || '');
@@ -197,6 +211,41 @@ export default function HRTeamsPage() {
     setTimeout(() => setWhSuccess(''), 1500);
   };
 
+  const handleDeleteWarehouse = (id: string) => {
+    const confirmDelete = window.confirm('Are you sure you want to delete this warehouse? Assignments will be updated.');
+    if (!confirmDelete) return;
+
+    db.deleteWarehouse(id);
+    setWarehouses(db.getWarehouses());
+    setEmployees(db.getEmployees());
+    setWhSuccess('Warehouse deleted successfully.');
+    setTimeout(() => setWhSuccess(''), 1500);
+  };
+
+  const handleStartEditWarehouse = (wh: any) => {
+    setEditingWhId(wh.id);
+    setEditingWhName(wh.name);
+    setEditingWhLat(wh.latitude.toString());
+    setEditingWhLon(wh.longitude.toString());
+    setEditingWhRadius(wh.radius.toString());
+  };
+
+  const handleUpdateWarehouseSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingWhId) return;
+
+    db.updateWarehouse(editingWhId, {
+      name: editingWhName.trim(),
+      latitude: Number(editingWhLat),
+      longitude: Number(editingWhLon),
+      radius: Number(editingWhRadius)
+    });
+    setWarehouses(db.getWarehouses());
+    setEditingWhId(null);
+    setWhSuccess('Warehouse updated successfully.');
+    setTimeout(() => setWhSuccess(''), 1500);
+  };
+
   const handleAssignWarehouse = (empId: string, whId: string, checked: boolean) => {
     const emp = employees.find(e => e.id === empId);
     if (!emp) return;
@@ -300,7 +349,10 @@ export default function HRTeamsPage() {
                 onDragStart={() => handleDragStart(emp)}
                 className="cursor-grab select-none hover:shadow-md transition-all active:scale-97"
               >
-                <Card className="p-4 bg-white border border-slate-200 hover:border-slate-350">
+                <Card 
+                  onClick={() => setSelectedProfileEmail(emp.email)} 
+                  className="p-4 bg-white border border-slate-200 hover:border-slate-350 cursor-pointer"
+                >
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <div>
                       <div className="font-semibold text-slate-900 text-sm flex items-center gap-1.5">
@@ -387,9 +439,13 @@ export default function HRTeamsPage() {
 
                   <div className="flex-1 space-y-2">
                     {members.map(member => (
-                      <div key={member.id} className="bg-white border border-slate-200 rounded-lg p-2.5 shadow-sm text-xs font-semibold text-slate-700 flex justify-between items-center">
+                      <div 
+                        key={member.id} 
+                        onClick={() => setSelectedProfileEmail(member.email)}
+                        className="bg-white border border-slate-200 rounded-lg p-2.5 shadow-sm text-xs font-semibold text-slate-700 flex justify-between items-center cursor-pointer hover:border-slate-350 transition-colors"
+                      >
                         <span>{member.fullName}</span>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
                           {member.isTeamLead && member.leadTeams?.includes(teamName) && (
                             <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded flex items-center gap-0.5">
                               ⭐ Lead
@@ -694,6 +750,22 @@ export default function HRTeamsPage() {
                       <div className="font-bold text-slate-800">{wh.name}</div>
                       <div className="text-[10px] text-slate-450 mt-0.5">Coords: {wh.latitude}, {wh.longitude} · Radius: {wh.radius}m</div>
                     </div>
+                    <div className="flex gap-1.5" onClick={e => e.stopPropagation()}>
+                      <button 
+                        onClick={() => handleStartEditWarehouse(wh)}
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-200 transition-all"
+                        title="Edit Warehouse"
+                      >
+                        <Edit className="h-3.5 w-3.5" />
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteWarehouse(wh.id)}
+                        className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-100 transition-all"
+                        title="Delete Warehouse"
+                      >
+                        <Trash className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </CardContent>
@@ -745,6 +817,74 @@ export default function HRTeamsPage() {
           </div>
         </div>
       </div>
+
+      {selectedProfileEmail && (
+        <UserProfileModal
+          isOpen={!!selectedProfileEmail}
+          onClose={() => setSelectedProfileEmail(null)}
+          employeeEmail={selectedProfileEmail}
+          currentUserRole="hr"
+          currentUserEmail={currentUserEmail}
+          onUpdate={() => {
+            setEmployees(db.getEmployees());
+          }}
+        />
+      )}
+
+      {editingWhId && (
+        <Modal isOpen onClose={() => setEditingWhId(null)} title="Edit Warehouse Details">
+          <form onSubmit={handleUpdateWarehouseSubmit} className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Warehouse Name *</label>
+              <input 
+                type="text" 
+                required
+                value={editingWhName}
+                onChange={e => setEditingWhName(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-xs outline-none focus:border-orange-500 font-semibold"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Latitude *</label>
+                <input 
+                  type="number" 
+                  step="0.000001"
+                  required
+                  value={editingWhLat}
+                  onChange={e => setEditingWhLat(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-xs outline-none focus:border-orange-500 font-semibold"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Longitude *</label>
+                <input 
+                  type="number" 
+                  step="0.000001"
+                  required
+                  value={editingWhLon}
+                  onChange={e => setEditingWhLon(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-xs outline-none focus:border-orange-500 font-semibold"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Radius (m) *</label>
+                <input 
+                  type="number" 
+                  required
+                  value={editingWhRadius}
+                  onChange={e => setEditingWhRadius(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-xs outline-none focus:border-orange-500 font-semibold"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+              <button type="button" onClick={() => setEditingWhId(null)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 rounded-xl text-xs active:scale-97 transition-all">Cancel</button>
+              <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs active:scale-97 transition-all shadow-sm">Save Changes</button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { db, Profile, formatMoney } from '@/lib/db';
 import { FileText, Search, Filter, ShieldCheck, Download, Monitor, Clock, CheckCircle2, TrendingUp, Calendar } from 'lucide-react';
+import { UserProfileModal } from '@/components/ui/UserProfileModal';
 
 interface TrackingEntry {
   date: string;
@@ -25,6 +26,9 @@ export default function ReportsPage() {
   const [selectedReviewEmp, setSelectedReviewEmp] = useState<Profile | null>(null);
   const [reviewEntries, setReviewEntries] = useState<TrackingEntry[]>([]);
   const [dateFilter, setDateFilter] = useState('');
+
+  const [selectedProfileEmail, setSelectedProfileEmail] = useState<string | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
 
   const handleOpenReviewModal = (emp: Profile) => {
     setSelectedReviewEmp(emp);
@@ -56,6 +60,8 @@ export default function ReportsPage() {
 
   useEffect(() => {
     setEmployees(db.getEmployees());
+    const email = localStorage.getItem('user_email');
+    if (email) setCurrentUserEmail(email);
   }, []);
 
   const filteredEmployees = employees.filter(emp => {
@@ -205,7 +211,7 @@ export default function ReportsPage() {
             <tbody className="divide-y divide-slate-200 bg-white">
               {filteredEmployees.map((emp) => (
                 <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 cursor-pointer hover:bg-slate-100/70" onClick={() => setSelectedProfileEmail(emp.email)}>
                     <div className="flex items-center gap-3">
                       {emp.profilePicture ? (
                         <img src={emp.profilePicture} alt={emp.fullName} className="h-10 w-10 rounded-full object-cover border border-slate-200" />
@@ -382,6 +388,19 @@ export default function ReportsPage() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {selectedProfileEmail && (
+        <UserProfileModal
+          isOpen={!!selectedProfileEmail}
+          onClose={() => setSelectedProfileEmail(null)}
+          employeeEmail={selectedProfileEmail}
+          currentUserRole="hr"
+          currentUserEmail={currentUserEmail}
+          onUpdate={() => {
+            setEmployees(db.getEmployees());
+          }}
+        />
       )}
     </div>
   );
