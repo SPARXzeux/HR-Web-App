@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { db, Profile, formatMoney } from '@/lib/db';
 import { Badge } from './Badge';
-import { X, User, Mail, Shield, ShieldAlert, Key, DollarSign, Calendar, MapPin, Landmark, Briefcase, FileText, CheckSquare, Square } from 'lucide-react';
+import { ConfirmDialog } from './ConfirmDialog';
+import { X, User, Mail, Shield, ShieldAlert, Key, DollarSign, Calendar, MapPin, Landmark, Briefcase, FileText, CheckSquare, Square, Trash2 } from 'lucide-react';
 
 interface UserProfileModalProps {
   isOpen: boolean;
@@ -19,6 +20,9 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isOffboarding, setIsOffboarding] = useState(false);
+  const [showOffboardConfirm, setShowOffboardConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Edit fields
   const [fullName, setFullName] = useState('');
@@ -150,6 +154,11 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
 
   const handleOffboardSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Don't mutate yet — require explicit confirmation first
+    setShowOffboardConfirm(true);
+  };
+
+  const confirmOffboard = () => {
     db.updateProfileDetails(profile.email, {
       offboarded: true,
       offboardDate: new Date().toISOString().split('T')[0],
@@ -160,12 +169,22 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
         notes
       }
     });
+    setShowOffboardConfirm(false);
     setIsOffboarding(false);
     onUpdate?.();
 
     const updatedEmps = db.getEmployees();
     const match = updatedEmps.find(e => e.email === profile.email);
     if (match) setProfile(match);
+  };
+
+  const confirmDeletePermanently = async () => {
+    setIsDeleting(true);
+    await db.deleteEmployee(profile.id);
+    setIsDeleting(false);
+    setShowDeleteConfirm(false);
+    onUpdate?.();
+    onClose();
   };
 
   const handleReactivate = () => {
@@ -324,17 +343,27 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
 
               {/* Actions */}
               {canManageThisProfile && (
-                <div className="flex gap-2 pt-3 border-t border-slate-100">
-                  <button onClick={() => setIsEditing(true)} className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97">
-                    Edit Credentials
-                  </button>
-                  {profile.offboarded ? (
-                    <button onClick={handleReactivate} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97">
-                      Reactivate Employee
+                <div className="space-y-2 pt-3 border-t border-slate-100">
+                  <div className="flex gap-2">
+                    <button onClick={() => setIsEditing(true)} className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97">
+                      Edit Credentials
                     </button>
-                  ) : (
-                    <button onClick={() => setIsOffboarding(true)} className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97">
-                      Offboard Account
+                    {profile.offboarded ? (
+                      <button onClick={handleReactivate} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97">
+                        Reactivate Employee
+                      </button>
+                    ) : (
+                      <button onClick={() => setIsOffboarding(true)} className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97">
+                        Offboard Account
+                      </button>
+                    )}
+                  </div>
+                  {profile.offboarded && (
+                    <button
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Delete Account Permanently
                     </button>
                   )}
                 </div>
@@ -518,6 +547,27 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={showOffboardConfirm}
+        onClose={() => setShowOffboardConfirm(false)}
+        onConfirm={confirmOffboard}
+        title="Offboard this employee?"
+        message={`This will deactivate ${profile.fullName}'s account and immediately block all access to the workspace. Their record stays in the system as "Offboarded" and can be reactivated later.`}
+        confirmLabel="Yes, Offboard"
+        variant="warning"
+      />
+
+      <ConfirmDialog
+        isOpen={showDeleteConfirm}
+        onClose={() => !isDeleting && setShowDeleteConfirm(false)}
+        onConfirm={confirmDeletePermanently}
+        title="Permanently delete this account?"
+        message={`This will completely and irreversibly remove ${profile.fullName}'s profile from the database, including all history, salary records, and clearance status. This cannot be undone.`}
+        confirmLabel={isDeleting ? 'Deleting…' : 'Delete Permanently'}
+        variant="danger"
+        requireTextMatch="DELETE"
+      />
     </div>
   );
 }

@@ -442,6 +442,47 @@ function getInitialData<T>(key: string, fallback: T): T {
   return JSON.parse(data);
 }
 
+// Upserts profile rows to Supabase, self-healing if the live table is missing
+// a column the app expects (e.g. after a schema drift). Rather than hard-coding
+// one specific column name, this detects "column not found" errors generically
+// (PostgREST code PGRST204, or Postgres code 42703) by parsing the offending
+// column out of the error message, strips it from every row, and retries.
+// This prevents a single missing/renamed column from silently blocking every
+// employee save (which is what happened with salary_start_date previously).
+async function upsertProfilesWithFallback(rows: Record<string, any>[]): Promise<void> {
+  let currentRows = rows;
+  const droppedColumns: string[] = [];
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const { error } = await supabase.from('profiles').upsert(currentRows);
+    if (!error) {
+      if (droppedColumns.length > 0) {
+        const msg = `Supabase 'profiles' table is missing column(s): ${droppedColumns.join(', ')}. Data for these fields is NOT being saved. Add them with: ALTER TABLE profiles ADD COLUMN <name> TEXT;`;
+        lastSyncError = msg;
+        console.warn(`[Supabase Sync] ${msg}`);
+      }
+      return;
+    }
+
+    const isMissingColumnError = error.code === '42703' || error.code === 'PGRST204';
+    const match = error.message?.match(/'([a-z_]+)' column/i) || error.message?.match(/column "?([a-z_]+)"?/i);
+    const offendingColumn = match?.[1];
+
+    if (isMissingColumnError && offendingColumn && offendingColumn in currentRows[0]) {
+      droppedColumns.push(offendingColumn);
+      currentRows = currentRows.map(({ [offendingColumn]: _drop, ...rest }) => rest);
+      continue; // retry without the offending column
+    }
+
+    // Not a recoverable "missing column" error — surface it and stop.
+    lastSyncError = `Supabase Save Error: ${error.message} (Code: ${error.code})`;
+    console.error('[Supabase Sync] Unrecoverable profiles upsert error:', error);
+    throw error;
+  }
+
+  lastSyncError = 'Supabase Save Error: repeated schema mismatches while saving profiles. Check console for details.';
+}
+
 async function saveData<T>(key: string, data: T): Promise<void> {
   if (isClient) {
     localStorage.setItem(key, JSON.stringify(data));
@@ -473,14 +514,7 @@ async function saveData<T>(key: string, data: T): Promise<void> {
           tracking_enabled: p.trackingEnabled !== undefined ? p.trackingEnabled : true,
           salary_start_date: p.salaryStartDate || p.joinedDate || null
         }));
-        const { error } = await supabase.from('profiles').upsert(rows);
-        if (error && error.code === '42703') {
-          console.warn('[Supabase Sync] salary_start_date column not found in Supabase schema. Retrying without it.');
-          const fallbackRows = rows.map(({ salary_start_date, ...rest }) => rest);
-          await supabase.from('profiles').upsert(fallbackRows);
-        } else if (error) {
-          throw error;
-        }
+        await upsertProfilesWithFallback(rows);
       } else if (key === 'hr_leaves_prod_v1') {
         const rows = (data as LeaveApplication[]).map(l => ({
           id: l.id,
@@ -789,6 +823,30 @@ export const db = {
     const newEmp: Profile = { ...emp, id: `emp_${Date.now()}`, onboardingCompleted: false };
     await db.saveEmployees([...employees, newEmp]);
     return newEmp;
+  },
+
+  deleteEmployee: async (id: string): Promise<Profile[]> => {
+    const employees = db.getEmployees();
+    const updated = employees.filter(emp => emp.id !== id);
+
+    // Update local cache immediately
+    if (isClient) {
+      localStorage.setItem('hr_employees_prod_v1', JSON.stringify(updated));
+    }
+
+    // Permanently remove the row from Supabase (upsert alone never deletes rows)
+    try {
+      const { error } = await supabase.from('profiles').delete().eq('id', id);
+      if (error) {
+        console.error('[Supabase Sync] Delete error:', error);
+      } else {
+        console.log(`[Supabase Sync] Permanently deleted profile ${id}.`);
+      }
+    } catch (err: any) {
+      console.error('[Supabase Sync] Unexpected delete error:', err);
+    }
+
+    return updated;
   },
 
   updateOnboardingStatus: async (email: string, completed: boolean) => {

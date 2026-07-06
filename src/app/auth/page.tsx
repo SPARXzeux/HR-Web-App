@@ -97,6 +97,12 @@ export default function AuthPage() {
                 {error}
               </div>
             )}
+            {db.getLastSyncError() && (
+              <div className="bg-rose-50 text-rose-600 p-3 rounded-lg text-xs font-semibold mb-4 border border-rose-100 text-left">
+                ⚠️ Supabase Connection Issue:<br/>
+                <span className="font-mono text-[10px] mt-1 block text-rose-700 bg-white/50 p-1.5 rounded border border-rose-200/50">{db.getLastSyncError()}</span>
+              </div>
+            )}
 
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-1.5">
