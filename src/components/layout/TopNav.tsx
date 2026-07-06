@@ -303,7 +303,7 @@ export function TopNav() {
             </button>
 
             {isBellOpen && (
-              <div className="absolute right-0 top-12 w-[min(320px,90vw)] bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-3 duration-150">
+              <div className="fixed top-16 left-4 right-4 sm:absolute sm:top-12 sm:right-0 sm:left-auto sm:w-[320px] bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-3 duration-150">
                 <div className="p-3.5 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
                   <span className="font-bold text-xs text-slate-800">Notifications</span>
                   <span className="text-[9px] text-slate-500 font-semibold capitalize">Scope: {role}</span>

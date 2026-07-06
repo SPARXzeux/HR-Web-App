@@ -291,16 +291,16 @@ export default function HRTeamsPage() {
           <h1 className="text-2xl font-bold text-slate-900">Teams & Allocations</h1>
           <p className="text-slate-500">Create custom teams and drag employees to allocate them.</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
           <button 
             onClick={() => setIsTeamLeadOpen(true)}
-            className="bg-orange-650 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 rounded-xl text-xs active:scale-97 transition-all flex items-center justify-center gap-1.5 shadow-sm"
           >
             <UserCog className="h-4 w-4" /> Manage Team Leads
           </button>
           <button 
             onClick={() => setIsWhLeadOpen(true)}
-            className="bg-purple-650 hover:bg-purple-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+            className="bg-purple-600 hover:bg-purple-750 text-white font-semibold px-4 py-2.5 rounded-xl text-xs active:scale-97 transition-all flex items-center justify-center gap-1.5 shadow-sm"
           >
             <UserCog className="h-4 w-4" /> Manage Warehouse Managers
           </button>
@@ -692,7 +692,7 @@ export default function HRTeamsPage() {
                       className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs focus:border-orange-500 outline-none text-slate-900"
                     />
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider">Latitude *</label>
                       <input 

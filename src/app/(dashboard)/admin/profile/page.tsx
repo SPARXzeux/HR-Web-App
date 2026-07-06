@@ -122,7 +122,7 @@ export default function AdminProfilePage() {
   return (
     <div className="space-y-8 max-w-2xl font-sans">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Admin Profile</h1>
           <p className="text-slate-500 text-sm mt-0.5">Manage your system credentials and preferences.</p>
@@ -132,7 +132,7 @@ export default function AdminProfilePage() {
             setTargetEmail(profile.email);
             setIsEditOpen(true);
           }}
-          className="flex items-center gap-1.5 text-xs font-bold bg-orange-650 hover:bg-orange-700 text-white px-3.5 py-2 rounded-xl transition-all shadow-md active:scale-97"
+          className="flex items-center justify-center gap-1.5 text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-97 self-stretch sm:self-auto"
         >
           <Edit2 className="h-3.5 w-3.5" /> Edit System Profiles
         </button>

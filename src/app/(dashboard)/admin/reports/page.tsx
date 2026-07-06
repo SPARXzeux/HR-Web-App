@@ -200,7 +200,7 @@ export default function ReportsPage() {
                       />
                       <div>
                         <div className="font-semibold text-slate-900">{emp.fullName}</div>
-                        <div className="text-xs text-slate-450">{emp.email} · <span className="font-bold text-orange-655">{emp.jobTitle || 'Staff'}</span></div>
+                        <div className="text-xs text-slate-450">{emp.email} · <span className="font-bold text-orange-600">{emp.jobTitle || 'Staff'}</span></div>
                       </div>
                     </div>
                   </td>

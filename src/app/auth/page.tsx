@@ -21,14 +21,15 @@ export default function AuthPage() {
       setLoading(false);
       let role: 'admin' | 'hr' | 'employee' | 'team_lead' | null = null;
 
-      if (email === 'admin@delcargo.us' && password === 'Aamir@123') {
+      const cleanEmail = email.trim().toLowerCase();
+      if (cleanEmail === 'admin@delcargo.us' && password === 'Aamir@123') {
         role = 'admin';
-      } else if (email === 'hr@delcargo.us' && password === 'HR@123') {
+      } else if (cleanEmail === 'hr@delcargo.us' && password === 'HR@123') {
         role = 'hr';
       } else {
         // Query the local database for employee accounts
         const employees = db.getEmployees();
-        const profile = employees.find(emp => emp.email === email);
+        const profile = employees.find(emp => emp.email.toLowerCase() === cleanEmail);
         if (profile && (profile.password === password || (!profile.password && password === 'employee123'))) {
           if (profile.offboarded) {
             setError('This account has been deactivated / offboarded.');
@@ -40,7 +41,7 @@ export default function AuthPage() {
 
       if (role) {
         localStorage.setItem('user_role', role);
-        localStorage.setItem('user_email', email);
+        localStorage.setItem('user_email', cleanEmail);
         // team_lead users share the employee dashboard
         const dashRoute = role === 'team_lead' ? 'employee' : role;
         router.push(`/${dashRoute}`);

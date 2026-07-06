@@ -17,6 +17,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   
   // Onboarding States
   const [onboardStep, setOnboardStep] = useState(1);
+  const [step2SubStep, setStep2SubStep] = useState(1);
   const [acceptedDocs, setAcceptedDocs] = useState({ conduct: false, handbook: false, privacy: false });
   const [signName, setSignName] = useState('');
   const [stepperError, setStepperError] = useState('');
@@ -108,13 +109,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         return;
       }
       setOnboardStep(2);
+      setStep2SubStep(1);
     } else if (onboardStep === 2) {
-      if (!cvFile || !cnicFile || !profilePicture) {
-        const docLabel = profile?.region === 'USA' ? 'Driver License / Work Permit' : 'CNIC images';
-        setStepperError(`Required: CV, ${docLabel}, and Profile Picture must be uploaded.`);
-        return;
+      if (step2SubStep === 1) {
+        if (!profilePicture || !cvFile) {
+          setStepperError('Required: Profile Picture and CV must be uploaded.');
+          return;
+        }
+        setStep2SubStep(2);
+      } else if (step2SubStep === 2) {
+        if (!cnicFile) {
+          const docLabel = profile?.region === 'USA' ? 'Driver License / Work Permit' : 'CNIC images';
+          setStepperError(`Required: ${docLabel} must be uploaded.`);
+          return;
+        }
+        if (profile?.region === 'USA') {
+          setStep2SubStep(3);
+        } else {
+          setOnboardStep(3);
+        }
+      } else {
+        // Sub-step 3 (Passport - Optional)
+        setOnboardStep(3);
       }
-      setOnboardStep(3);
     } else if (onboardStep === 3) {
       setOnboardStep(4);
     }
@@ -281,169 +298,198 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {onboardStep === 2 && (
             <div className="space-y-6">
               <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <Upload className="h-5 w-5 text-orange-600" /> Step 2: Upload Documents & Photo
+                <Upload className="h-5 w-5 text-orange-600" /> Step 2: Upload Documents ({step2SubStep}/3)
               </h2>
-              <p className="text-sm text-slate-655 font-medium">Please upload CNIC, CV, and a mandatory profile picture:</p>
-
-              <div className="space-y-4">
-                {/* Profile Pic box */}
-                <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
-                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
-                    <div>
-                      <span className="text-sm font-bold text-slate-900">1. Profile Picture (Mandatory) *</span>
-                      <p className="text-[10px] text-slate-400 mt-0.5">JPG or PNG format. Front facing photo.</p>
-                    </div>
-                    {profilePicture ? (
-                      <div className="flex items-center gap-2">
-                        <img src={profilePicture} alt="Preview" className="h-8 w-8 rounded-full object-cover border border-slate-200" />
-                        <span className="text-emerald-600 font-bold text-xs flex items-center gap-0.5"><CheckCircle2 className="h-4 w-4" /> Added</span>
+              
+              {step2SubStep === 1 && (
+                <>
+                  <p className="text-sm text-slate-655 font-medium">Please upload your profile picture and CV:</p>
+                  <div className="space-y-4">
+                    {/* Profile Pic box */}
+                    <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
+                      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                        <div>
+                          <span className="text-sm font-bold text-slate-900">1. Profile Picture (Mandatory) *</span>
+                          <p className="text-[10px] text-slate-400 mt-0.5">JPG or PNG format. Front facing photo.</p>
+                        </div>
+                        {profilePicture ? (
+                          <div className="flex items-center gap-2">
+                            <img src={profilePicture} alt="Preview" className="h-8 w-8 rounded-full object-cover border border-slate-200" />
+                            <span className="text-emerald-600 font-bold text-xs flex items-center gap-0.5"><CheckCircle2 className="h-4 w-4" /> Added</span>
+                          </div>
+                        ) : uploadingPic ? (
+                          <span className="text-slate-400 text-xs animate-pulse">Uploading photo...</span>
+                        ) : (
+                          <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
+                            Upload Photo
+                            <input 
+                              type="file" 
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  setUploadingPic(true);
+                                  compressImageToWebP(file, 0.6)
+                                    .then(compressed => {
+                                      setProfilePicture(compressed);
+                                      setUploadingPic(false);
+                                    })
+                                    .catch(err => {
+                                      console.error('Image compression failed:', err);
+                                      setUploadingPic(false);
+                                    });
+                                }
+                              }}
+                            />
+                          </label>
+                        )}
                       </div>
-                    ) : uploadingPic ? (
-                      <span className="text-slate-400 text-xs animate-pulse">Uploading photo...</span>
-                    ) : (
-                      <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
-                        Upload Photo
-                        <input 
-                          type="file" 
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              setUploadingPic(true);
-                              compressImageToWebP(file, 0.6)
-                                .then(compressed => {
-                                  setProfilePicture(compressed);
-                                  setUploadingPic(false);
-                                })
-                                .catch(err => {
-                                  console.error('Image compression failed:', err);
-                                  setUploadingPic(false);
-                                });
-                            }
-                          }}
-                        />
-                      </label>
-                    )}
-                  </div>
-                </div>
+                    </div>
 
-                {/* CV file box */}
-                <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
-                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
-                    <div>
-                      <span className="text-sm font-bold text-slate-900">2. Curriculum Vitae (CV) *</span>
-                      <p className="text-[10px] text-slate-400 mt-0.5">PDF or Word format under 5MB</p>
-                    </div>
-                    {cvFile ? (
-                      <span className="text-emerald-600 font-bold text-xs flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Uploaded</span>
-                    ) : uploading.cv ? (
-                      <span className="text-slate-400 text-xs animate-pulse">Uploading file...</span>
-                    ) : (
-                      <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
-                        Upload PDF
-                        <input 
-                          type="file" 
-                          accept=".pdf"
-                          className="hidden"
-                          onChange={(e) => simulateUpload('cv', e.target.files?.[0]?.name || 'Sarah_Connor_CV.pdf')}
-                        />
-                      </label>
-                    )}
-                  </div>
-                  {cvFile && (
-                    <div className="text-xs font-semibold text-slate-600 mt-3 flex items-center gap-1 bg-white p-2 rounded border border-slate-200">
-                      <FileText className="h-4 w-4 text-orange-600" /> {cvFile}
-                    </div>
-                  )}
-                </div>
-
-                {/* CNIC or Driver License file box */}
-                <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
-                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
-                    <div>
-                      <span className="text-sm font-bold text-slate-900">
-                        3. {profile?.region === 'USA' ? 'Driver License / Work Permit *' : 'CNIC Card (Both Sides) *'}
-                      </span>
-                      <p className="text-[10px] text-slate-400 mt-0.5">JPG or PNG image scan</p>
-                    </div>
-                    {cnicFile ? (
-                      <span className="text-emerald-600 font-bold text-xs flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Uploaded</span>
-                    ) : uploading.cnic ? (
-                      <span className="text-slate-400 text-xs animate-pulse">Uploading scans...</span>
-                    ) : (
-                      <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
-                        Upload Scan
-                        <input 
-                          type="file" 
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => simulateUpload('cnic', e.target.files?.[0]?.name || (profile?.region === 'USA' ? 'Sarah_Connor_License.png' : 'Sarah_Connor_CNIC.png'))}
-                        />
-                      </label>
-                    )}
-                  </div>
-                  {cnicFile && (
-                    <div className="text-xs font-semibold text-slate-600 mt-3 flex items-center gap-1 bg-white p-2 rounded border border-slate-200">
-                      <FileText className="h-4 w-4 text-orange-600" /> {cnicFile}
-                    </div>
-                  )}
-                </div>
-
-                {/* Optional Passport file box for USA only */}
-                {profile?.region === 'USA' && (
-                  <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
-                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
-                      <div>
-                        <span className="text-sm font-bold text-slate-900">4. Passport (Secondary ID) (Optional)</span>
-                        <p className="text-[10px] text-slate-400 mt-0.5">JPG or PNG image scan. Optional.</p>
+                    {/* CV file box */}
+                    <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
+                      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                        <div>
+                          <span className="text-sm font-bold text-slate-900">2. Curriculum Vitae (CV) *</span>
+                          <p className="text-[10px] text-slate-400 mt-0.5">PDF or Word format under 5MB</p>
+                        </div>
+                        {cvFile ? (
+                          <span className="text-emerald-600 font-bold text-xs flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Uploaded</span>
+                        ) : uploading.cv ? (
+                          <span className="text-slate-400 text-xs animate-pulse">Uploading file...</span>
+                        ) : (
+                          <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
+                            Upload PDF
+                            <input 
+                              type="file" 
+                              accept=".pdf"
+                              className="hidden"
+                              onChange={(e) => simulateUpload('cv', e.target.files?.[0]?.name || 'Sarah_Connor_CV.pdf')}
+                            />
+                          </label>
+                        )}
                       </div>
-                      {passportFile ? (
-                        <span className="text-emerald-600 font-bold text-xs flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Uploaded</span>
-                      ) : uploadingPassport ? (
-                        <span className="text-slate-400 text-xs animate-pulse">Uploading scans...</span>
-                      ) : (
-                        <label className="text-xs bg-orange-655 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
-                          Upload Scan
-                          <input 
-                            type="file" 
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              setUploadingPassport(true);
-                              const fileName = e.target.files?.[0]?.name || 'Sarah_Connor_Passport.png';
-                              setTimeout(() => {
-                                setUploadingPassport(false);
-                                setPassportFile(fileName);
-                              }, 1200);
-                            }}
-                          />
-                        </label>
+                      {cvFile && (
+                        <div className="text-xs font-semibold text-slate-600 mt-3 flex items-center gap-1 bg-white p-2 rounded border border-slate-200">
+                          <FileText className="h-4 w-4 text-orange-600" /> {cvFile}
+                        </div>
                       )}
                     </div>
-                    {passportFile && (
-                      <div className="text-xs font-semibold text-slate-600 mt-3 flex items-center gap-1 bg-white p-2 rounded border border-slate-200">
-                        <FileText className="h-4 w-4 text-orange-600" /> {passportFile}
-                      </div>
-                    )}
                   </div>
-                )}
-              </div>
+                </>
+              )}
+
+              {step2SubStep === 2 && (
+                <>
+                  <p className="text-sm text-slate-655 font-medium">Please upload your identification scan:</p>
+                  <div className="space-y-4">
+                    {/* CNIC or Driver License file box */}
+                    <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
+                      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                        <div>
+                          <span className="text-sm font-bold text-slate-900">
+                            3. {profile?.region === 'USA' ? 'Driver License / Work Permit *' : 'CNIC Card (Both Sides) *'}
+                          </span>
+                          <p className="text-[10px] text-slate-400 mt-0.5">JPG or PNG image scan</p>
+                        </div>
+                        {cnicFile ? (
+                          <span className="text-emerald-600 font-bold text-xs flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Uploaded</span>
+                        ) : uploading.cnic ? (
+                          <span className="text-slate-400 text-xs animate-pulse">Uploading scans...</span>
+                        ) : (
+                          <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
+                            Upload Scan
+                            <input 
+                              type="file" 
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => simulateUpload('cnic', e.target.files?.[0]?.name || (profile?.region === 'USA' ? 'Sarah_Connor_License.png' : 'Sarah_Connor_CNIC.png'))}
+                            />
+                          </label>
+                        )}
+                      </div>
+                      {cnicFile && (
+                        <div className="text-xs font-semibold text-slate-600 mt-3 flex items-center gap-1 bg-white p-2 rounded border border-slate-200">
+                          <FileText className="h-4 w-4 text-orange-600" /> {cnicFile}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {step2SubStep === 3 && (
+                <>
+                  <p className="text-sm text-slate-655 font-medium">Please upload secondary documents (Optional):</p>
+                  <div className="space-y-4">
+                    {/* Optional Passport file box for USA only */}
+                    <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
+                      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                        <div>
+                          <span className="text-sm font-bold text-slate-900">4. Passport (Secondary ID) (Optional)</span>
+                          <p className="text-[10px] text-slate-400 mt-0.5">JPG or PNG image scan. Optional.</p>
+                        </div>
+                        {passportFile ? (
+                          <span className="text-emerald-600 font-bold text-xs flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Uploaded</span>
+                        ) : uploadingPassport ? (
+                          <span className="text-slate-400 text-xs animate-pulse">Uploading scans...</span>
+                        ) : (
+                          <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
+                            Upload Scan
+                            <input 
+                              type="file" 
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                setUploadingPassport(true);
+                                const fileName = e.target.files?.[0]?.name || 'Sarah_Connor_Passport.png';
+                                setTimeout(() => {
+                                  setUploadingPassport(false);
+                                  setPassportFile(fileName);
+                                }, 1200);
+                              }}
+                            />
+                          </label>
+                        )}
+                      </div>
+                      {passportFile && (
+                        <div className="text-xs font-semibold text-slate-600 mt-3 flex items-center gap-1 bg-white p-2 rounded border border-slate-200">
+                          <FileText className="h-4 w-4 text-orange-600" /> {passportFile}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div className="flex gap-3 pt-4 border-t border-slate-200">
                 <button 
                   type="button"
-                  onClick={() => setOnboardStep(1)}
-                  className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all"
+                  onClick={() => {
+                    if (step2SubStep === 3) setStep2SubStep(2);
+                    else if (step2SubStep === 2) setStep2SubStep(1);
+                    else setOnboardStep(1);
+                  }}
+                  className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-xs md:text-sm active:scale-97 transition-all"
                 >
                   Back
                 </button>
+                {step2SubStep === 3 && (
+                  <button 
+                    type="button"
+                    onClick={() => setOnboardStep(3)}
+                    className="flex-1 md:flex-none bg-slate-100 hover:bg-slate-250 border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-xs md:text-sm active:scale-97 transition-all"
+                  >
+                    Skip Optional Step
+                  </button>
+                )}
                 <button 
                   type="button"
                   onClick={handleNextStep}
-                  className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all flex items-center justify-center gap-1"
+                  className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-xs md:text-sm active:scale-97 transition-all flex items-center justify-center gap-1"
                 >
-                  Confirm & Continue <ChevronRight className="h-4 w-4" />
+                  {step2SubStep === 3 ? 'Finish Step 2' : 'Confirm & Continue'} <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
             </div>

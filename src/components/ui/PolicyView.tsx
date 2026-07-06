@@ -23,7 +23,7 @@ export function PolicyView() {
             DelCargo utilizes a combined sick + vacation bank. Accruals run monthly on your individual anniversary date, capping at a maximum service ceiling of 30 days.
           </p>
           <div className="overflow-x-auto border border-slate-200 rounded-lg">
-            <table className="w-full text-xs text-left border-collapse">
+            <table className="w-full min-w-[450px] text-xs text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-650 font-bold uppercase tracking-wider">
                   <th className="px-4 py-3">Years of Service</th>
