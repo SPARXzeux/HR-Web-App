@@ -42,13 +42,8 @@ export default function TrackerPage() {
       if (saved) {
         setTimesheetEntries(JSON.parse(saved));
       } else {
-        const defaults = [
-          { date: 'Yesterday', task: 'Fix navigation layout issues', duration: '5h 12m', score: 84 },
-          { date: '2 days ago', task: 'Implement announcements modal', duration: '6h 40m', score: 91 },
-          { date: '3 days ago', task: 'Setup local HR database mocks', duration: '4h 15m', score: 79 },
-        ];
-        localStorage.setItem(key, JSON.stringify(defaults));
-        setTimesheetEntries(defaults);
+        localStorage.setItem(key, JSON.stringify([]));
+        setTimesheetEntries([]);
       }
     }
   }, []);

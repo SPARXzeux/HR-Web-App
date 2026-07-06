@@ -108,10 +108,7 @@ export default function ReportsPage() {
     if (saved) {
       setReviewEntries(JSON.parse(saved));
     } else {
-      setReviewEntries([
-        { date: 'Yesterday', task: 'Review logs and dashboard templates', duration: '4h 30m', score: 87 },
-        { date: '2 days ago', task: 'Develop geofencing trackers', duration: '5h 15m', score: 92 }
-      ]);
+      setReviewEntries([]);
     }
   };
 
