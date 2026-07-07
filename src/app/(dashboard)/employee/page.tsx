@@ -122,7 +122,7 @@ export default function EmployeeDashboard() {
 
     setGeoPermission('requesting');
 
-    const handleSuccess = (position: GeolocationPosition) => {
+    const handleSuccess = async (position: GeolocationPosition) => {
       setGeoPermission('granted');
       setGeoErrorMsg('');
 
@@ -150,16 +150,16 @@ export default function EmployeeDashboard() {
         setShiftActive(true);
         setGeofenceStatus(`Inside ${nearestWarehouse.name}`);
         db.clockIn(profile.email);
-        db.addNotification(profile.email, 'employee', `Auto Shift ON: Checked-in at ${nearestWarehouse.name} via GPS geofencing.`);
-        db.addNotification('all', 'hr', `${profile.fullName} checked-in at ${nearestWarehouse.name} via geofencing.`);
+        await db.addNotification(profile.email, 'employee', `Auto Shift ON: Checked-in at ${nearestWarehouse.name} via GPS geofencing.`);
+        await db.addNotification('all', 'hr', `${profile.fullName} checked-in at ${nearestWarehouse.name} via geofencing.`);
       } else if (!isInside && shiftActiveRef.current) {
         const whName = nearestWarehouse ? nearestWarehouse.name : 'the warehouse';
         shiftActiveRef.current = false;
         setShiftActive(false);
         setGeofenceStatus('Outside Geofence');
         db.clockOut(profile.email);
-        db.addNotification(profile.email, 'employee', `Auto Shift OFF: Left the geofence at ${whName}.`);
-        db.addNotification('all', 'hr', `${profile.fullName} checked-out (left warehouse geofence at ${whName}).`);
+        await db.addNotification(profile.email, 'employee', `Auto Shift OFF: Left the geofence at ${whName}.`);
+        await db.addNotification('all', 'hr', `${profile.fullName} checked-out (left warehouse geofence at ${whName}).`);
       }
     };
 
@@ -187,8 +187,8 @@ export default function EmployeeDashboard() {
     };
   }, [userProfile?.email, userProfile?.region]);
 
-  const handleUpdateTaskStatus = (taskId: string, nextStatus: Task['status']) => {
-    const updated = db.updateTaskStatus(taskId, nextStatus);
+  const handleUpdateTaskStatus = async (taskId: string, nextStatus: Task['status']) => {
+    const updated = await db.updateTaskStatus(taskId, nextStatus);
     const email = localStorage.getItem('user_email');
     setMyTasks(updated.filter(t => t.assignedEmail === email));
     setSelectedTask(null);
@@ -483,13 +483,13 @@ export default function EmployeeDashboard() {
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Shift Controls</p>
                   <div className="grid grid-cols-2 gap-2">
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         if (!userProfile?.email) return;
                         setShiftActive(true);
                         setGeofenceStatus('Shift Active');
                         db.clockIn(userProfile.email);
-                        db.addNotification(userProfile.email, 'employee', 'Shift started manually.');
-                        db.addNotification('all', 'hr', `${userProfile.fullName} started shift manually.`);
+                        await db.addNotification(userProfile.email, 'employee', 'Shift started manually.');
+                        await db.addNotification('all', 'hr', `${userProfile.fullName} started shift manually.`);
                       }}
                       disabled={shiftActive}
                       className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold py-2 px-3 rounded-lg text-xs transition-all active:scale-97 text-center shadow-sm"
@@ -497,13 +497,13 @@ export default function EmployeeDashboard() {
                       Start Shift
                     </button>
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         if (!userProfile?.email) return;
                         setShiftActive(false);
                         setGeofenceStatus('Shift Ended');
                         db.clockOut(userProfile.email);
-                        db.addNotification(userProfile.email, 'employee', 'Shift ended manually.');
-                        db.addNotification('all', 'hr', `${userProfile.fullName} ended shift manually.`);
+                        await db.addNotification(userProfile.email, 'employee', 'Shift ended manually.');
+                        await db.addNotification('all', 'hr', `${userProfile.fullName} ended shift manually.`);
                       }}
                       disabled={!shiftActive}
                       className="bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold py-2 px-3 rounded-lg text-xs transition-all active:scale-97 text-center shadow-sm"

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { CheckCircle2, AlertCircle } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Download } from 'lucide-react';
 import { db, PayrollRecord, LeaveApplication, formatMoney } from '@/lib/db';
 
 export default function HRPayrollPage() {
@@ -12,36 +12,15 @@ export default function HRPayrollPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
+    // db.getPayroll() already computes the urgent-leave deduction internally
+    // (using only approved urgent leaves — see db.ts). Previously this page
+    // recomputed the same figure a second time and added it on top of the
+    // already-deducted value, silently double-charging employees the moment
+    // "Complete Payout" was clicked. Do not recompute deductions here.
     const rawPayroll = db.getPayroll();
     const rawLeaves = db.getLeaves();
     setLeavesList(rawLeaves);
-
-    // Dynamic Urgent Leave deduction logic (2x daily rate per day)
-    const updatedWithDeductions = rawPayroll.map(pay => {
-      // Filter approved urgent leaves for this employee
-      const employeeLeaves = rawLeaves.filter(l => l.employeeName === pay.name && l.type === 'Urgent');
-      
-      const urgentDays = employeeLeaves.reduce((acc, l) => {
-        const parts = l.duration.split(' - ');
-        if (parts.length < 2) return acc + 1;
-        const start = new Date(parts[0]);
-        const end = new Date(parts[1]);
-        const diff = Math.abs(end.getTime() - start.getTime());
-        const days = Math.ceil(diff / (1000 * 3600 * 24)) + 1;
-        return acc + days;
-      }, 0);
-
-      // 2 days salary deduction per urgent leave day
-      const dailyRate = pay.baseSalary / 30;
-      const urgentDeduction = Math.round(urgentDays * 2 * dailyRate);
-
-      return {
-        ...pay,
-        deductions: pay.deductions + urgentDeduction
-      };
-    });
-
-    setPayrollData(updatedWithDeductions);
+    setPayrollData(rawPayroll);
 
     const handleSearch = (e: Event) => {
       setSearchQuery((e as CustomEvent).detail || '');
@@ -105,6 +84,32 @@ export default function HRPayrollPage() {
     .reduce((acc, emp) => acc + (emp.baseSalary + emp.incrementAmount + emp.bonus - emp.deductions), 0);
   const totalPending = payrollData.filter(e => !e.processed).length;
 
+  const exportPayrollCSV = () => {
+    const headers = ['Employee', 'Role', 'Region', 'Base Salary', 'Increment', 'Bonus', 'Deductions', 'Net Payable', 'Status'];
+    const rows = filteredData.map(emp => {
+      const net = emp.baseSalary + emp.incrementAmount + emp.bonus - emp.deductions;
+      return [
+        emp.name,
+        emp.role,
+        emp.region || 'Pakistan',
+        formatMoney(emp.baseSalary, emp.region),
+        formatMoney(emp.incrementAmount, emp.region),
+        formatMoney(emp.bonus, emp.region),
+        formatMoney(emp.deductions, emp.region),
+        formatMoney(net, emp.region),
+        emp.processed ? 'Processed' : 'Pending'
+      ];
+    });
+    const csvContent = 'data:text/csv;charset=utf-8,'
+      + [headers.join(','), ...rows.map(r => r.map(val => `"${val}"`).join(','))].join('\n');
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csvContent));
+    link.setAttribute('download', `DelCargo_Payroll_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-5 md:space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4">
@@ -112,6 +117,14 @@ export default function HRPayrollPage() {
           <h1 className="text-lg md:text-2xl font-bold text-slate-900">Monthly Payroll Ledger</h1>
           <p className="text-xs md:text-sm text-slate-500">Manage base salaries, bonuses, and calculate monthly net payouts.</p>
         </div>
+        <div className="flex items-center gap-2 self-start md:self-auto">
+        <button
+          onClick={exportPayrollCSV}
+          disabled={filteredData.length === 0}
+          className="bg-white hover:bg-slate-50 disabled:opacity-50 border border-slate-200 text-slate-700 font-semibold px-3 py-2.5 md:py-1.5 rounded-lg text-xs flex items-center gap-1.5 active:scale-97 transition-all"
+        >
+          <Download className="h-3.5 w-3.5" /> Export CSV
+        </button>
         <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg self-start md:self-auto">
           <button 
             onClick={() => setActiveTab('all')}
@@ -143,6 +156,7 @@ export default function HRPayrollPage() {
           >
             Processed
           </button>
+        </div>
         </div>
       </div>
 
@@ -184,7 +198,7 @@ export default function HRPayrollPage() {
                   <th className="px-6 py-4">Employee Details</th>
                   <th className="px-6 py-4 text-right">Base Salary</th>
                   <th className="px-6 py-4 text-right">Increment</th>
-                  <th className="px-6 py-4 text-center">Unpaid Leaves</th>
+                  <th className="px-6 py-4 text-center">Onboarding Penalty</th>
                   <th className="px-6 py-4 text-right">Bonus ($)</th>
                   <th className="px-6 py-4 text-right">Deductions ($)</th>
                   <th className="px-6 py-4 text-right">Net Payable</th>
@@ -220,7 +234,7 @@ export default function HRPayrollPage() {
                             ? 'bg-amber-50 text-amber-800 border border-amber-200/60' 
                             : 'bg-slate-100 text-slate-500'
                         }`}>
-                          {emp.unpaidLeaves} day(s)
+                          {emp.unpaidLeaves > 0 ? `${emp.unpaidLeaves} day(s)` : 'None'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -248,8 +262,14 @@ export default function HRPayrollPage() {
                             placeholder="0"
                           />
                         )}
+                        {/* Informational only, by design: per policy, urgent
+                            leave deductions are taken monthly, but if an
+                            employee stays at 3 or fewer urgent leaves for the
+                            full year the deducted amount is reimbursed at
+                            year-end — not reversed here automatically. This
+                            flag just tells HR who's currently on track. */}
                         {(() => {
-                          const count = leavesList.filter(l => l.employeeName === emp.name && l.type === 'Urgent').length;
+                          const count = leavesList.filter(l => l.employeeName === emp.name && l.type === 'Urgent' && l.status === 'approved').length;
                           if (count > 0 && count <= 3) {
                             return <div className="text-[10px] text-emerald-600 font-bold mt-1">Rebate Eligible ({count} UL)</div>;
                           } else if (count > 3) {
@@ -293,7 +313,7 @@ export default function HRPayrollPage() {
       <div className="md:hidden space-y-3">
         {filteredData.map(emp => {
           const netPayable = emp.baseSalary + emp.incrementAmount + emp.bonus - emp.deductions;
-          const urgentCount = leavesList.filter(l => l.employeeName === emp.name && l.type === 'Urgent').length;
+          const urgentCount = leavesList.filter(l => l.employeeName === emp.name && l.type === 'Urgent' && l.status === 'approved').length;
           return (
             <div key={emp.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
               <div className="flex items-start justify-between gap-2">
@@ -323,8 +343,8 @@ export default function HRPayrollPage() {
                   </div>
                 )}
                 <div>
-                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Unpaid Leaves</p>
-                  <p className="text-xs font-bold text-slate-800">{emp.unpaidLeaves} day(s)</p>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Onboarding Penalty</p>
+                  <p className="text-xs font-bold text-slate-800">{emp.unpaidLeaves > 0 ? `${emp.unpaidLeaves} day(s)` : 'None'}</p>
                 </div>
                 <div>
                   <p className="text-[10px] text-slate-400 font-semibold uppercase">Bonus / Deductions</p>

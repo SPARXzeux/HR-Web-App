@@ -63,12 +63,12 @@ export default function HRDashboard() {
     return () => window.removeEventListener('globalSearch', handleSearch);
   }, []);
 
-  const handleAnnouncementSubmit = (e: React.FormEvent) => {
+  const handleAnnouncementSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!annTitle.trim() || !annContent.trim()) return;
 
     const targetVal = annTargetType === 'warehouses' ? annSelectedWarehouses : annTargetType;
-    db.addAnnouncement(annTitle, annContent, targetVal, 'HR Manager');
+    await db.addAnnouncement(annTitle, annContent, targetVal, 'HR Manager');
     setAnnouncements(db.getAnnouncements());
     setAnnSuccess('Announcement posted successfully!');
 
@@ -89,7 +89,7 @@ export default function HRDashboard() {
     if (isNaN(Number(salary)) || Number(salary) <= 0) { setOnboardError('Please enter a valid base salary.'); return; }
 
     await db.addEmployee({ fullName, email, role: role as Profile['role'], joinedDate: new Date().toISOString().split('T')[0], baseSalary: Number(salary), teams: [team], password: tempPassword || 'employee123' });
-    db.addNotification('all', 'hr', `New employee ${fullName} (${role}) registered.`);
+    await db.addNotification('all', 'hr', `New employee ${fullName} (${role}) registered.`);
     setOnboardSuccess('Employee registered!');
     setEmployees(db.getEmployees());
     setTimeout(() => { setIsOnboardOpen(false); setFullName(''); setEmail(''); setSalary(''); setTempPassword(''); setOnboardSuccess(''); }, 1200);

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { db, LeaveApplication, Profile } from '@/lib/db';
+import { db, LeaveApplication, Profile, formatMoney } from '@/lib/db';
 import { Clock, PlusCircle, CheckCircle2, AlertCircle, HelpCircle, BadgeCheck } from 'lucide-react';
 
 export default function EmployeeLeavesPage() {
@@ -51,7 +51,7 @@ export default function EmployeeLeavesPage() {
     }
   }, [remainingPTO]);
 
-  const handleLeaveSubmit = (e: React.FormEvent) => {
+  const handleLeaveSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
@@ -155,7 +155,7 @@ export default function EmployeeLeavesPage() {
 
     const allLeaves = db.getLeaves();
     db.saveLeaves([newLeave, ...allLeaves]);
-    db.addNotification('all', 'hr', `New ${newLeave.type} leave request from ${userProfile?.fullName || 'an employee'}.`);
+    await db.addNotification('all', 'hr', `New ${newLeave.type} leave request from ${userProfile?.fullName || 'an employee'}.`);
     setLeaves(prev => [newLeave, ...prev]);
     setSuccess('Leave request submitted!');
     setTimeout(() => { setIsLeaveOpen(false); setLeaveType('pto'); setStartDate(''); setEndDate(''); setReason(''); setSuccess(''); }, 1400);
@@ -269,12 +269,12 @@ export default function EmployeeLeavesPage() {
             <div className="space-y-1">
               <label className="text-slate-500 uppercase tracking-wider text-[10px]">Calculated Payout</label>
               <p className="bg-white border border-slate-200 rounded-lg py-2 px-3 text-emerald-800 font-mono font-bold">
-                PKR {potentialCashoutVal.toLocaleString()}
+                {formatMoney(potentialCashoutVal, userProfile?.region)}
               </p>
             </div>
           </div>
           <p className="text-[10px] text-slate-400 font-semibold">
-            Based on: Daily rate (PKR {ptoDailyRate.toLocaleString()}) = Monthly Salary (PKR {currentBaseSalary.toLocaleString()}) ÷ 22 days.
+            Based on: Daily rate ({formatMoney(ptoDailyRate, userProfile?.region)}) = Monthly Salary ({formatMoney(currentBaseSalary, userProfile?.region)}) ÷ 22 days.
           </p>
         </CardContent>
       </Card>

@@ -7,7 +7,7 @@ import { Modal } from '@/components/ui/Modal';
 import { OrgCalendar } from '@/components/ui/OrgCalendar';
 import { TaskModal } from '@/components/ui/TaskModal';
 import { DollarSign, TrendingUp, Users, Clock, ClipboardList, CheckCircle2, AlertTriangle, PlusCircle } from 'lucide-react';
-import { db, LeaveApplication, Profile, Task } from '@/lib/db';
+import { db, LeaveApplication, Profile, Task, formatMoney } from '@/lib/db';
 import { useRouter } from 'next/navigation';
 
 export default function AdminDashboard() {
@@ -36,12 +36,12 @@ export default function AdminDashboard() {
     setWarehouses(db.getWarehouses());
   }, []);
 
-  const handleAnnouncementSubmit = (e: React.FormEvent) => {
+  const handleAnnouncementSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!annTitle.trim() || !annContent.trim()) return;
 
     const targetVal = annTargetType === 'warehouses' ? annSelectedWarehouses : annTargetType;
-    db.addAnnouncement(annTitle, annContent, targetVal, 'CEO Admin');
+    await db.addAnnouncement(annTitle, annContent, targetVal, 'CEO Admin');
     setAnnouncements(db.getAnnouncements());
     setAnnSuccess('Announcement posted successfully!');
 
@@ -55,22 +55,28 @@ export default function AdminDashboard() {
     }, 1200);
   };
 
-  const handleCEOAction = (id: string, action: 'approve' | 'reject') => {
-    const updated: LeaveApplication[] = leaves.map(l => {
+  const handleCEOAction = async (id: string, action: 'approve' | 'reject') => {
+    const updated: LeaveApplication[] = await Promise.all(leaves.map(async l => {
       if (l.id !== id) return l;
       const nextStatus: LeaveApplication['status'] = action === 'approve' ? 'approved' : 'rejected';
       const employees = db.getEmployees();
       const emp = employees.find(e => e.fullName === l.employeeName);
-      if (emp) db.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was ${action === 'approve' ? 'approved' : 'rejected'} by CEO.`);
-      db.addNotification('all', 'hr', `CEO ${action === 'approve' ? 'approved' : 'rejected'} leave for ${l.employeeName}.`);
+      if (emp) await db.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was ${action === 'approve' ? 'approved' : 'rejected'} by CEO.`);
+      await db.addNotification('all', 'hr', `CEO ${action === 'approve' ? 'approved' : 'rejected'} leave for ${l.employeeName}.`);
       return { ...l, status: nextStatus };
-    });
+    }));
     setLeaves(updated);
     db.saveLeaves(updated);
   };
 
-  // Derived stats
-  const totalPayroll = employees.reduce((acc, emp) => acc + db.calculateCurrentSalary(emp), 0);
+  // Derived stats — USA (USD) and Pakistan (PKR) salaries must never be
+  // summed into a single number, so this stays split by currency.
+  const totalPayrollUSD = employees
+    .filter(emp => emp.region === 'USA')
+    .reduce((acc, emp) => acc + db.calculateCurrentSalary(emp), 0);
+  const totalPayrollPKR = employees
+    .filter(emp => emp.region !== 'USA')
+    .reduce((acc, emp) => acc + db.calculateCurrentSalary(emp), 0);
   const hrApprovedLeaves = leaves.filter(l => l.status === 'hr_approved');
   const activeTasks = tasks.filter(t => t.status !== 'done').length;
   const highPriorityTasks = tasks.filter(t => t.priority === 'high' && t.status !== 'done').length;
@@ -112,7 +118,8 @@ export default function AdminDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-[10px] md:text-xs font-semibold text-slate-500">Monthly Payroll</p>
-                <p className="text-base md:text-2xl font-bold text-slate-900 mt-1">PKR {(totalPayroll).toLocaleString()}</p>
+                <p className="text-sm md:text-lg font-bold text-slate-900 mt-1">{formatMoney(totalPayrollUSD, 'USA')}</p>
+                <p className="text-[10px] md:text-xs font-semibold text-slate-500">{formatMoney(totalPayrollPKR, 'Pakistan')}</p>
               </div>
               <div className="h-10 w-10 md:h-11 md:w-11 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
                 <DollarSign className="h-5 w-5" />

@@ -58,7 +58,7 @@ export default function HROnboardingPage() {
       region,
     });
 
-    db.addNotification('all', 'hr', `New employee ${fullName} onboarded onto team ${team}.`);
+    await db.addNotification('all', 'hr', `New employee ${fullName} onboarded onto team ${team}.`);
     setOnboardSuccess('Employee successfully registered!');
     setEmployees(db.getEmployees());
 

@@ -117,9 +117,21 @@ export interface Notification {
   recipientEmail: string;
   recipientRole: string;
   message: string;
+  // `read` is only meaningful for notifications addressed to a single real
+  // email (recipientEmail !== 'all'). For role-broadcast notifications
+  // (recipientEmail === 'all'), per-user read state is tracked separately
+  // in the `hr_notification_reads_prod_v1` KV store (see
+  // markNotificationsAsRead/isNotificationRead) rather than as a column on
+  // this row — this avoids requiring a new `profiles`/`notifications` table
+  // column while the app is in its "don't touch the database schema" phase.
   read: boolean;
   timestamp: string;
 }
+
+// { [notificationId]: string[] of emails who've read this broadcast
+// notification }. Stored via the generic delcargo_store KV table so no
+// new Supabase table/column is required.
+type NotificationReadMap = Record<string, string[]>;
 
 export interface CareerPosition {
   id: string;
@@ -128,6 +140,16 @@ export interface CareerPosition {
   location: string;
   description: string;
   requirements: string[];
+}
+
+export interface CareerApplication {
+  id: string;
+  positionId: string;
+  positionTitle: string;
+  applicantName: string;
+  applicantEmail: string;
+  coverLetter: string;
+  submittedAt: string;
 }
 
 export interface TicketReply {
@@ -150,6 +172,13 @@ export interface Ticket {
 }
 
 const isClient = typeof window !== 'undefined';
+
+// Single source of truth for "daily salary rate" across the app (leave
+// cash-out payouts, final settlement payout, urgent-leave deductions).
+// Previously the urgent-leave deduction used ÷30 while every other daily-
+// rate calculation used ÷22 (working days/month per the PTO policy) —
+// standardizing on 22 here so all salary-per-day math agrees.
+const WORKING_DAYS_PER_MONTH = 22;
 
 const defaultEmployees: Profile[] = [
   { id: 'emp_admin', fullName: 'Admin', email: 'admin@delcargo.us', role: 'admin', joinedDate: '2026-07-01', onboardingCompleted: true, baseSalary: 12000, teams: [], password: 'Aamir@123', jobTitle: 'System Administrator', gender: 'male', region: 'USA', assignedWarehouses: [], bankName: '', accountNumber: '', iban: '', trackingEnabled: false },
@@ -398,8 +427,11 @@ async function syncFromSupabase() {
         clockIn: ts.clock_in,
         clockOut: ts.clock_out,
         duration: ts.duration,
-        status: ts.status,
-        score: Number(ts.score)
+        status: ts.status
+        // Note: the `timesheets.score` column that used to be read/written
+        // here was dead — TimesheetEntry never declared a `score` field and
+        // nothing ever set or displayed one, so every write silently
+        // persisted 0. Removed rather than keep round-tripping a fake value.
       }));
       localStorage.setItem('hr_timesheets_prod_v1', JSON.stringify(mapped));
     }
@@ -412,7 +444,20 @@ async function syncFromSupabase() {
         content: ann.content,
         timestamp: ann.timestamp,
         createdBy: ann.created_by,
-        target: ann.target.startsWith('[') ? JSON.parse(ann.target) : ann.target
+        // Guard against null/undefined target (e.g. a row inserted outside
+        // this code path) — without this, a single bad announcement row
+        // used to throw here and abort syncFromSupabase entirely, silently
+        // blocking the sync of profiles/tasks/everything else in the same
+        // try/catch.
+        target: (() => {
+          if (typeof ann.target !== 'string') return ann.target ?? 'all';
+          if (!ann.target.startsWith('[')) return ann.target;
+          try {
+            return JSON.parse(ann.target);
+          } catch {
+            return ann.target;
+          }
+        })()
       }));
       localStorage.setItem('hr_announcements_prod_v1', JSON.stringify(mapped));
     } else {
@@ -464,7 +509,7 @@ async function syncFromSupabase() {
     // 8. Key-Value Sync Fallback for tickets, custom teams, careers
     if (kvStore && kvStore.length > 0) {
       kvStore.forEach((row: any) => {
-        if (['hr_tickets_prod_v1', 'hr_custom_teams_prod_v1', 'hr_careers_prod_v1', 'hr_payroll_prod_v1'].includes(row.key)) {
+        if (['hr_tickets_prod_v1', 'hr_custom_teams_prod_v1', 'hr_careers_prod_v1', 'hr_payroll_prod_v1', 'hr_notification_reads_prod_v1', 'hr_deleted_profile_emails_v1', 'hr_career_applications_prod_v1'].includes(row.key)) {
           localStorage.setItem(row.key, JSON.stringify(row.value));
         }
       });
@@ -601,7 +646,11 @@ async function saveData<T>(key: string, data: T): Promise<void> {
           clock_out: ts.clockOut || null,
           duration: ts.duration || 0,
           status: ts.status || 'pending',
-          score: ts.score !== undefined ? ts.score : 0
+          // `score` is kept here only because the live Supabase `timesheets`
+          // table may have this column as NOT NULL — always written as 0
+          // since nothing in the app populates or displays a real value.
+          // Not read back into the app's local cache (see syncFromSupabase).
+          score: 0
         }));
         await supabase.from('timesheets').upsert(rows);
       } else if (key === 'hr_announcements_prod_v1') {
@@ -688,7 +737,7 @@ export const db = {
     }
   },
 
-  createTicket: (ticket: Omit<Ticket, 'id' | 'status' | 'createdAt' | 'replies'>) => {
+  createTicket: async (ticket: Omit<Ticket, 'id' | 'status' | 'createdAt' | 'replies'>) => {
     const list = db.getTickets();
     const newTicket: Ticket = {
       ...ticket,
@@ -697,14 +746,14 @@ export const db = {
       createdAt: new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       replies: []
     };
-    db.saveTickets([newTicket, ...list]);
-    db.addNotification('all', 'hr', `New support ticket opened: "${ticket.title}" by ${ticket.employeeName}.`);
+    await db.saveTickets([newTicket, ...list]);
+    await db.addNotification('all', 'hr', `New support ticket opened: "${ticket.title}" by ${ticket.employeeName}.`);
     return newTicket;
   },
 
-  addTicketReply: (ticketId: string, reply: Omit<TicketReply, 'id' | 'timestamp'>) => {
+  addTicketReply: async (ticketId: string, reply: Omit<TicketReply, 'id' | 'timestamp'>) => {
     const list = db.getTickets();
-    const updated = list.map(t => {
+    const updated = await Promise.all(list.map(async t => {
       if (t.id === ticketId) {
         const newReply: TicketReply = {
           ...reply,
@@ -713,65 +762,83 @@ export const db = {
         };
         // Notify respective participants
         if (reply.senderRole === 'hr' || reply.senderRole === 'admin') {
-          db.addNotification(t.employeeEmail, 'employee', `Support response received from HR regarding ticket "${t.title}".`);
+          await db.addNotification(t.employeeEmail, 'employee', `Support response received from HR regarding ticket "${t.title}".`);
         } else {
-          db.addNotification('all', 'hr', `New support message from ${t.employeeName} on ticket "${t.title}".`);
+          await db.addNotification('all', 'hr', `New support message from ${t.employeeName} on ticket "${t.title}".`);
         }
         return { ...t, replies: [...t.replies, newReply] };
       }
       return t;
-    });
-    db.saveTickets(updated);
+    }));
+    await db.saveTickets(updated);
     return updated;
   },
 
-  updateTicketStatus: (ticketId: string, status: 'open' | 'closed') => {
+  updateTicketStatus: async (ticketId: string, status: 'open' | 'closed') => {
     const list = db.getTickets();
-    const updated = list.map(t => {
+    const updated = await Promise.all(list.map(async t => {
       if (t.id === ticketId) {
-        db.addNotification(t.employeeEmail, 'employee', `Support ticket "${t.title}" was marked as ${status}.`);
-        db.addNotification('all', 'hr', `Support ticket "${t.title}" is now ${status}.`);
+        await db.addNotification(t.employeeEmail, 'employee', `Support ticket "${t.title}" was marked as ${status}.`);
+        await db.addNotification('all', 'hr', `Support ticket "${t.title}" is now ${status}.`);
         return { ...t, status };
       }
       return t;
-    });
-    db.saveTickets(updated);
+    }));
+    await db.saveTickets(updated);
     return updated;
   },
 
-  deleteCareer: (id: string) => {
+  deleteCareer: async (id: string) => {
     const list = db.getCareers();
     const updated = list.filter(item => item.id !== id);
-    db.saveCareers(updated);
+    await db.saveCareers(updated);
     return updated;
   },
 
-  addCareer: (position: Omit<CareerPosition, 'id'>) => {
+  addCareer: async (position: Omit<CareerPosition, 'id'>) => {
     const list = db.getCareers();
     const newPos = { ...position, id: `car_${Date.now()}` };
-    db.saveCareers([...list, newPos]);
+    await db.saveCareers([...list, newPos]);
     return newPos;
   },
 
-  addTask: (task: Omit<Task, 'id'>) => {
+  getCareerApplications: (): CareerApplication[] => getInitialData('hr_career_applications_prod_v1', []),
+  saveCareerApplications: (data: CareerApplication[]) => saveData('hr_career_applications_prod_v1', data),
+
+  // Actually persists a job application (previously only a notification was
+  // fired and the applicant's info/cover letter were discarded entirely —
+  // there was no way to retrieve past applicants). Stored via the generic
+  // delcargo_store KV table, no new Supabase table required.
+  submitCareerApplication: async (app: Omit<CareerApplication, 'id' | 'submittedAt'>): Promise<CareerApplication> => {
+    const list = db.getCareerApplications();
+    const newApp: CareerApplication = {
+      ...app,
+      id: `capp_${Date.now()}`,
+      submittedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    await db.saveCareerApplications([newApp, ...list]);
+    return newApp;
+  },
+
+  addTask: async (task: Omit<Task, 'id'>) => {
     const tasks = db.getTasks();
     const newTask: Task = { ...task, id: `task_${Date.now()}` };
-    db.saveTasks([newTask, ...tasks]);
-    db.addNotification(task.assignedEmail, 'employee', `New task assigned: "${task.title}" due ${task.dueDate}.`);
+    await db.saveTasks([newTask, ...tasks]);
+    await db.addNotification(task.assignedEmail, 'employee', `New task assigned: "${task.title}" due ${task.dueDate}.`);
     return newTask;
   },
 
-  updateTaskStatus: (id: string, status: Task['status']) => {
+  updateTaskStatus: async (id: string, status: Task['status']) => {
     const tasks = db.getTasks();
     const updated = tasks.map(t => t.id === id ? { ...t, status } : t);
-    db.saveTasks(updated);
+    await db.saveTasks(updated);
     return updated;
   },
 
-  deleteTask: (id: string) => {
+  deleteTask: async (id: string) => {
     const tasks = db.getTasks();
     const updated = tasks.filter(t => t.id !== id);
-    db.saveTasks(updated);
+    await db.saveTasks(updated);
     return updated;
   },
 
@@ -903,11 +970,11 @@ export const db = {
   },
 
   // Full payout of the remaining combined PTO/Sick bank at contract end,
-  // per company policy. Day rate = current monthly salary ÷ 22 (same
-  // formula used by the Jan 31 settlement cash-out calculator).
+  // per company policy. Day rate = current monthly salary ÷ WORKING_DAYS_PER_MONTH
+  // (same formula used by the Jan 31 settlement cash-out calculator).
   getFinalLeavePayout: (profile: Profile): number => {
     const remainingDays = db.getRemainingPTO(profile.fullName, profile.joinedDate);
-    const dailyRate = db.calculateCurrentSalary(profile) / 22;
+    const dailyRate = db.calculateCurrentSalary(profile) / WORKING_DAYS_PER_MONTH;
     return Math.round(remainingDays * dailyRate);
   },
 
@@ -932,20 +999,22 @@ export const db = {
         return acc + days;
       }, 0);
 
-      const dailyRate = realBaseSalary / 30;
+      const dailyRate = realBaseSalary / WORKING_DAYS_PER_MONTH;
       const urgentDeduction = Math.round(urgentDays * 2 * dailyRate);
       const onboardingPenalty = emp.onboardingCompleted ? 0 : (emp.region === 'USA' ? 10 : 200);
 
       if (existing) {
-        // Once processed, this record's incrementAmount stays frozen at
-        // whatever it was when finalized (historical record for that
-        // payslip); unprocessed records keep tracking the live pending
-        // increment so it reflects reality if leaves/tenure change.
+        // Once processed, this record is a historical payslip and should
+        // stop changing — both incrementAmount and deductions now stay
+        // frozen at whatever they were when finalized, instead of silently
+        // drifting if leave records change retroactively after payout.
+        // Unprocessed records keep tracking live values so they reflect
+        // reality right up until they're finalized.
         return {
           ...existing,
           region: emp.region,
           baseSalary: realBaseSalary,
-          deductions: urgentDeduction,
+          deductions: existing.processed ? existing.deductions : urgentDeduction,
           incrementAmount: existing.processed ? existing.incrementAmount : pendingIncrement
         };
       }
@@ -953,7 +1022,10 @@ export const db = {
         id: `pay_${emp.id}`,
         employeeId: emp.id,
         name: emp.fullName,
-        role: emp.jobTitle || (emp.teams.includes('Design') ? 'UX Designer' : emp.teams.includes('Engineering') ? 'Software Engineer' : 'Operations Specialist'),
+        // Honest fallback — don't invent a specific job title (e.g. "UX
+        // Designer") out of team membership when jobTitle was never set;
+        // that used to show up on real payslips as if it were factual.
+        role: emp.jobTitle || 'Staff',
         region: emp.region,
         baseSalary: realBaseSalary,
         unpaidLeaves: emp.onboardingCompleted ? 0 : 2,
@@ -964,7 +1036,16 @@ export const db = {
       };
     });
 
-    db.savePayroll(updatedPayroll);
+    // getPayroll() is read-heavy (called on every payroll page render/poll),
+    // so only write back to Supabase when something actually changed —
+    // otherwise every read triggers a redundant upsert, widening the window
+    // for two concurrent admin sessions to race and clobber each other's
+    // writes. A plain JSON diff is sufficient here since PayrollRecord is a
+    // small, fully-serializable shape.
+    const unchanged = JSON.stringify(updatedPayroll) === JSON.stringify(payroll);
+    if (!unchanged) {
+      db.savePayroll(updatedPayroll);
+    }
     return updatedPayroll;
   },
 
@@ -1083,23 +1164,23 @@ export const db = {
 
   saveTeams: (data: string[]) => saveData('hr_custom_teams_prod_v1', data),
 
-  addTeam: (name: string) => {
+  addTeam: async (name: string) => {
     const teams = db.getTeams();
     if (!teams.includes(name)) {
       const updated = [...teams, name];
-      db.saveTeams(updated);
+      await db.saveTeams(updated);
       return updated;
     }
     return teams;
   },
 
-  deleteTeam: (name: string) => {
+  deleteTeam: async (name: string) => {
     const teams = db.getTeams();
     const updatedTeams = teams.filter(t => t !== name);
-    db.saveTeams(updatedTeams);
+    await db.saveTeams(updatedTeams);
     const employees = db.getEmployees();
     const updatedEmployees = employees.map(emp => ({ ...emp, teams: emp.teams.filter(t => t !== name) }));
-    db.saveEmployees(updatedEmployees);
+    await db.saveEmployees(updatedEmployees);
     return updatedTeams;
   },
 
@@ -1113,7 +1194,7 @@ export const db = {
   getNotifications: (): Notification[] => getInitialData('hr_notifications_prod_v1', []),
   saveNotifications: (data: Notification[]) => saveData('hr_notifications_prod_v1', data),
 
-  addNotification: (email: string, role: string, message: string) => {
+  addNotification: async (email: string, role: string, message: string) => {
     const notifications = db.getNotifications();
     const newNotif: Notification = {
       id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -1123,38 +1204,77 @@ export const db = {
       read: false,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
-    db.saveNotifications([newNotif, ...notifications]);
-    
-    // Dispatch custom event for real-time toast push notifications
+
+    // Dispatch custom event for real-time toast push notifications FIRST
+    // (synchronously, unchanged) so the toast still feels instant, then
+    // await the underlying save.
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('newPushNotification', { detail: newNotif }));
     }
+
+    await db.saveNotifications([newNotif, ...notifications]);
     return newNotif;
   },
 
-  markNotificationsAsRead: (email: string, role: string) => {
+  getNotificationReadMap: (): NotificationReadMap => getInitialData('hr_notification_reads_prod_v1', {}),
+  saveNotificationReadMap: (data: NotificationReadMap) => saveData('hr_notification_reads_prod_v1', data),
+
+  // Marks notifications as read FOR THIS USER ONLY. Personal notifications
+  // (recipientEmail === email) still use the shared `read` boolean since
+  // there's only ever one real recipient. Broadcast notifications
+  // (recipientEmail === 'all') record this user's email in the separate
+  // per-user read map instead of touching `read`, so other users of the
+  // same role are unaffected.
+  markNotificationsAsRead: async (email: string, role: string) => {
     const notifications = db.getNotifications();
-    const updated = notifications.map(n => {
-      if (n.recipientEmail === email || (n.recipientRole === role && n.recipientEmail === 'all')) {
-        return { ...n, read: true };
+    const emailLower = email.toLowerCase();
+
+    const personalUpdated = notifications.map(n =>
+      n.recipientEmail === email ? { ...n, read: true } : n
+    );
+    await db.saveNotifications(personalUpdated);
+
+    const broadcastNotifs = notifications.filter(n => n.recipientRole === role && n.recipientEmail === 'all');
+    if (broadcastNotifs.length > 0) {
+      const readMap = db.getNotificationReadMap();
+      let changed = false;
+      broadcastNotifs.forEach(n => {
+        const readers = readMap[n.id] || [];
+        if (!readers.map(e => e.toLowerCase()).includes(emailLower)) {
+          readMap[n.id] = [...readers, email];
+          changed = true;
+        }
+      });
+      if (changed) {
+        await db.saveNotificationReadMap(readMap);
       }
-      return n;
-    });
-    db.saveNotifications(updated);
+    }
+  },
+
+  // Whether a given notification should be shown as read/unread to a
+  // specific user — accounts for the per-user read map on role-broadcast
+  // notifications.
+  isNotificationRead: (n: Notification, email: string): boolean => {
+    if (n.recipientEmail === email) return n.read;
+    if (n.recipientEmail === 'all') {
+      const readMap = db.getNotificationReadMap();
+      return (readMap[n.id] || []).map(e => e.toLowerCase()).includes(email.toLowerCase());
+    }
+    return n.read;
   },
 
   getWarehouses: (): Warehouse[] => getInitialData('hr_warehouses_prod_v1', defaultWarehouses),
   saveWarehouses: (data: Warehouse[]) => saveData('hr_warehouses_prod_v1', data),
-  addWarehouse: (wh: Omit<Warehouse, 'id'>) => {
+  addWarehouse: async (wh: Omit<Warehouse, 'id'>) => {
     const list = db.getWarehouses();
     const newWh = { ...wh, id: `wh_${Date.now()}` };
-    db.saveWarehouses([...list, newWh]);
+    await db.saveWarehouses([...list, newWh]);
     return newWh;
   },
-  updateWarehouse: (id: string, updates: Partial<Warehouse>) => {
+  updateWarehouse: async (id: string, updates: Partial<Warehouse>) => {
     const list = db.getWarehouses();
     const updated = list.map(w => w.id === id ? { ...w, ...updates } : w);
-    db.saveWarehouses(updated);
+    await db.saveWarehouses(updated);
     return updated;
   },
   deleteWarehouse: async (id: string) => {
@@ -1194,7 +1314,7 @@ export const db = {
 
   getAnnouncements: (): Announcement[] => getInitialData('hr_announcements_prod_v1', defaultAnnouncements),
   saveAnnouncements: (data: Announcement[]) => saveData('hr_announcements_prod_v1', data),
-  addAnnouncement: (title: string, content: string, target: Announcement['target'], createdBy: string) => {
+  addAnnouncement: async (title: string, content: string, target: Announcement['target'], createdBy: string) => {
     const list = db.getAnnouncements();
     const newAnn: Announcement = {
       id: `ann_${Date.now()}`,
@@ -1204,7 +1324,7 @@ export const db = {
       createdBy,
       target
     };
-    db.saveAnnouncements([newAnn, ...list]);
+    await db.saveAnnouncements([newAnn, ...list]);
     return newAnn;
   },
 

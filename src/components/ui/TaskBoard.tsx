@@ -51,23 +51,23 @@ function TaskDetailModal({ task, onClose, onUpdate, canDelete, readOnly }: {
   const isDueSoon = !isOverdue && task.status !== 'done' &&
     (new Date(task.dueDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24) <= 3;
 
-  const cycleStatus = () => {
+  const cycleStatus = async () => {
     if (readOnly) return;
     const next = STATUS_SEQUENCE[(STATUS_SEQUENCE.indexOf(task.status) + 1) % STATUS_SEQUENCE.length];
-    const updated = db.updateTaskStatus(task.id, next);
+    const updated = await db.updateTaskStatus(task.id, next);
     onUpdate(updated);
     onClose();
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!canDelete) return;
-    const updated = db.deleteTask(task.id);
+    const updated = await db.deleteTask(task.id);
     onUpdate(updated);
     onClose();
   };
 
-  const handleReset = () => {
-    const updated = db.updateTaskStatus(task.id, 'todo');
+  const handleReset = async () => {
+    const updated = await db.updateTaskStatus(task.id, 'todo');
     onUpdate(updated);
     onClose();
   };

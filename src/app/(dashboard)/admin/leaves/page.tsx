@@ -36,18 +36,18 @@ export default function AdminLeavesPage() {
     return () => window.removeEventListener('globalSearch', handleSearch);
   }, []);
 
-  const handleCEOAction = (id: string, action: 'approve' | 'reject') => {
-    const updated: LeaveApplication[] = leaves.map(l => {
+  const handleCEOAction = async (id: string, action: 'approve' | 'reject') => {
+    const updated: LeaveApplication[] = await Promise.all(leaves.map(async l => {
       if (l.id !== id) return l;
       const nextStatus: LeaveApplication['status'] = action === 'approve' ? 'approved' : 'rejected';
       const employees = db.getEmployees();
       const emp = employees.find(e => e.fullName === l.employeeName);
       if (emp) {
-        db.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was ${action === 'approve' ? 'approved' : 'rejected'} by the CEO.`);
+        await db.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was ${action === 'approve' ? 'approved' : 'rejected'} by the CEO.`);
       }
-      db.addNotification('all', 'hr', `CEO ${action === 'approve' ? 'Approved' : 'Rejected'} leave for ${l.employeeName}.`);
+      await db.addNotification('all', 'hr', `CEO ${action === 'approve' ? 'Approved' : 'Rejected'} leave for ${l.employeeName}.`);
       return { ...l, status: nextStatus };
-    });
+    }));
     setLeaves(updated);
     db.saveLeaves(updated);
     setSuccessMsg(`Leave ${action === 'approve' ? 'approved' : 'rejected'} by CEO!`);

@@ -22,7 +22,7 @@ export function TaskModal({ isOpen, onClose, employees, createdBy, onTaskAdded }
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (!title || !assignedEmail || !dueDate) {
@@ -36,7 +36,7 @@ export function TaskModal({ isOpen, onClose, employees, createdBy, onTaskAdded }
       return;
     }
 
-    const task = db.addTask({
+    const task = await db.addTask({
       title,
       description,
       assignedTo: emp.fullName,

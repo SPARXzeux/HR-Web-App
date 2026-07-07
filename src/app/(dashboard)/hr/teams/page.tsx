@@ -65,22 +65,22 @@ export default function HRTeamsPage() {
     return () => window.removeEventListener('globalSearch', handleSearch);
   }, []);
 
-  const handleCreateTeam = (e: React.FormEvent) => {
+  const handleCreateTeam = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTeamName.trim()) return;
 
-    const updated = db.addTeam(newTeamName.trim());
+    const updated = await db.addTeam(newTeamName.trim());
     setTeams(updated);
     setNewTeamName('');
     setSaveSuccess(`Team "${newTeamName.trim()}" created successfully!`);
     setTimeout(() => setSaveSuccess(null), 1500);
   };
 
-  const handleDeleteTeam = (teamName: string) => {
+  const handleDeleteTeam = async (teamName: string) => {
     const confirmDelete = window.confirm(`Are you sure you want to delete the "${teamName}" team? Members will be removed from this team.`);
     if (!confirmDelete) return;
 
-    const updatedTeams = db.deleteTeam(teamName);
+    const updatedTeams = await db.deleteTeam(teamName);
     setTeams(updatedTeams);
     setEmployees(db.getEmployees()); // Reload employee states since they got updated
     setSaveSuccess(`Deleted team "${teamName}"`);
@@ -192,11 +192,11 @@ export default function HRTeamsPage() {
     }, 1500);
   };
 
-  const handleCreateWarehouse = (e: React.FormEvent) => {
+  const handleCreateWarehouse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!whName.trim() || !whLat || !whLon) return;
 
-    db.addWarehouse({
+    await db.addWarehouse({
       name: whName.trim(),
       latitude: Number(whLat),
       longitude: Number(whLon),
@@ -230,11 +230,11 @@ export default function HRTeamsPage() {
     setEditingWhRadius(wh.radius.toString());
   };
 
-  const handleUpdateWarehouseSubmit = (e: React.FormEvent) => {
+  const handleUpdateWarehouseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingWhId) return;
 
-    db.updateWarehouse(editingWhId, {
+    await db.updateWarehouse(editingWhId, {
       name: editingWhName.trim(),
       latitude: Number(editingWhLat),
       longitude: Number(editingWhLon),

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
-import { db, Profile } from '@/lib/db';
+import { db, Profile, formatMoney } from '@/lib/db';
 import { PasswordInput } from '@/components/ui/PasswordInput';
 import {
   User, Mail, Briefcase, Calendar, Users, ShieldCheck,
@@ -190,11 +190,11 @@ export default function EmployeeProfilePage() {
           {/* Salary row */}
           <div className="flex items-center gap-4 px-6 py-4">
             <div className="h-8 w-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
-              <span className="text-emerald-600 font-bold text-sm">₨</span>
+              <span className="text-emerald-600 font-bold text-sm">{profile.region === 'USA' ? '$' : '₨'}</span>
             </div>
             <div className="flex-1">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Current Salary</p>
-              <p className="text-sm font-semibold text-emerald-700 mt-0.5">PKR {salary.toLocaleString()} / month</p>
+              <p className="text-sm font-semibold text-emerald-700 mt-0.5">{formatMoney(salary, profile.region)} / month</p>
             </div>
           </div>
         </div>

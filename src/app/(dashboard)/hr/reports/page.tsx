@@ -77,7 +77,7 @@ export default function ReportsPage() {
       emp.accountNumber || 'N/A',
       emp.iban || 'N/A',
       emp.onboardingCompleted ? 'Completed' : 'Pending',
-      emp.region === 'USA' ? `$${Math.round(emp.baseSalary / 278)}` : `PKR ${emp.baseSalary}`
+      formatMoney(emp.baseSalary, emp.region)
     ]);
 
     const csvContent = "data:text/csv;charset=utf-8," 

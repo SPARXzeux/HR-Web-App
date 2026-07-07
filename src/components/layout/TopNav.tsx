@@ -9,6 +9,10 @@ export function TopNav() {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  // Bumped after marking notifications read to force a re-render of
+  // read/unread state computed via db.isNotificationRead (which reads the
+  // per-user read map, not component state).
+  const [readVersion, setReadVersion] = useState(0);
   const [isBellOpen, setIsBellOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
@@ -144,7 +148,10 @@ export function TopNav() {
     setIsProfileOpen(false);
     if (!isBellOpen && email && role) {
       db.markNotificationsAsRead(email, role);
-      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      // Re-render read/unread state locally without waiting on the next
+      // poll — the actual read tracking (per-user for broadcasts) already
+      // lives in Supabase via markNotificationsAsRead.
+      setReadVersion(v => v + 1);
     }
   };
 
@@ -167,7 +174,12 @@ export function TopNav() {
     router.push(url);
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = email
+    ? notifications.filter(n => !db.isNotificationRead(n, email)).length
+    : 0;
+  // Referenced only to satisfy the dependency-tracking eslint rule; the
+  // actual re-computation is triggered by readVersion bumping this render.
+  void readVersion;
   const initials = displayName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'U';
   const hasAnyResults = matchedEmployees.length > 0 || matchedTasks.length > 0 || matchedTickets.length > 0 || matchedTeams.length > 0;
 
@@ -310,7 +322,7 @@ export function TopNav() {
                 </div>
                 <div className="max-h-[300px] overflow-y-auto divide-y divide-slate-100">
                   {notifications.map(n => (
-                    <div key={n.id} className={`p-3.5 text-xs flex flex-col gap-1 ${!n.read ? 'bg-orange-50/40' : ''}`}>
+                    <div key={n.id} className={`p-3.5 text-xs flex flex-col gap-1 ${email && !db.isNotificationRead(n, email) ? 'bg-orange-50/40' : ''}`}>
                       <div className="text-slate-700 leading-relaxed font-medium">{n.message}</div>
                       <div className="text-[9px] text-slate-400 font-medium text-right">{n.timestamp}</div>
                     </div>

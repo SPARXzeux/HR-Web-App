@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { db, LeaveApplication } from '@/lib/db';
-import { CheckCircle2, GripVertical, Clock, XCircle, BarChart3, List } from 'lucide-react';
+import { CheckCircle2, GripVertical, Clock, XCircle, BarChart3, List, Download } from 'lucide-react';
 
 const COLUMNS: { key: LeaveApplication['status']; label: string; headerBg: string }[] = [
   { key: 'pending',     label: 'Pending Review',       headerBg: 'bg-amber-50 border-amber-200'   },
@@ -58,7 +58,7 @@ export default function HRLeavesPage() {
   };
   const handleDragLeave = () => setOverCol(null);
 
-  const handleDrop = (e: React.DragEvent, targetStatus: LeaveApplication['status']) => {
+  const handleDrop = async (e: React.DragEvent, targetStatus: LeaveApplication['status']) => {
     e.preventDefault();
     const id = e.dataTransfer.getData('text/plain');
     if (!id) return;
@@ -66,24 +66,24 @@ export default function HRLeavesPage() {
     const leaf = leaves.find(l => l.id === id);
     if (!leaf || leaf.status === targetStatus) { setDragId(null); setOverCol(null); return; }
 
-    const updated: LeaveApplication[] = leaves.map(l => {
+    const updated: LeaveApplication[] = await Promise.all(leaves.map(async l => {
       if (l.id !== id) return l;
       if (targetStatus === 'hr_approved') {
-        db.addNotification('all', 'admin', `CEO approval required: HR approved leave for ${l.employeeName}.`);
+        await db.addNotification('all', 'admin', `CEO approval required: HR approved leave for ${l.employeeName}.`);
       } else if (targetStatus === 'approved') {
         const emps = db.getEmployees();
         const emp = emps.find(e => e.fullName === l.employeeName);
-        if (emp) db.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was fully approved.`);
-        db.addNotification('all', 'hr', `Leave for ${l.employeeName} approved by CEO.`);
+        if (emp) await db.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was fully approved.`);
+        await db.addNotification('all', 'hr', `Leave for ${l.employeeName} approved by CEO.`);
       } else if (targetStatus === 'rejected') {
         const emps = db.getEmployees();
         const emp = emps.find(e => e.fullName === l.employeeName);
-        if (emp) db.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was rejected.`);
+        if (emp) await db.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was rejected.`);
       } else if (targetStatus === 'pending') {
-        db.addNotification('all', 'hr', `Leave for ${l.employeeName} re-opened for reconsideration.`);
+        await db.addNotification('all', 'hr', `Leave for ${l.employeeName} re-opened for reconsideration.`);
       }
       return { ...l, status: targetStatus };
-    });
+    }));
 
     setLeaves(updated);
     db.saveLeaves(updated);
@@ -121,6 +121,19 @@ export default function HRLeavesPage() {
     urgent: leaves.filter(l => l.type === 'Urgent').length,
   };
 
+  const exportLeavesCSV = () => {
+    const headers = ['Employee', 'Type', 'Duration', 'Reason', 'Status'];
+    const rows = historyLeaves.map(l => [l.employeeName, l.type, l.duration, l.reason, l.status]);
+    const csvContent = 'data:text/csv;charset=utf-8,'
+      + [headers.join(','), ...rows.map(r => r.map(val => `"${val}"`).join(','))].join('\n');
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csvContent));
+    link.setAttribute('download', `DelCargo_Leaves_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -129,11 +142,20 @@ export default function HRLeavesPage() {
           <h1 className="text-2xl font-bold text-slate-900">Leave Management</h1>
           <p className="text-slate-500 text-sm">Drag cards to update status · Switch to History for a full audit log.</p>
         </div>
+        <div className="flex items-center gap-2">
+        <button
+          onClick={exportLeavesCSV}
+          disabled={historyLeaves.length === 0}
+          className="bg-white hover:bg-slate-50 disabled:opacity-50 border border-slate-200 text-slate-700 font-semibold px-3 py-2 rounded-lg text-xs flex items-center gap-1.5 active:scale-97 transition-all"
+        >
+          <Download className="h-3.5 w-3.5" /> Export CSV
+        </button>
         {successMsg && (
           <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm animate-in fade-in duration-150">
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />{successMsg}
           </div>
         )}
+        </div>
       </div>
 
       {/* Overview stat cards */}
@@ -302,11 +324,11 @@ export default function HRLeavesPage() {
                         {l.status === 'pending' && (
                           <div className="flex justify-center gap-2">
                             <button
-                              onClick={() => {
+                              onClick={async () => {
                                 const updated: LeaveApplication[] = leaves.map(lv => lv.id === l.id ? { ...lv, status: 'hr_approved' } : lv);
                                 setLeaves(updated);
                                 db.saveLeaves(updated);
-                                db.addNotification('all', 'admin', `CEO approval required for ${l.employeeName}'s leave.`);
+                                await db.addNotification('all', 'admin', `CEO approval required for ${l.employeeName}'s leave.`);
                                 setSuccessMsg('Sent to CEO!');
                                 setTimeout(() => setSuccessMsg(''), 1500);
                               }}

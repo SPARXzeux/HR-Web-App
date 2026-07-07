@@ -3,8 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
-import { db, CareerPosition } from '@/lib/db';
-import { MapPin, Plus, Trash2, CheckCircle2, ArrowRight, X, Briefcase, FileText } from 'lucide-react';
+import { db, CareerPosition, CareerApplication } from '@/lib/db';
+import { MapPin, Plus, Trash2, CheckCircle2, ArrowRight, X, Briefcase, FileText, Users } from 'lucide-react';
 
 interface CareersViewProps {
   role: 'admin' | 'hr' | 'employee' | 'team_lead' | 'public';
@@ -16,6 +16,16 @@ export function CareersView({ role }: CareersViewProps) {
   const [isApplyOpen, setIsApplyOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<CareerPosition | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
+
+  // HR/Admin applicant review
+  const [applications, setApplications] = useState<CareerApplication[]>([]);
+  const [isApplicationsOpen, setIsApplicationsOpen] = useState(false);
+
+  // Real counts for the "Who We Are" stats strip — previously these were
+  // hardcoded marketing numbers ("34+ Transit Hubs", "1.2M+ Packages/Yr",
+  // "99.8% On-Time Rate") with no backing data.
+  const [warehouseCount, setWarehouseCount] = useState(0);
+  const [teamCount, setTeamCount] = useState(0);
 
   // Form states
   const [title, setTitle] = useState('');
@@ -33,13 +43,18 @@ export function CareersView({ role }: CareersViewProps) {
 
   useEffect(() => {
     setPositions(db.getCareers());
-  }, []);
+    setWarehouseCount(db.getWarehouses().length);
+    setTeamCount(db.getTeams().length);
+    if (role === 'hr' || role === 'admin') {
+      setApplications(db.getCareerApplications());
+    }
+  }, [role]);
 
-  const handleAddJob = (e: React.FormEvent) => {
+  const handleAddJob = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !loc || !desc) return;
     const requirements = reqsText.split('\n').map(r => r.trim()).filter(Boolean);
-    const newJob = db.addCareer({
+    const newJob = await db.addCareer({
       title,
       department: dept,
       location: loc,
@@ -58,17 +73,26 @@ export function CareersView({ role }: CareersViewProps) {
     }, 1200);
   };
 
-  const handleDeleteJob = (id: string) => {
+  const handleDeleteJob = async (id: string) => {
     if (!window.confirm('Are you sure you want to delete this listing?')) return;
-    const updated = db.deleteCareer(id);
+    const updated = await db.deleteCareer(id);
     setPositions(updated);
   };
 
-  const handleApplySubmit = (e: React.FormEvent) => {
+  const handleApplySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!applicantName || !applicantEmail) return;
+    if (!applicantName || !applicantEmail || !selectedJob) return;
 
-    db.addNotification('all', 'hr', `New application for "${selectedJob?.title}" submitted by ${applicantName} (${applicantEmail})`);
+    // Actually persist the application (name, email, cover letter) instead
+    // of just firing a notification and discarding the submitted data.
+    await db.submitCareerApplication({
+      positionId: selectedJob.id,
+      positionTitle: selectedJob.title,
+      applicantName,
+      applicantEmail,
+      coverLetter
+    });
+    await db.addNotification('all', 'hr', `New application for "${selectedJob?.title}" submitted by ${applicantName} (${applicantEmail})`);
     setApplySuccess('Application submitted successfully! Our HR team will get back to you.');
     setTimeout(() => {
       setIsApplyOpen(false);
@@ -128,12 +152,20 @@ export function CareersView({ role }: CareersViewProps) {
             Open Positions ({filteredJobs.length})
           </h2>
           {canEdit && (
-            <button
-              onClick={() => setIsAddOpen(true)}
-              className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all flex items-center gap-1 shadow-sm"
-            >
-              <Plus className="h-4 w-4" /> Post Job
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsApplicationsOpen(true)}
+                className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all flex items-center gap-1 shadow-sm"
+              >
+                <Users className="h-4 w-4" /> Applications ({applications.length})
+              </button>
+              <button
+                onClick={() => setIsAddOpen(true)}
+                className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all flex items-center gap-1 shadow-sm"
+              >
+                <Plus className="h-4 w-4" /> Post Job
+              </button>
+            </div>
           )}
         </div>
 
@@ -223,19 +255,20 @@ export function CareersView({ role }: CareersViewProps) {
                   We maintain strategic warehousing facilities in major transit centers across North America and remote design cells in South Asia, operating with around-the-clock synchrony to keep supply lines operating optimally.
                 </p>
 
-                {/* Metrics */}
+                {/* Metrics — real counts pulled from live warehouse/team data,
+                    not marketing placeholders. */}
                 <div className="grid grid-cols-3 gap-4 pt-4 border-t border-slate-100">
                   <div>
-                    <p className="text-lg font-bold text-slate-900">34+</p>
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Transit Hubs</p>
+                    <p className="text-lg font-bold text-slate-900">{warehouseCount}</p>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Active Warehouses</p>
                   </div>
                   <div>
-                    <p className="text-lg font-bold text-slate-900">1.2M+</p>
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Packages/Yr</p>
+                    <p className="text-lg font-bold text-slate-900">{teamCount}</p>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Departments</p>
                   </div>
                   <div>
-                    <p className="text-lg font-bold text-slate-900">99.8%</p>
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">On-Time Rate</p>
+                    <p className="text-lg font-bold text-slate-900">{positions.length}</p>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Open Positions</p>
                   </div>
                 </div>
               </div>
@@ -297,6 +330,28 @@ export function CareersView({ role }: CareersViewProps) {
           </p>
         </section>
       )}
+
+      {/* Applications review Modal (HR/Admin only) */}
+      <Modal isOpen={isApplicationsOpen} onClose={() => setIsApplicationsOpen(false)} title={`Job Applications (${applications.length})`}>
+        <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+          {applications.length === 0 && (
+            <p className="text-center text-slate-400 font-semibold italic text-xs py-8">No applications submitted yet.</p>
+          )}
+          {applications.map(app => (
+            <div key={app.id} className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold text-slate-900">{app.applicantName}</p>
+                <span className="text-[9px] text-slate-400 font-semibold">{app.submittedAt}</span>
+              </div>
+              <p className="text-[10px] text-orange-600 font-bold uppercase tracking-wider">{app.positionTitle}</p>
+              <p className="text-xs text-slate-500 font-semibold">{app.applicantEmail}</p>
+              {app.coverLetter && (
+                <p className="text-xs text-slate-600 leading-relaxed border-t border-slate-200 pt-2 mt-2 whitespace-pre-wrap">{app.coverLetter}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      </Modal>
 
       {/* Add job listing Modal */}
       <Modal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} title="Create New Job Listing">

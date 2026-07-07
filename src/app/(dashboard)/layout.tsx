@@ -166,7 +166,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           setProfile(updated);
         }
         // Add welcome notification
-        db.addNotification(email, 'employee', 'Welcome onboard! Your dashboard is now fully unlocked.');
+        await db.addNotification(email, 'employee', 'Welcome onboard! Your dashboard is now fully unlocked.');
       } finally {
         setIsCompletingOnboarding(false);
       }
@@ -762,7 +762,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <li>Cashed out at the end of the year.</li>
                   </ul>
                 </li>
-                <li>An annual promotion of PKR 10,000 will be applied.</li>
+                <li>An annual anniversary increment will be applied on your work anniversary month (PKR 10,000 for Pakistan-based staff, $100 for USA-based staff).</li>
                 <li>Salary details are confidential. Please do not disclose your salary to other employees. If someone asks or insists, report it to HR immediately.</li>
               </ol>
 

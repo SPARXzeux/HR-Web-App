@@ -70,11 +70,11 @@ export function TicketsView({ role }: TicketsViewProps) {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [selectedTicket?.replies]);
 
-  const handleOpenTicket = (e: React.FormEvent) => {
+  const handleOpenTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !desc || !userProfile) return;
 
-    const newT = db.createTicket({
+    const newT = await db.createTicket({
       employeeName: userProfile.fullName,
       employeeEmail: userProfile.email,
       title,
@@ -91,13 +91,13 @@ export function TicketsView({ role }: TicketsViewProps) {
     }, 1200);
   };
 
-  const handleSendReply = (e: React.FormEvent) => {
+  const handleSendReply = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!replyMsg.trim() || !selectedTicket) return;
 
     const senderName = userProfile?.fullName || (role === 'hr' ? 'HR Manager' : role === 'admin' ? 'System Admin' : currentEmail.split('@')[0]);
 
-    const updated = db.addTicketReply(selectedTicket.id, {
+    const updated = await db.addTicketReply(selectedTicket.id, {
       senderName,
       senderRole: role,
       message: replyMsg.trim()
@@ -110,17 +110,17 @@ export function TicketsView({ role }: TicketsViewProps) {
     setReplyMsg('');
   };
 
-  const handleCloseTicket = (id: string) => {
+  const handleCloseTicket = async (id: string) => {
     if (!window.confirm('Are you sure you want to mark this support ticket as closed?')) return;
-    const updated = db.updateTicketStatus(id, 'closed');
+    const updated = await db.updateTicketStatus(id, 'closed');
     const updatedTicket = updated.find(t => t.id === id);
     if (updatedTicket) setSelectedTicket(updatedTicket);
     setTickets(role === 'employee' || role === 'team_lead' ? updated.filter(t => t.employeeEmail === currentEmail) : updated);
   };
 
-  const handleReopenTicket = (id: string) => {
+  const handleReopenTicket = async (id: string) => {
     if (!window.confirm('Are you sure you want to re-open this ticket?')) return;
-    const updated = db.updateTicketStatus(id, 'open');
+    const updated = await db.updateTicketStatus(id, 'open');
     const updatedTicket = updated.find(t => t.id === id);
     if (updatedTicket) setSelectedTicket(updatedTicket);
     setTickets(role === 'employee' || role === 'team_lead' ? updated.filter(t => t.employeeEmail === currentEmail) : updated);

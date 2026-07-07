@@ -13,6 +13,27 @@ export default function AdminWarehousesPage() {
   const [whLon, setWhLon] = useState('');
   const [whRadius, setWhRadius] = useState('500');
   const [whSuccess, setWhSuccess] = useState('');
+  const [whError, setWhError] = useState('');
+  const [editWhError, setEditWhError] = useState('');
+
+  // Real-world range validation — without this, a mistyped latitude (e.g.
+  // 999) silently breaks geofencing for every USA employee assigned to
+  // that warehouse with no error shown anywhere.
+  const validateCoords = (lat: string, lon: string, radius: string): string | null => {
+    const latNum = Number(lat);
+    const lonNum = Number(lon);
+    const radiusNum = Number(radius);
+    if (Number.isNaN(latNum) || latNum < -90 || latNum > 90) {
+      return 'Latitude must be a number between -90 and 90.';
+    }
+    if (Number.isNaN(lonNum) || lonNum < -180 || lonNum > 180) {
+      return 'Longitude must be a number between -180 and 180.';
+    }
+    if (Number.isNaN(radiusNum) || radiusNum <= 0) {
+      return 'Geofence radius must be a positive number of meters.';
+    }
+    return null;
+  };
 
   // Editing state
   const [editingWhId, setEditingWhId] = useState<string | null>(null);
@@ -25,11 +46,18 @@ export default function AdminWarehousesPage() {
     setWarehouses(db.getWarehouses());
   }, []);
 
-  const handleCreateWarehouse = (e: React.FormEvent) => {
+  const handleCreateWarehouse = async (e: React.FormEvent) => {
     e.preventDefault();
+    setWhError('');
     if (!whName.trim() || !whLat || !whLon) return;
 
-    db.addWarehouse({
+    const validationError = validateCoords(whLat, whLon, whRadius);
+    if (validationError) {
+      setWhError(validationError);
+      return;
+    }
+
+    await db.addWarehouse({
       name: whName.trim(),
       latitude: Number(whLat),
       longitude: Number(whLon),
@@ -55,6 +83,7 @@ export default function AdminWarehousesPage() {
   };
 
   const handleStartEditWarehouse = (wh: any) => {
+    setEditWhError('');
     setEditingWhId(wh.id);
     setEditingWhName(wh.name);
     setEditingWhLat(wh.latitude.toString());
@@ -62,11 +91,18 @@ export default function AdminWarehousesPage() {
     setEditingWhRadius(wh.radius.toString());
   };
 
-  const handleUpdateWarehouseSubmit = (e: React.FormEvent) => {
+  const handleUpdateWarehouseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setEditWhError('');
     if (!editingWhId) return;
 
-    db.updateWarehouse(editingWhId, {
+    const validationError = validateCoords(editingWhLat, editingWhLon, editingWhRadius);
+    if (validationError) {
+      setEditWhError(validationError);
+      return;
+    }
+
+    await db.updateWarehouse(editingWhId, {
       name: editingWhName.trim(),
       latitude: Number(editingWhLat),
       longitude: Number(editingWhLon),
@@ -103,6 +139,11 @@ export default function AdminWarehousesPage() {
             </div>
             <CardContent className="p-6">
               <form onSubmit={handleCreateWarehouse} className="space-y-4">
+                {whError && (
+                  <div className="bg-rose-50 border border-rose-200 text-rose-700 font-semibold px-3 py-2 rounded-lg text-[11px]">
+                    {whError}
+                  </div>
+                )}
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider">Warehouse Name *</label>
                   <input 
@@ -212,6 +253,11 @@ export default function AdminWarehousesPage() {
       {editingWhId && (
         <Modal isOpen onClose={() => setEditingWhId(null)} title="Edit Warehouse Details">
           <form onSubmit={handleUpdateWarehouseSubmit} className="space-y-4 pt-1">
+            {editWhError && (
+              <div className="bg-rose-50 border border-rose-200 text-rose-700 font-semibold px-3 py-2 rounded-lg text-[11px]">
+                {editWhError}
+              </div>
+            )}
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Warehouse Name *</label>
               <input 
