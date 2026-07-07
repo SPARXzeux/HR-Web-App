@@ -1134,7 +1134,7 @@ export const db = {
 
   updateOnboardingStatus: async (email: string, completed: boolean) => {
     const employees = db.getEmployees();
-    const updated = employees.map(emp => emp.email === email ? { ...emp, onboardingCompleted: completed } : emp);
+    const updated = employees.map(emp => emp.email && email && emp.email.toLowerCase() === email.toLowerCase() ? { ...emp, onboardingCompleted: completed } : emp);
     await db.saveEmployees(updated);
   },
 
@@ -1186,7 +1186,7 @@ export const db = {
 
   resetPassword: async (email: string, newPass: string) => {
     const employees = db.getEmployees();
-    const updated = employees.map(emp => emp.email === email ? { ...emp, password: newPass } : emp);
+    const updated = employees.map(emp => emp.email && email && emp.email.toLowerCase() === email.toLowerCase() ? { ...emp, password: newPass } : emp);
     await db.saveEmployees(updated);
     return true;
   },
@@ -1330,7 +1330,7 @@ export const db = {
 
   updateProfileDetails: async (email: string, updates: Partial<Profile>) => {
     const employees = db.getEmployees();
-    const updated = employees.map(emp => emp.email === email ? { ...emp, ...updates } : emp);
+    const updated = employees.map(emp => emp.email && email && emp.email.toLowerCase() === email.toLowerCase() ? { ...emp, ...updates } : emp);
     await db.saveEmployees(updated);
     return updated;
   },
