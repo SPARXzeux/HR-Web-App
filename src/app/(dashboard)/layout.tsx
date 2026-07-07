@@ -61,7 +61,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           setProfile(userProfile);
         }
 
-        if (savedRole === 'employee') {
+        if (savedRole === 'employee' && (!userProfile || !userProfile.onboardingCompleted)) {
           const consent = localStorage.getItem(`consent_accepted_${savedEmail}`);
           if (!consent) {
             setShowConsent(true);
