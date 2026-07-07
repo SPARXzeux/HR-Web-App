@@ -32,7 +32,7 @@ export default function EmployeeProfilePage() {
   useEffect(() => {
     const email = localStorage.getItem('user_email');
     const employees = db.getEmployees();
-    const p = employees.find(e => e.email === email);
+    const p = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (p) setProfile(p);
   }, []);
 
@@ -65,7 +65,7 @@ export default function EmployeeProfilePage() {
       iban: ibanInput.trim()
     });
     const employees = db.getEmployees();
-    const updated = employees.find(e => e.email === email);
+    const updated = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (updated) setProfile(updated);
     setBankSuccess('Bank details updated successfully!');
     setTimeout(() => { setIsBankEditOpen(false); setBankSuccess(''); }, 1400);
@@ -97,7 +97,7 @@ export default function EmployeeProfilePage() {
     if (email) {
       db.resetPassword(email, newPass);
       const employees = db.getEmployees();
-      const updated = employees.find(e => e.email === email);
+      const updated = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
       if (updated) setProfile(updated);
       setResetSuccess('Password updated successfully!');
       setCurrentPass(''); setNewPass(''); setConfirmPass('');

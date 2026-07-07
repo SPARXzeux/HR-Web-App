@@ -39,6 +39,21 @@ export interface Profile {
   // year's increment from being applied twice if payroll is processed more
   // than once during the anniversary month.
   lastIncrementProcessedYear?: number;
+
+  // Real onboarding document uploads. Stored the same way profilePicture
+  // already is — as a compressed base64 string directly on the profile row
+  // — rather than a Supabase Storage bucket, since no bucket exists yet and
+  // this reuses the exact working pattern already proven for profile
+  // pictures. If these columns don't exist on the live `profiles` table,
+  // upsertProfilesWithFallback will drop them automatically and surface a
+  // warning telling you the exact ALTER TABLE to run — nothing breaks, the
+  // documents just won't persist until the columns are added. At real scale
+  // (many employees, large PDFs) this should migrate to Supabase Storage.
+  cvFileName?: string;
+  cvFileData?: string; // base64
+  identityDocs?: { name: string; data: string }[]; // CNIC front/back (Pakistan) or Driver License/Work Permit (USA)
+  passportFileName?: string;
+  passportFileData?: string;
 }
 
 export interface Warehouse {
@@ -110,6 +125,36 @@ export interface PayrollRecord {
   // processed, the amount is folded permanently into the employee's real
   // baseSalary and this goes back to 0 for all future cycles.
   incrementAmount: number;
+}
+
+// Per-employee remote desktop screenshot monitoring configuration, set by
+// HR/Admin. `agentToken` is a simple shared secret the desktop capture
+// agent (a small installable Windows/Mac helper) uses to identify itself —
+// there's no real auth server here, consistent with the rest of the app's
+// "RLS disabled, anon-key everywhere" security model during this testing
+// phase. Do not treat this as production-grade security.
+export interface TrackingSettings {
+  employeeEmail: string;
+  enabled: boolean;
+  intervalMinutes: number;
+  excludeFromAutoDelete: boolean;
+  agentToken: string;
+}
+
+// A single captured screenshot. Stored as its own row in the delcargo_store
+// KV table (key: `screenshot_<id>`) rather than one big array, so that
+// multiple employees' agents uploading concurrently never race each other
+// on a single shared row.
+export interface Screenshot {
+  id: string;
+  employeeEmail: string;
+  timestamp: string; // ISO
+  imageData: string; // base64 (compressed JPEG/WebP)
+}
+
+interface ScreenshotRetentionState {
+  warnedAt?: string; // ISO — when HR/Admin were last warned about a pending batch
+  pendingDeleteIds?: string[]; // screenshot ids queued for deletion after grace period
 }
 
 export interface Notification {
@@ -322,9 +367,14 @@ async function syncFromSupabase() {
           region: p.region || 'Pakistan',
           assigned_warehouses: p.assignedWarehouses || [],
           tracking_enabled: p.trackingEnabled !== undefined ? p.trackingEnabled : true,
-          salary_start_date: p.salaryStartDate || p.joinedDate || null
+          salary_start_date: p.salaryStartDate || p.joinedDate || null,
+          cv_file_name: p.cvFileName || null,
+          cv_file_data: p.cvFileData || null,
+          identity_docs: p.identityDocs || null,
+          passport_file_name: p.passportFileName || null,
+          passport_file_data: p.passportFileData || null
         }));
-        
+
         supabase.from('profiles').upsert(rowsToSync).then(({ error }) => {
           if (error) {
             console.error('[Supabase Sync] Auto-migration error:', error);
@@ -357,7 +407,12 @@ async function syncFromSupabase() {
         region: p.region,
         assignedWarehouses: p.assigned_warehouses || [],
         trackingEnabled: p.tracking_enabled,
-        salaryStartDate: p.salary_start_date || p.joined_date || ''
+        salaryStartDate: p.salary_start_date || p.joined_date || '',
+        cvFileName: p.cv_file_name || undefined,
+        cvFileData: p.cv_file_data || undefined,
+        identityDocs: p.identity_docs || undefined,
+        passportFileName: p.passport_file_name || undefined,
+        passportFileData: p.passport_file_data || undefined
       }));
 
       const finalMapped = [...mappedDb, ...localOnly];
@@ -509,7 +564,7 @@ async function syncFromSupabase() {
     // 8. Key-Value Sync Fallback for tickets, custom teams, careers
     if (kvStore && kvStore.length > 0) {
       kvStore.forEach((row: any) => {
-        if (['hr_tickets_prod_v1', 'hr_custom_teams_prod_v1', 'hr_careers_prod_v1', 'hr_payroll_prod_v1', 'hr_notification_reads_prod_v1', 'hr_deleted_profile_emails_v1', 'hr_career_applications_prod_v1'].includes(row.key)) {
+        if (['hr_tickets_prod_v1', 'hr_custom_teams_prod_v1', 'hr_careers_prod_v1', 'hr_payroll_prod_v1', 'hr_notification_reads_prod_v1', 'hr_deleted_profile_emails_v1', 'hr_career_applications_prod_v1', 'hr_tracking_settings_prod_v1', 'hr_screenshot_retention_state_v1'].includes(row.key)) {
           localStorage.setItem(row.key, JSON.stringify(row.value));
         }
       });
@@ -610,7 +665,12 @@ async function saveData<T>(key: string, data: T): Promise<void> {
           region: p.region || 'Pakistan',
           assigned_warehouses: p.assignedWarehouses || [],
           tracking_enabled: p.trackingEnabled !== undefined ? p.trackingEnabled : true,
-          salary_start_date: p.salaryStartDate || p.joinedDate || null
+          salary_start_date: p.salaryStartDate || p.joinedDate || null,
+          cv_file_name: p.cvFileName || null,
+          cv_file_data: p.cvFileData || null,
+          identity_docs: p.identityDocs || null,
+          passport_file_name: p.passportFileName || null,
+          passport_file_data: p.passportFileData || null
         }));
         await upsertProfilesWithFallback(rows);
       } else if (key === 'hr_leaves_prod_v1') {
@@ -818,6 +878,161 @@ export const db = {
     };
     await db.saveCareerApplications([newApp, ...list]);
     return newApp;
+  },
+
+  // ── Remote desktop screenshot tracking ──────────────────────────────
+
+  getTrackingSettings: (): TrackingSettings[] => getInitialData('hr_tracking_settings_prod_v1', []),
+  saveTrackingSettings: (data: TrackingSettings[]) => saveData('hr_tracking_settings_prod_v1', data),
+
+  getTrackingSettingsFor: (email: string): TrackingSettings => {
+    const all = db.getTrackingSettings();
+    const existing = all.find(t => t.employeeEmail.toLowerCase() === email.toLowerCase());
+    if (existing) return existing;
+    return { employeeEmail: email, enabled: false, intervalMinutes: 15, excludeFromAutoDelete: false, agentToken: '' };
+  },
+
+  // Creates settings (with a freshly generated agent pairing token) for an
+  // employee the first time HR/Admin touches their tracking config, or
+  // applies updates to existing settings.
+  updateTrackingSettings: async (email: string, updates: Partial<TrackingSettings>): Promise<TrackingSettings[]> => {
+    const all = db.getTrackingSettings();
+    const idx = all.findIndex(t => t.employeeEmail.toLowerCase() === email.toLowerCase());
+    let updated: TrackingSettings[];
+    if (idx >= 0) {
+      updated = all.map((t, i) => i === idx ? { ...t, ...updates } : t);
+    } else {
+      const fresh: TrackingSettings = {
+        employeeEmail: email,
+        enabled: false,
+        intervalMinutes: 15,
+        excludeFromAutoDelete: false,
+        agentToken: `agt_${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 10)}`,
+        ...updates
+      };
+      updated = [...all, fresh];
+    }
+    await db.saveTrackingSettings(updated);
+    return updated;
+  },
+
+  regenerateAgentToken: async (email: string): Promise<string> => {
+    const token = `agt_${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 10)}`;
+    await db.updateTrackingSettings(email, { agentToken: token });
+    return token;
+  },
+
+  // Targeted fetch — screenshots are NOT pulled through the general
+  // syncFromSupabase pass (they could be high-volume), each is its own
+  // delcargo_store row (key: screenshot_<id>) so concurrent uploads from
+  // different employees' agents never race on a shared row.
+  getScreenshots: async (filters?: { employeeEmail?: string; sinceISO?: string; untilISO?: string }): Promise<Screenshot[]> => {
+    try {
+      const { data, error } = await supabase.from('delcargo_store').select('key,value').like('key', 'screenshot_%');
+      if (error) {
+        console.error('[Supabase Sync] Screenshot fetch error:', error);
+        return [];
+      }
+      let shots = (data || []).map((row: any) => row.value as Screenshot);
+      if (filters?.employeeEmail) {
+        shots = shots.filter(s => s.employeeEmail.toLowerCase() === filters.employeeEmail!.toLowerCase());
+      }
+      if (filters?.sinceISO) shots = shots.filter(s => s.timestamp >= filters.sinceISO!);
+      if (filters?.untilISO) shots = shots.filter(s => s.timestamp <= filters.untilISO!);
+      return shots.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    } catch (err) {
+      console.error('[Supabase Sync] Unexpected screenshot fetch error:', err);
+      return [];
+    }
+  },
+
+  // Called by the desktop agent (via direct Supabase REST calls using the
+  // same public anon key already embedded in this app) or from the web app
+  // itself for testing. Verifies the token matches an enabled employee
+  // before accepting the upload.
+  saveScreenshotByToken: async (token: string, imageData: string): Promise<{ ok: boolean; reason?: string }> => {
+    const settings = db.getTrackingSettings();
+    const match = settings.find(t => t.agentToken === token);
+    if (!match) return { ok: false, reason: 'Invalid agent token.' };
+    if (!match.enabled) return { ok: false, reason: 'Tracking is currently disabled for this employee.' };
+
+    const id = `scr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const shot: Screenshot = { id, employeeEmail: match.employeeEmail, timestamp: new Date().toISOString(), imageData };
+    try {
+      const { error } = await supabase.from('delcargo_store').upsert({ key: `screenshot_${id}`, value: shot });
+      if (error) {
+        console.error('[Supabase Sync] Screenshot upload error:', error);
+        return { ok: false, reason: error.message };
+      }
+      return { ok: true };
+    } catch (err: any) {
+      console.error('[Supabase Sync] Unexpected screenshot upload error:', err);
+      return { ok: false, reason: err?.message || String(err) };
+    }
+  },
+
+  deleteScreenshots: async (ids: string[]): Promise<void> => {
+    if (ids.length === 0) return;
+    const keys = ids.map(id => `screenshot_${id}`);
+    try {
+      const { error } = await supabase.from('delcargo_store').delete().in('key', keys);
+      if (error) console.error('[Supabase Sync] Screenshot delete error:', error);
+    } catch (err) {
+      console.error('[Supabase Sync] Unexpected screenshot delete error:', err);
+    }
+  },
+
+  getScreenshotRetentionState: (): ScreenshotRetentionState => getInitialData('hr_screenshot_retention_state_v1', {}),
+  saveScreenshotRetentionState: (data: ScreenshotRetentionState) => saveData('hr_screenshot_retention_state_v1', data),
+
+  // Two-phase monthly retention sweep, meant to be called once whenever
+  // HR/Admin loads their dashboard:
+  //  Phase 1 (first time a batch of screenshots crosses the 30-day mark):
+  //    fires a warning notification and records which screenshots are
+  //    queued for deletion, WITHOUT deleting anything yet.
+  //  Phase 2 (once WARNING_GRACE_DAYS have passed since that warning):
+  //    actually deletes the still-due screenshots, re-checking the
+  //    exclusion list at delete time in case HR/Admin excluded someone
+  //    in the meantime, and fires a confirmation notification.
+  // Employees with excludeFromAutoDelete are skipped entirely.
+  checkScreenshotRetention: async (): Promise<void> => {
+    const RETENTION_DAYS = 30;
+    const WARNING_GRACE_DAYS = 3;
+    const state = db.getScreenshotRetentionState();
+    const now = new Date();
+
+    if (state.warnedAt && state.pendingDeleteIds && state.pendingDeleteIds.length > 0) {
+      const warnedAt = new Date(state.warnedAt);
+      const graceElapsed = (now.getTime() - warnedAt.getTime()) >= WARNING_GRACE_DAYS * 24 * 3600 * 1000;
+      if (!graceElapsed) return;
+
+      const settings = db.getTrackingSettings();
+      const excludedEmails = new Set(settings.filter(s => s.excludeFromAutoDelete).map(s => s.employeeEmail.toLowerCase()));
+      const allShots = await db.getScreenshots();
+      const stillDue = allShots.filter(s => state.pendingDeleteIds!.includes(s.id) && !excludedEmails.has(s.employeeEmail.toLowerCase()));
+
+      if (stillDue.length > 0) {
+        await db.deleteScreenshots(stillDue.map(s => s.id));
+        await db.addNotification('all', 'hr', `${stillDue.length} screenshot(s) older than ${RETENTION_DAYS} days were automatically deleted per the monthly retention policy.`);
+        await db.addNotification('all', 'admin', `${stillDue.length} screenshot(s) older than ${RETENTION_DAYS} days were automatically deleted per the monthly retention policy.`);
+      }
+      await db.saveScreenshotRetentionState({});
+      return;
+    }
+
+    const allShots = await db.getScreenshots();
+    if (allShots.length === 0) return;
+
+    const settings = db.getTrackingSettings();
+    const excludedEmails = new Set(settings.filter(s => s.excludeFromAutoDelete).map(s => s.employeeEmail.toLowerCase()));
+    const cutoff = new Date(now.getTime() - RETENTION_DAYS * 24 * 3600 * 1000);
+    const toDelete = allShots.filter(s => new Date(s.timestamp) < cutoff && !excludedEmails.has(s.employeeEmail.toLowerCase()));
+
+    if (toDelete.length === 0) return;
+
+    await db.addNotification('all', 'hr', `${toDelete.length} screenshot(s) older than ${RETENTION_DAYS} days are scheduled for automatic deletion in ${WARNING_GRACE_DAYS} days. Export or mark specific employees as excluded before then.`);
+    await db.addNotification('all', 'admin', `${toDelete.length} screenshot(s) older than ${RETENTION_DAYS} days are scheduled for automatic deletion in ${WARNING_GRACE_DAYS} days. Export or mark specific employees as excluded before then.`);
+    await db.saveScreenshotRetentionState({ warnedAt: now.toISOString(), pendingDeleteIds: toDelete.map(s => s.id) });
   },
 
   addTask: async (task: Omit<Task, 'id'>) => {
@@ -1347,14 +1562,14 @@ export const db = {
   // Returns the currently open (not yet clocked out) shift for an employee, if any.
   getOpenShift: (employeeEmail: string): TimesheetEntry | null => {
     const all = db.getTimesheets();
-    return all.find(t => t.employeeEmail === employeeEmail && t.status === 'in_progress') || null;
+    return all.find(t => t.employeeEmail.toLowerCase() === employeeEmail.toLowerCase() && t.status === 'in_progress') || null;
   },
 
   // Starts a real shift. Idempotent — if a shift is already open for this
   // employee, returns the existing one instead of creating a duplicate.
   clockIn: async (employeeEmail: string): Promise<TimesheetEntry> => {
     const all = db.getTimesheets();
-    const existingOpen = all.find(t => t.employeeEmail === employeeEmail && t.status === 'in_progress');
+    const existingOpen = all.find(t => t.employeeEmail.toLowerCase() === employeeEmail.toLowerCase() && t.status === 'in_progress');
     if (existingOpen) return existingOpen;
 
     const now = new Date();
@@ -1373,7 +1588,7 @@ export const db = {
   // duration from the actual clock-in timestamp. No-op if nothing is open.
   clockOut: async (employeeEmail: string): Promise<TimesheetEntry | null> => {
     const all = db.getTimesheets();
-    const openEntry = all.find(t => t.employeeEmail === employeeEmail && t.status === 'in_progress');
+    const openEntry = all.find(t => t.employeeEmail.toLowerCase() === employeeEmail.toLowerCase() && t.status === 'in_progress');
     if (!openEntry) return null;
 
     const nowIso = new Date().toISOString();

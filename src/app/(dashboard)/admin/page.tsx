@@ -34,6 +34,9 @@ export default function AdminDashboard() {
     setTasks(db.getTasks());
     setAnnouncements(db.getAnnouncements());
     setWarehouses(db.getWarehouses());
+    // Monthly screenshot retention sweep — no-ops if already checked this
+    // month or nothing is due; see checkScreenshotRetention in db.ts.
+    db.checkScreenshotRetention();
   }, []);
 
   const handleAnnouncementSubmit = async (e: React.FormEvent) => {

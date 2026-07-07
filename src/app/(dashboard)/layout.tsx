@@ -32,12 +32,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
   const [uploadingPic, setUploadingPic] = useState(false);
 
-  // Document Upload Simulator States
+  // Real document upload state — filename + base64 data for each file.
+  // Images are compressed via compressImageToWebP (same as profile
+  // pictures); PDFs are read as raw base64 with a size cap since they can't
+  // be compressed client-side without a dedicated library.
   const [cvFile, setCvFile] = useState<string | null>(null);
+  const [cvFileData, setCvFileData] = useState<string | null>(null);
   const [cnicFiles, setCnicFiles] = useState<string[]>([]);
+  const [cnicFilesData, setCnicFilesData] = useState<string[]>([]);
   const [passportFile, setPassportFile] = useState<string | null>(null);
+  const [passportFileData, setPassportFileData] = useState<string | null>(null);
   const [uploading, setUploading] = useState({ cv: false, cnic: false });
   const [uploadingPassport, setUploadingPassport] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+
+  const MAX_UPLOAD_BYTES = 4 * 1024 * 1024; // 4MB raw — base64 inflates ~33%
+
+  const fileToBase64 = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 
   const [dbReady, setDbReady] = useState(false);
   const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false);
@@ -81,13 +97,64 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   };
 
-  const simulateUpload = (type: 'cv' | 'cnic', name: string) => {
-    setUploading(prev => ({ ...prev, [type]: true }));
-    setTimeout(() => {
-      setUploading(prev => ({ ...prev, [type]: false }));
-      if (type === 'cv') setCvFile(name);
-      else setCnicFiles(prev => [...prev, name].slice(0, 2));
-    }, 1200);
+  const handleCvUpload = async (file: File | undefined) => {
+    setUploadError('');
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setUploadError('CV file is too large. Please upload a file under 4MB.');
+      return;
+    }
+    setUploading(prev => ({ ...prev, cv: true }));
+    try {
+      const data = await fileToBase64(file);
+      setCvFileData(data);
+      setCvFile(file.name);
+    } catch (err) {
+      console.error('CV upload failed:', err);
+      setUploadError('Failed to read the file. Please try again.');
+    } finally {
+      setUploading(prev => ({ ...prev, cv: false }));
+    }
+  };
+
+  const handleCnicUpload = async (file: File | undefined) => {
+    setUploadError('');
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setUploadError('Image is too large. Please upload a file under 4MB.');
+      return;
+    }
+    setUploading(prev => ({ ...prev, cnic: true }));
+    try {
+      const compressed = await compressImageToWebP(file, 0.65);
+      setCnicFilesData(prev => [...prev, compressed].slice(0, 2));
+      setCnicFiles(prev => [...prev, file.name].slice(0, 2));
+    } catch (err) {
+      console.error('Identity doc upload failed:', err);
+      setUploadError('Failed to process the image. Please try again.');
+    } finally {
+      setUploading(prev => ({ ...prev, cnic: false }));
+    }
+  };
+
+  const handlePassportUpload = async (file: File | undefined) => {
+    setUploadError('');
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setUploadError('Image is too large. Please upload a file under 4MB.');
+      return;
+    }
+    setUploadingPassport(true);
+    try {
+      const compressed = await compressImageToWebP(file, 0.65);
+      setPassportFileData(compressed);
+      setPassportFile(file.name);
+    } catch (err) {
+      console.error('Passport upload failed:', err);
+      setUploadError('Failed to process the image. Please try again.');
+    } finally {
+      setUploadingPassport(false);
+    }
   };
 
   const handleNextStep = () => {
@@ -152,12 +219,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         // land last and silently revert onboardingCompleted back to false —
         // which is exactly the "onboarding restarts after refresh" bug.
         // Merging into one atomic update removes the race entirely.
+        const isUsaEmployee = profile?.region === 'USA';
         await db.updateProfileDetails(email, {
           bankName,
           accountNumber,
           iban,
           profilePicture: profilePicture || undefined,
-          onboardingCompleted: true
+          onboardingCompleted: true,
+          cvFileName: cvFile || undefined,
+          cvFileData: cvFileData || undefined,
+          identityDocs: cnicFilesData.length > 0
+            ? cnicFilesData.map((data, idx) => ({
+                name: cnicFiles[idx] || (isUsaEmployee ? 'License' : idx === 0 ? 'CNIC Front' : 'CNIC Back'),
+                data
+              }))
+            : undefined,
+          passportFileName: passportFile || undefined,
+          passportFileData: passportFileData || undefined
         });
 
         const employees = db.getEmployees();
@@ -306,7 +384,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <Upload className="h-5 w-5 text-orange-600" /> Step 2: Upload Documents ({step2SubStep}/3)
               </h2>
-              
+              {uploadError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 font-semibold px-3 py-2 rounded-lg text-xs">
+                  {uploadError}
+                </div>
+              )}
+
               {step2SubStep === 1 && (
                 <>
                   <p className="text-sm text-slate-655 font-medium">Please upload your profile picture and CV:</p>
@@ -371,7 +454,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                               type="file" 
                               accept=".pdf"
                               className="hidden"
-                              onChange={(e) => simulateUpload('cv', e.target.files?.[0]?.name || 'Sarah_Connor_CV.pdf')}
+                              onChange={(e) => handleCvUpload(e.target.files?.[0])}
                             />
                           </label>
                         )}
@@ -412,12 +495,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                               type="file" 
                               accept="image/*"
                               className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                const isUsa = profile?.region === 'USA';
-                                const mockName = file?.name || (isUsa ? 'Sarah_Connor_License.png' : `Sarah_Connor_CNIC_${cnicFiles.length === 0 ? 'Front' : 'Back'}.png`);
-                                simulateUpload('cnic', mockName);
-                              }}
+                              onChange={(e) => handleCnicUpload(e.target.files?.[0])}
                             />
                           </label>
                         )}
@@ -458,14 +536,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                               type="file" 
                               accept="image/*"
                               className="hidden"
-                              onChange={(e) => {
-                                setUploadingPassport(true);
-                                const fileName = e.target.files?.[0]?.name || 'Sarah_Connor_Passport.png';
-                                setTimeout(() => {
-                                  setUploadingPassport(false);
-                                  setPassportFile(fileName);
-                                }, 1200);
-                              }}
+                              onChange={(e) => handlePassportUpload(e.target.files?.[0])}
                             />
                           </label>
                         )}

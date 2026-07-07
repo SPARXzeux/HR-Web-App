@@ -25,7 +25,7 @@ export default function EmployeeSalaryPage() {
   useEffect(() => {
     const email = localStorage.getItem('user_email');
     const employees = db.getEmployees();
-    const profile = employees.find(e => e.email === email);
+    const profile = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (profile) {
       setUserProfile(profile);
       const payroll = db.getPayroll();

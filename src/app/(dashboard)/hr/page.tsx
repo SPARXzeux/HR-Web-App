@@ -57,6 +57,9 @@ export default function HRDashboard() {
     setTeams(db.getTeams());
     setAnnouncements(db.getAnnouncements());
     setWarehouses(db.getWarehouses());
+    // Monthly screenshot retention sweep — no-ops if already checked this
+    // month or nothing is due; see checkScreenshotRetention in db.ts.
+    db.checkScreenshotRetention();
 
     const handleSearch = (e: Event) => setSearchQuery((e as CustomEvent).detail || '');
     window.addEventListener('globalSearch', handleSearch);

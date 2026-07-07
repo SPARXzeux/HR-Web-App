@@ -48,8 +48,8 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
   useEffect(() => {
     if (isOpen && employeeEmail) {
       const emps = db.getEmployees();
-      const match = emps.find(e => e.email === employeeEmail);
-      const curr = emps.find(e => e.email === currentUserEmail);
+      const match = emps.find(e => e.email && employeeEmail && e.email.toLowerCase() === employeeEmail.toLowerCase());
+      const curr = emps.find(e => e.email && currentUserEmail && e.email.toLowerCase() === currentUserEmail.toLowerCase());
       setCurrentUser(curr || null);
 
       if (match) {
@@ -148,7 +148,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
     
     // Refresh local profile view state
     const updatedEmps = db.getEmployees();
-    const match = updatedEmps.find(e => e.email === email);
+    const match = updatedEmps.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (match) setProfile(match);
   };
 

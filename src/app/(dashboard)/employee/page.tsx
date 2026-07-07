@@ -63,7 +63,7 @@ export default function EmployeeDashboard() {
     // Real, Supabase-synced shift history — visible regardless of which
     // device/region the employee actually clocked in from.
     const entries = db.getTimesheets()
-      .filter(t => t.employeeEmail === emp.email)
+      .filter(t => t.employeeEmail.toLowerCase() === emp.email.toLowerCase())
       .sort((a, b) => (b.clockIn || '').localeCompare(a.clockIn || ''));
     setReviewEntries(entries);
   };
@@ -488,7 +488,12 @@ export default function EmployeeDashboard() {
                         setShiftActive(true);
                         setGeofenceStatus('Shift Active');
                         db.clockIn(userProfile.email);
-                        await db.addNotification(userProfile.email, 'employee', 'Shift started manually.');
+                        // Screen tracking (if this employee has the desktop
+                        // agent installed) follows the shift — capturing
+                        // only turns on while actively clocked in, not
+                        // around the clock.
+                        await db.updateTrackingSettings(userProfile.email, { enabled: true });
+                        await db.addNotification(userProfile.email, 'employee', 'Shift started manually. Screen tracking is now active for this shift.');
                         await db.addNotification('all', 'hr', `${userProfile.fullName} started shift manually.`);
                       }}
                       disabled={shiftActive}
@@ -502,7 +507,8 @@ export default function EmployeeDashboard() {
                         setShiftActive(false);
                         setGeofenceStatus('Shift Ended');
                         db.clockOut(userProfile.email);
-                        await db.addNotification(userProfile.email, 'employee', 'Shift ended manually.');
+                        await db.updateTrackingSettings(userProfile.email, { enabled: false });
+                        await db.addNotification(userProfile.email, 'employee', 'Shift ended manually. Screen tracking has stopped.');
                         await db.addNotification('all', 'hr', `${userProfile.fullName} ended shift manually.`);
                       }}
                       disabled={!shiftActive}
@@ -511,6 +517,9 @@ export default function EmployeeDashboard() {
                       End Shift
                     </button>
                   </div>
+                  <p className="text-[9px] text-slate-400 leading-relaxed">
+                    If your account has screen tracking configured by HR/Admin, starting a shift activates it for the duration of your shift; ending your shift turns it off.
+                  </p>
                 </div>
               )}
             </CardContent>

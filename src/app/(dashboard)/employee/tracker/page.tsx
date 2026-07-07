@@ -15,7 +15,7 @@ export default function TrackerPage() {
   useEffect(() => {
     const email = localStorage.getItem('user_email');
     const employees = db.getEmployees();
-    const userProfile = employees.find(e => e.email === email);
+    const userProfile = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (userProfile) {
       setProfile(userProfile);
       refreshShiftData(userProfile.email);
@@ -23,7 +23,7 @@ export default function TrackerPage() {
   }, []);
 
   const refreshShiftData = (email: string) => {
-    const all = db.getTimesheets().filter(t => t.employeeEmail === email);
+    const all = db.getTimesheets().filter(t => t.employeeEmail.toLowerCase() === email.toLowerCase());
     const open = all.find(t => t.status === 'in_progress') || null;
     setOpenShift(open);
     setTimesheetEntries(all.sort((a, b) => (b.clockIn || '').localeCompare(a.clockIn || '')));
@@ -128,7 +128,7 @@ export default function TrackerPage() {
               <div>
                 <h4 className="text-xs font-bold text-slate-750">Desktop Capture Client Not Installed</h4>
                 <p className="text-[10px] text-slate-450 leading-relaxed font-semibold mt-1">
-                  Screenshot captures and keyboard/mouse activity monitoring require installing the Windows background client agent, which is not yet available. This section will populate with real data once that client ships.
+                  If HR/Admin has enabled screen tracking for your account, it activates automatically while you&apos;re clocked in on a manually-started shift (or ask HR/Admin for the setup link to install the free capture agent). Keyboard/mouse activity monitoring is not implemented — only periodic screenshots.
                 </p>
               </div>
             </CardContent>

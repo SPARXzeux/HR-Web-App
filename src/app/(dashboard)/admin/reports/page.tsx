@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal';
 import { db, Profile, formatMoney, TimesheetEntry } from '@/lib/db';
 import { FileText, Search, Filter, ShieldCheck, Download, MapPin, Edit2, Monitor } from 'lucide-react';
 import { UserProfileModal } from '@/components/ui/UserProfileModal';
+import { DocumentsModal } from '@/components/ui/DocumentsModal';
 
 export default function ReportsPage() {
   const [employees, setEmployees] = useState<Profile[]>([]);
@@ -29,6 +30,9 @@ export default function ReportsPage() {
   // Profile modal states
   const [selectedProfileEmail, setSelectedProfileEmail] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
+
+  // Documents modal state
+  const [selectedDocsEmp, setSelectedDocsEmp] = useState<Profile | null>(null);
 
   useEffect(() => {
     setEmployees(db.getEmployees());
@@ -113,9 +117,29 @@ export default function ReportsPage() {
     // Real, Supabase-synced shift history — visible regardless of which
     // device/region the employee actually clocked in from.
     const entries = db.getTimesheets()
-      .filter(t => t.employeeEmail === emp.email)
+      .filter(t => t.employeeEmail.toLowerCase() === emp.email.toLowerCase())
       .sort((a, b) => (b.clockIn || '').localeCompare(a.clockIn || ''));
     setReviewEntries(entries);
+  };
+
+  const exportTrackingCSV = () => {
+    if (!selectedReviewEmp) return;
+    const headers = ['Date', 'Clock In', 'Clock Out', 'Duration', 'Status'];
+    const rows = reviewEntries.map(e => [
+      e.date || '',
+      e.clockIn ? new Date(e.clockIn).toLocaleTimeString() : '—',
+      e.clockOut ? new Date(e.clockOut).toLocaleTimeString() : '—',
+      e.duration || '—',
+      e.status === 'in_progress' ? 'On Shift' : 'Completed'
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,'
+      + [headers.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csvContent));
+    link.setAttribute('download', `Tracking_${selectedReviewEmp.fullName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -229,11 +253,17 @@ export default function ReportsPage() {
                       >
                         <MapPin className="h-3.5 w-3.5" /> Assignment
                       </button>
-                      <button 
+                      <button
                         onClick={() => handleOpenReviewModal(emp)}
                         className="text-[10px] font-bold text-slate-650 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1.5"
                       >
                         <FileText className="h-3.5 w-3.5" /> Review Tracker
+                      </button>
+                      <button
+                        onClick={() => setSelectedDocsEmp(emp)}
+                        className="text-[10px] font-bold text-blue-650 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1.5"
+                      >
+                        <Download className="h-3.5 w-3.5" /> Documents
                       </button>
                     </div>
                   </td>
@@ -365,7 +395,16 @@ export default function ReportsPage() {
             </div>
 
             <div className="space-y-3">
-              <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Historical Sessions (Current Week)</h4>
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Shift History (Manual + Geofenced)</h4>
+                <button
+                  onClick={exportTrackingCSV}
+                  disabled={reviewEntries.length === 0}
+                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-3 py-1.5 rounded-lg text-[10px] active:scale-97 transition-all shadow-sm"
+                >
+                  <Download className="h-3.5 w-3.5" /> Export CSV
+                </button>
+              </div>
               <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
                 <table className="w-full text-xs text-left border-collapse">
                   <thead className="font-bold text-slate-550 bg-slate-50 border-b border-slate-200 uppercase tracking-widest text-[9px]">
@@ -406,10 +445,16 @@ export default function ReportsPage() {
               <div className="border border-slate-200 p-6 rounded-xl bg-slate-50/50 text-center space-y-2 font-sans">
                 <Monitor className="h-6 w-6 text-slate-350 mx-auto" />
                 <div>
-                  <h5 className="text-xs font-bold text-slate-700">Desktop Capture Offline</h5>
+                  <h5 className="text-xs font-bold text-slate-700">Managed from Screen Tracking</h5>
                   <p className="text-[10px] text-slate-450 leading-relaxed font-semibold mt-1">
-                    This feature will be available soon (requires Windows client agent installation).
+                    Enable tracking, set the capture interval, and browse/export this employee&apos;s screenshots from the Screen Tracking page in the sidebar.
                   </p>
+                  <a
+                    href="/admin/tracking"
+                    className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-600 hover:text-orange-700 mt-2"
+                  >
+                    Go to Screen Tracking →
+                  </a>
                 </div>
               </div>
             </div>
@@ -438,6 +483,8 @@ export default function ReportsPage() {
           }}
         />
       )}
+
+      <DocumentsModal employee={selectedDocsEmp} onClose={() => setSelectedDocsEmp(null)} />
     </div>
   );
 }

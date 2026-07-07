@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal';
 import { db, Profile, formatMoney, TimesheetEntry } from '@/lib/db';
 import { FileText, Search, Filter, ShieldCheck, Download, Monitor, Clock, CheckCircle2, TrendingUp, Calendar } from 'lucide-react';
 import { UserProfileModal } from '@/components/ui/UserProfileModal';
+import { DocumentsModal } from '@/components/ui/DocumentsModal';
 
 export default function ReportsPage() {
   const [employees, setEmployees] = useState<Profile[]>([]);
@@ -19,6 +20,7 @@ export default function ReportsPage() {
 
   const [selectedProfileEmail, setSelectedProfileEmail] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
+  const [selectedDocsEmp, setSelectedDocsEmp] = useState<Profile | null>(null);
 
   const handleOpenReviewModal = (emp: Profile) => {
     setSelectedReviewEmp(emp);
@@ -27,7 +29,7 @@ export default function ReportsPage() {
     // Real, Supabase-synced shift history — visible regardless of which
     // device/region the employee actually clocked in from.
     const entries = db.getTimesheets()
-      .filter(t => t.employeeEmail === emp.email)
+      .filter(t => t.employeeEmail.toLowerCase() === emp.email.toLowerCase())
       .sort((a, b) => (b.clockIn || '').localeCompare(a.clockIn || ''));
     setReviewEntries(entries);
   };
@@ -217,12 +219,20 @@ export default function ReportsPage() {
                     )}
                   </td>
                   <td className="px-6 py-4 text-center">
-                    <button 
-                      onClick={() => handleOpenReviewModal(emp)}
-                      className="text-[10px] font-bold text-slate-650 hover:text-orange-700 bg-slate-100 hover:bg-orange-50 border border-slate-200 hover:border-orange-200 px-2.5 py-1.5 rounded-lg active:scale-97 transition-all inline-flex items-center gap-1.5"
-                    >
-                      <FileText className="h-3.5 w-3.5" /> View Tracking
-                    </button>
+                    <div className="flex flex-col sm:flex-row justify-center gap-2">
+                      <button
+                        onClick={() => handleOpenReviewModal(emp)}
+                        className="text-[10px] font-bold text-slate-650 hover:text-orange-700 bg-slate-100 hover:bg-orange-50 border border-slate-200 hover:border-orange-200 px-2.5 py-1.5 rounded-lg active:scale-97 transition-all inline-flex items-center gap-1.5"
+                      >
+                        <FileText className="h-3.5 w-3.5" /> View Tracking
+                      </button>
+                      <button
+                        onClick={() => setSelectedDocsEmp(emp)}
+                        className="text-[10px] font-bold text-blue-650 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1.5 rounded-lg active:scale-97 transition-all inline-flex items-center gap-1.5"
+                      >
+                        <Download className="h-3.5 w-3.5" /> Documents
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -370,6 +380,8 @@ export default function ReportsPage() {
           }}
         />
       )}
+
+      <DocumentsModal employee={selectedDocsEmp} onClose={() => setSelectedDocsEmp(null)} />
     </div>
   );
 }

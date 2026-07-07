@@ -32,8 +32,8 @@ export default function AdminProfilePage() {
   const loadProfiles = () => {
     const email = localStorage.getItem('user_email');
     const employees = db.getEmployees();
-    const p = employees.find(e => e.email === email);
-    const hr = employees.find(e => e.email === 'hr@delcargo.us');
+    const p = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
+    const hr = employees.find(e => e.email && e.email.toLowerCase() === 'hr@delcargo.us');
     if (p) setProfile(p);
     if (hr) setHrProfile(hr);
   };

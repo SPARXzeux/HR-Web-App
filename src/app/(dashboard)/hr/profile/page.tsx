@@ -23,7 +23,7 @@ export default function HRProfilePage() {
   useEffect(() => {
     const email = localStorage.getItem('user_email');
     const employees = db.getEmployees();
-    const p = employees.find(e => e.email === email);
+    const p = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (p) setProfile(p);
   }, []);
 
@@ -53,7 +53,7 @@ export default function HRProfilePage() {
     if (email) {
       db.resetPassword(email, newPass);
       const employees = db.getEmployees();
-      const updated = employees.find(e => e.email === email);
+      const updated = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
       if (updated) setProfile(updated);
       setResetSuccess('Password updated successfully!');
       setCurrentPass(''); setNewPass(''); setConfirmPass('');

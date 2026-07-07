@@ -32,7 +32,7 @@ export function TicketsView({ role }: TicketsViewProps) {
 
   const applyTickets = (all: Ticket[], email: string) => {
     if (role === 'employee' || role === 'team_lead') {
-      setTickets(all.filter(t => t.employeeEmail === email));
+      setTickets(all.filter(t => t.employeeEmail.toLowerCase() === email.toLowerCase()));
     } else {
       setTickets(all);
     }
@@ -49,7 +49,7 @@ export function TicketsView({ role }: TicketsViewProps) {
     setCurrentEmail(email);
     const emps = db.getEmployees();
     setEmployees(emps);
-    setUserProfile(emps.find(e => e.email === email) || null);
+    setUserProfile(emps.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase()) || null);
 
     applyTickets(db.getTickets(), email);
   }, [role]);
@@ -106,7 +106,7 @@ export function TicketsView({ role }: TicketsViewProps) {
     // Update locally
     const updatedTicket = updated.find(t => t.id === selectedTicket.id);
     if (updatedTicket) setSelectedTicket(updatedTicket);
-    setTickets(role === 'employee' || role === 'team_lead' ? updated.filter(t => t.employeeEmail === currentEmail) : updated);
+    setTickets(role === 'employee' || role === 'team_lead' ? updated.filter(t => t.employeeEmail.toLowerCase() === currentEmail.toLowerCase()) : updated);
     setReplyMsg('');
   };
 
@@ -115,7 +115,7 @@ export function TicketsView({ role }: TicketsViewProps) {
     const updated = await db.updateTicketStatus(id, 'closed');
     const updatedTicket = updated.find(t => t.id === id);
     if (updatedTicket) setSelectedTicket(updatedTicket);
-    setTickets(role === 'employee' || role === 'team_lead' ? updated.filter(t => t.employeeEmail === currentEmail) : updated);
+    setTickets(role === 'employee' || role === 'team_lead' ? updated.filter(t => t.employeeEmail.toLowerCase() === currentEmail.toLowerCase()) : updated);
   };
 
   const handleReopenTicket = async (id: string) => {
@@ -123,11 +123,11 @@ export function TicketsView({ role }: TicketsViewProps) {
     const updated = await db.updateTicketStatus(id, 'open');
     const updatedTicket = updated.find(t => t.id === id);
     if (updatedTicket) setSelectedTicket(updatedTicket);
-    setTickets(role === 'employee' || role === 'team_lead' ? updated.filter(t => t.employeeEmail === currentEmail) : updated);
+    setTickets(role === 'employee' || role === 'team_lead' ? updated.filter(t => t.employeeEmail.toLowerCase() === currentEmail.toLowerCase()) : updated);
   };
 
   const handleInspectApplicant = (email: string) => {
-    const p = employees.find(e => e.email === email);
+    const p = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (p) setInspectEmployee(p);
   };
 

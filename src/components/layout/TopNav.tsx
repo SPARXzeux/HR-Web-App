@@ -121,7 +121,7 @@ export function TopNav() {
     if (role === 'hr' || role === 'admin') {
       ticketsScope = allTickets;
     } else if (email) {
-      ticketsScope = allTickets.filter(t => t.employeeEmail === email);
+      ticketsScope = allTickets.filter(t => t.employeeEmail.toLowerCase() === email.toLowerCase());
     }
     setMatchedTickets(ticketsScope.filter(t =>
       t.title.toLowerCase().includes(q) ||

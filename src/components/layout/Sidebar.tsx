@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, Menu, X, FileText, MapPin } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, Menu, X, FileText, MapPin, Monitor } from 'lucide-react';
 import { db } from '@/lib/db';
 
 interface SidebarProps {
@@ -74,6 +74,7 @@ export function Sidebar({ role }: SidebarProps) {
     { name: 'Payroll & Salary', href: '/admin/payroll', icon: Wallet },
     { name: 'Career Board', href: '/admin/careers', icon: Briefcase },
     { name: 'Master Reports', href: '/admin/reports', icon: FileText },
+    { name: 'Screen Tracking', href: '/admin/tracking', icon: Monitor },
     { name: 'Support Tickets', href: '/admin/tickets', icon: HelpCircle },
   ];
 
@@ -86,6 +87,7 @@ export function Sidebar({ role }: SidebarProps) {
     { name: 'Payroll Records', href: '/hr/payroll', icon: Wallet },
     { name: 'Career Board', href: '/hr/careers', icon: Briefcase },
     { name: 'Master Reports', href: '/hr/reports', icon: FileText },
+    { name: 'Screen Tracking', href: '/hr/tracking', icon: Monitor },
     { name: 'Support Tickets', href: '/hr/tickets', icon: HelpCircle },
   ];
 
