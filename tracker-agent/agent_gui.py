@@ -387,13 +387,36 @@ class TrackerApp:
                     "This code isn't recognized. Ask HR/Admin to generate a fresh setup code for you."
                 ))
                 return
-            self.cfg = {
-                "url": url, "key": key, "token": token,
-                "employee_email": settings.get("employeeEmail", ""),
-                "autostart": False,
-            }
-            save_config(self.cfg)
-            self.root.after(0, self._on_connected)
+
+            # RBAC safeguard: the email this computer will report screenshots
+            # under always comes from the server-side settings row matched
+            # by the token — never from anything the user typed — so a
+            # mistyped/mismatched code can't silently mislabel captures. But
+            # a wrong CODE (e.g. accidentally pasting a coworker's) is still
+            # possible with a self-service flow, so we show the resolved
+            # identity and require an explicit human confirmation before
+            # saving anything.
+            resolved_email = settings.get("employeeEmail", "(unknown)")
+
+            def confirm_and_save():
+                ok = messagebox.askyesno(
+                    APP_NAME,
+                    f"This setup code belongs to:\n\n{resolved_email}\n\n"
+                    "Is this you? Only continue if this is your own email address — "
+                    "do not connect this computer using a coworker's code.",
+                )
+                if not ok:
+                    self.setup_error_var.set("Setup cancelled. Paste your own setup code to continue.")
+                    return
+                self.cfg = {
+                    "url": url, "key": key, "token": token,
+                    "employee_email": resolved_email,
+                    "autostart": False,
+                }
+                save_config(self.cfg)
+                self._on_connected()
+
+            self.root.after(0, confirm_and_save)
 
         threading.Thread(target=worker, daemon=True).start()
 

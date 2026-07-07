@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { db, Profile, TrackingSettings, Screenshot } from '@/lib/db';
+import { encodeSetupCode, getSupabasePublicConfig, TRACKER_RELEASES_URL } from '@/lib/trackerSetup';
 import { Monitor, Settings, Image as ImageIcon, Download, Copy, RefreshCw, ShieldAlert } from 'lucide-react';
 
 interface TrackingViewProps {
@@ -12,19 +13,7 @@ interface TrackingViewProps {
 }
 
 const AGENT_SCRIPT_PATH = '/delcargo_tracker_agent.py';
-const RELEASES_URL = 'https://github.com/SPARXzeux/HR-Web-App/releases';
-
-// Matches decode_setup_code() in tracker-agent/agent_gui.py — keep in sync
-// if this format ever changes. Bundles the 3 values the desktop app needs
-// into one copy-pasteable code so employees don't have to handle raw
-// Supabase URLs/keys themselves.
-function encodeSetupCode(url: string, key: string, token: string): string {
-  const json = JSON.stringify({ u: url, k: key, t: token });
-  if (typeof window === 'undefined') return '';
-  // btoa is ASCII-only; escape/encodeURIComponent round-trip handles UTF-8 safely.
-  const b64 = window.btoa(unescape(encodeURIComponent(json)));
-  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
+const RELEASES_URL = TRACKER_RELEASES_URL;
 
 export function TrackingView({ role }: TrackingViewProps) {
   const [employees, setEmployees] = useState<Profile[]>([]);
@@ -102,8 +91,7 @@ export function TrackingView({ role }: TrackingViewProps) {
   };
 
   const copySetupCode = (settings: TrackingSettings) => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://pftbzajbfelexyyhqmef.supabase.co';
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_fqs9oSIYNtzkhqOa-xzAjg_9DxUGbAI';
+    const { url, key } = getSupabasePublicConfig();
     const code = encodeSetupCode(url, key, settings.agentToken);
     navigator.clipboard.writeText(code);
     setCopied(true);
@@ -199,6 +187,8 @@ export function TrackingView({ role }: TrackingViewProps) {
           <p className="text-xs text-amber-800 font-semibold leading-relaxed">
             This feature requires each employee to install the free DelCargo Tracker desktop app (Windows/Mac) — a browser tab alone cannot silently capture the desktop.
             It runs quietly in the background (system tray) and only captures while you&apos;ve toggled tracking on below and the employee is on a manually-started shift.
+            Employees can now get their own setup code directly from their Shift Tracker page — you don&apos;t have to hand it to them, though the button below still works if you want to.
+            Each employee&apos;s setup code only ever connects to their own account (the app confirms the resolved identity before connecting) and can&apos;t reveal or alter anyone else&apos;s.
             Screenshots are stored via the Supabase free tier for small-scale testing; captured images older than 30 days are automatically deleted each month
             (with a warning first), unless an employee is explicitly excluded below.
           </p>

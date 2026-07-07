@@ -7,9 +7,13 @@ login" option — no Python knowledge required to *use* it.
 ## For employees
 
 You shouldn't need anything in this folder. Download the ready-built app
-for your OS from the link HR/Admin gives you (or the latest GitHub Release
-of this repo), run it, and paste the setup code HR/Admin gave you. See the
-in-app instructions.
+for your OS from the latest GitHub Release of this repo, run it, and paste
+your own setup code — get it from your Shift Tracker page in the dashboard
+(HR/Admin can also generate and hand you one from their Screen Tracking
+page, but you don't need to wait on them). Before it connects, the app
+shows you which email address the code belongs to — always double-check
+that's you, and never paste a coworker's code into your own copy of the
+app. See the in-app instructions for the rest.
 
 ## For whoever builds/maintains this
 
@@ -53,3 +57,10 @@ the matching implementation — keep them in sync with `copySetupCode` in
 - Uses the same public Supabase anon key already embedded in the web app;
   there is no separate backend. Acceptable for the current small-scale test
   phase, same caveat as the rest of this app's current security model.
+- Screenshots are always labeled with the `employeeEmail` resolved
+  server-side from the settings row matched by the pasted token — the app
+  itself never declares whose screenshots they are. Combined with the
+  in-app "is this you?" confirmation before connecting, this prevents
+  *accidental* mislabeling from a mixed-up setup code. It is not a real
+  access-control boundary (no RLS/auth yet — see `src/lib/db.ts`'s
+  `TrackingSettings` doc comment), so don't treat it as one.

@@ -3,14 +3,17 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { db, Profile, TimesheetEntry } from '@/lib/db';
-import { Timer, Monitor, ShieldAlert, MapPin } from 'lucide-react';
+import { db, Profile, TimesheetEntry, TrackingSettings } from '@/lib/db';
+import { encodeSetupCode, getSupabasePublicConfig, TRACKER_RELEASES_URL } from '@/lib/trackerSetup';
+import { Timer, Monitor, ShieldAlert, MapPin, Download, Copy, RefreshCw } from 'lucide-react';
 
 export default function TrackerPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [openShift, setOpenShift] = useState<TimesheetEntry | null>(null);
   const [timesheetEntries, setTimesheetEntries] = useState<TimesheetEntry[]>([]);
   const [elapsedLabel, setElapsedLabel] = useState('0h 0m 0s');
+  const [trackingSettings, setTrackingSettings] = useState<TrackingSettings | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
 
   useEffect(() => {
     const email = localStorage.getItem('user_email');
@@ -19,8 +22,41 @@ export default function TrackerPage() {
     if (userProfile) {
       setProfile(userProfile);
       refreshShiftData(userProfile.email);
+      loadOwnTrackingSettings(userProfile.email);
     }
   }, []);
+
+  // Employee self-service: fetch (and if needed, create) this employee's own
+  // tracking settings row. Scoped strictly to their own logged-in email —
+  // never any other employee's — so this never grants or reveals access to
+  // anyone else's setup. Creating an agentToken here does NOT turn tracking
+  // on; that "enabled" flag is still only ever flipped by HR/Admin or by
+  // this employee's own Start/End Shift buttons on the Dashboard page.
+  const loadOwnTrackingSettings = async (email: string) => {
+    let settings = db.getTrackingSettingsFor(email);
+    if (!settings.agentToken) {
+      const updated = await db.updateTrackingSettings(email, {});
+      settings = updated.find(s => s.employeeEmail.toLowerCase() === email.toLowerCase()) || settings;
+    }
+    setTrackingSettings(settings);
+  };
+
+  const handleCopySetupCode = () => {
+    if (!trackingSettings?.agentToken) return;
+    const { url, key } = getSupabasePublicConfig();
+    const code = encodeSetupCode(url, key, trackingSettings.agentToken);
+    navigator.clipboard.writeText(code);
+    setCodeCopied(true);
+    setTimeout(() => setCodeCopied(false), 2000);
+  };
+
+  const handleRegenerateOwnCode = async () => {
+    if (!profile) return;
+    const confirmed = window.confirm('Regenerating your setup code will disconnect the tracker app on any computer currently using your old code, until it is reconnected with the new one. Continue?');
+    if (!confirmed) return;
+    await db.regenerateAgentToken(profile.email);
+    loadOwnTrackingSettings(profile.email);
+  };
 
   const refreshShiftData = (email: string) => {
     const all = db.getTimesheets().filter(t => t.employeeEmail.toLowerCase() === email.toLowerCase());
@@ -118,19 +154,61 @@ export default function TrackerPage() {
             </Card>
           )}
 
-          {/* Honest placeholder — no fake activity/screenshot data */}
+          {/* Self-service screen tracking setup — no need to ask HR/Admin for a link or code */}
           <Card className="border border-slate-200 bg-white">
-            <div className="px-5 py-4 border-b border-slate-100">
-              <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Workstation Activity Monitoring</h3>
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                <Monitor className="h-3.5 w-3.5 text-orange-500" /> Workstation Activity Monitoring
+              </h3>
+              <Badge variant={trackingSettings?.enabled ? 'success' : 'default'}>
+                {trackingSettings?.enabled ? 'Active' : 'Off'}
+              </Badge>
             </div>
-            <CardContent className="p-6 text-center space-y-3 font-sans">
-              <Monitor className="h-8 w-8 text-slate-300 mx-auto" />
-              <div>
-                <h4 className="text-xs font-bold text-slate-750">Desktop Capture Client Not Installed</h4>
-                <p className="text-[10px] text-slate-450 leading-relaxed font-semibold mt-1">
-                  If HR/Admin has enabled screen tracking for your account, it activates automatically while you&apos;re clocked in on a manually-started shift (or ask HR/Admin for the setup link to install the free capture agent). Keyboard/mouse activity monitoring is not implemented — only periodic screenshots.
-                </p>
-              </div>
+            <CardContent className="p-5 space-y-3 font-sans">
+              <p className="text-[10px] text-slate-450 leading-relaxed font-semibold">
+                Install the free DelCargo Tracker app once — it runs quietly in the background (system tray) and only captures periodic screenshots while HR/Admin has tracking enabled for you and you&apos;re on a manually-started shift. Keyboard/mouse activity monitoring is not implemented — only periodic screenshots.
+              </p>
+
+              {trackingSettings?.agentToken ? (
+                <>
+                  <a
+                    href={TRACKER_RELEASES_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 px-3 py-2 rounded-lg active:scale-97 transition-all w-full justify-center"
+                  >
+                    <Download className="h-3.5 w-3.5" /> Get DelCargo Tracker (Windows / Mac)
+                  </a>
+
+                  <div>
+                    <p className="text-[10px] text-slate-500 font-semibold mb-1">Paste this code into the app when it first opens:</p>
+                    <div className="bg-slate-900 text-slate-100 rounded-lg p-3 font-mono text-[10px] leading-relaxed overflow-x-auto break-all">
+                      {encodeSetupCode(getSupabasePublicConfig().url, getSupabasePublicConfig().key, trackingSettings.agentToken)}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={handleCopySetupCode}
+                      className="text-[10px] font-bold text-white bg-slate-800 hover:bg-slate-900 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-all"
+                    >
+                      <Copy className="h-3.5 w-3.5" /> {codeCopied ? 'Copied!' : 'Copy My Setup Code'}
+                    </button>
+                    <button
+                      onClick={handleRegenerateOwnCode}
+                      className="text-[10px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-all"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" /> Regenerate My Code
+                    </button>
+                  </div>
+
+                  <p className="text-[9px] text-slate-400 leading-relaxed border-t border-slate-200 pt-2">
+                    This code is unique to your account only — don&apos;t share it with a coworker, and don&apos;t paste someone else&apos;s code into your own tracker app. The app will show you which email address it connected as before it starts — always double-check that&apos;s you.
+                  </p>
+                </>
+              ) : (
+                <p className="text-[10px] text-slate-400 italic">Preparing your setup code…</p>
+              )}
             </CardContent>
           </Card>
         </div>

@@ -127,12 +127,26 @@ export interface PayrollRecord {
   incrementAmount: number;
 }
 
-// Per-employee remote desktop screenshot monitoring configuration, set by
-// HR/Admin. `agentToken` is a simple shared secret the desktop capture
-// agent (a small installable Windows/Mac helper) uses to identify itself —
-// there's no real auth server here, consistent with the rest of the app's
-// "RLS disabled, anon-key everywhere" security model during this testing
-// phase. Do not treat this as production-grade security.
+// Per-employee remote desktop screenshot monitoring configuration. Each row
+// is keyed by `employeeEmail` and carries its own `agentToken` — a simple
+// shared secret the desktop capture agent (a small installable Windows/Mac
+// helper) uses to identify itself. Both HR/Admin (Screen Tracking page) and
+// employees themselves (Shift Tracker page, self-service) can generate/copy
+// their OWN setup code, but every function here (getTrackingSettingsFor,
+// updateTrackingSettings, regenerateAgentToken) is always scoped by the
+// `email` argument the caller passes in — an employee's own page only ever
+// passes their own logged-in email, so it can create/regenerate its own
+// token but never read or modify anyone else's row. The desktop agent, in
+// turn, never sends its own idea of "who am I" — it looks up its
+// employeeEmail from the settings row matched by its token, so screenshots
+// are always labeled server-side, not by anything the desktop app claims.
+// What this does NOT protect against: there's no real auth server here
+// (same "RLS disabled, anon-key everywhere" model as the rest of this app
+// during its testing phase), so a technically-inclined user could still
+// call these functions directly from the browser console with someone
+// else's email. Treat this as accidental-misuse prevention, not a security
+// boundary — real enforcement needs Supabase RLS/auth, deferred until the
+// app moves to its deployment phase per prior instruction.
 export interface TrackingSettings {
   employeeEmail: string;
   enabled: boolean;
