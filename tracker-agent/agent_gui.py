@@ -29,7 +29,8 @@ HOW IT WORKS
    Admin's Screen Tracking → Setup Agent screen) into this app.
 2. The app decodes the code into a Supabase URL / anon key / agent token,
    confirms it can find a matching tracking-settings row, and saves it
-   locally (never re-asks unless "Disconnect" is used).
+   locally (never re-asks unless "Disconnect" or "Use a Different Setup
+   Code" is used from the dashboard).
 3. In the background, it polls Supabase every ~60s to check whether
    tracking is currently enabled for this token and what interval to use.
 4. If enabled, it takes a screenshot, compresses it, and uploads it, then
@@ -247,6 +248,17 @@ def get_device_label():
         return "Unknown device"
 
 
+def tray_location_hint():
+    """OS-specific instructions for finding the app again after closing the
+    window — this is the #1 "I closed it, how do I get it back" question."""
+    system = platform.system()
+    if system == "Windows":
+        return "Look for its icon in the system tray near the clock (bottom-right) — click the ^ arrow there if it's hidden — and click it to reopen."
+    if system == "Darwin":
+        return "Look for its icon in the menu bar (top-right of the screen) and click it to reopen."
+    return "Look for its icon in your system tray and click it to reopen."
+
+
 def get_heartbeat(base_url, anon_key, employee_email):
     key = heartbeat_key_for(employee_email)
     url = f"{base_url}/rest/v1/delcargo_store?key=eq.{key}&select=value"
@@ -332,7 +344,7 @@ class TrackerApp:
     def __init__(self, root):
         self.root = root
         self.root.title(APP_NAME)
-        self.root.geometry("420x460")
+        self.root.geometry("420x620")
         self.root.resizable(False, False)
         self.root.configure(bg=BG)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -425,6 +437,12 @@ class TrackerApp:
                   font=("Segoe UI", 9), wraplength=360, justify="left").pack(anchor="w", pady=(0, 10))
 
         ttk.Button(frame, text="Connect", style="Accent.TButton", command=self._handle_connect).pack(fill="x")
+
+        # Only shown when getting here via "Use a Different Setup Code" from
+        # an already-connected dashboard (not on first-ever launch) — lets
+        # someone back out without losing their existing working connection.
+        if self.cfg:
+            ttk.Button(frame, text="Cancel", style="Muted.TButton", command=self._build_dashboard).pack(fill="x", pady=(8, 0))
 
         ttk.Label(
             frame,
@@ -535,13 +553,21 @@ class TrackerApp:
 
         self.autostart_var = tk.BooleanVar(value=bool(self.cfg.get("autostart", False)))
         cb = ttk.Checkbutton(frame, text="Start automatically when I log in", variable=self.autostart_var, command=self._toggle_autostart)
-        cb.pack(anchor="w", pady=(4, 20))
+        cb.pack(anchor="w", pady=(4, 16))
 
+        ttk.Label(
+            frame,
+            text=("Closing this window (✕) does NOT quit the app — it keeps running quietly in the background. " + tray_location_hint())
+            if pystray else "Closing this window (✕) fully quits the app on this build (no tray icon available).",
+            style="Muted.TLabel", wraplength=360, justify="left"
+        ).pack(anchor="w", pady=(0, 16))
+
+        ttk.Button(frame, text="Use a Different Setup Code", style="Muted.TButton", command=self._build_setup_screen).pack(fill="x", pady=(0, 8))
         ttk.Button(frame, text="Disconnect this computer", command=self._handle_disconnect).pack(fill="x")
 
         ttk.Label(
             frame,
-            text="Closing this window keeps the agent running quietly in the background (tray icon). Use “Disconnect” to fully stop and remove setup.",
+            text="\"Use a Different Setup Code\" keeps the app open and just swaps which account it reports to — handy for reconnecting or switching accounts. \"Disconnect\" fully removes setup and stops the app until reconnected.",
             style="Muted.TLabel", wraplength=360, justify="left"
         ).pack(anchor="w", pady=(16, 0))
 
@@ -571,10 +597,17 @@ class TrackerApp:
     # ---------- background worker ----------
 
     def _start_worker(self):
+        # If a previous worker thread is still running (e.g. this is a
+        # "change setup code" reconnect, not the first-ever connect), stop
+        # it first. Each thread is handed its own cfg/stop_event snapshot
+        # (see _worker_loop) rather than reading self.cfg live, specifically
+        # so an old thread can never silently keep running against stale
+        # credentials after the user connects with a different code.
         if self.worker and self.worker.is_alive():
-            return
-        self.stop_event.clear()
-        self.worker = threading.Thread(target=self._worker_loop, daemon=True)
+            self.stop_event.set()
+            self.worker.join(timeout=2)
+        self.stop_event = threading.Event()
+        self.worker = threading.Thread(target=self._worker_loop, args=(self.cfg, self.stop_event), daemon=True)
         self.worker.start()
 
     def _checkin(self, cfg):
@@ -642,15 +675,20 @@ class TrackerApp:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _worker_loop(self):
-        cfg = self.cfg
-        while not self.stop_event.is_set():
+    def _worker_loop(self, cfg, stop_event):
+        # cfg and stop_event are captured as explicit arguments (a snapshot
+        # at the moment this thread was started) rather than read live off
+        # self — if the user later connects with a different setup code,
+        # _start_worker() stops this exact stop_event and spawns a brand
+        # new thread with the new cfg, so there's never any ambiguity about
+        # which credentials an old, lingering thread might still be using.
+        while not stop_event.is_set():
             if not self._checkin(cfg):
                 # Superseded by another device — don't poll tracking
                 # settings or capture anything until reconnected.
                 with self.state_lock:
                     self.state["enabled"] = False
-                self.stop_event.wait(SETTINGS_POLL_SECONDS)
+                stop_event.wait(SETTINGS_POLL_SECONDS)
                 continue
 
             try:
@@ -658,14 +696,14 @@ class TrackerApp:
             except Exception as e:
                 with self.state_lock:
                     self.state["last_error"] = str(e)
-                self.stop_event.wait(SETTINGS_POLL_SECONDS)
+                stop_event.wait(SETTINGS_POLL_SECONDS)
                 continue
 
             if settings is None:
                 with self.state_lock:
                     self.state["enabled"] = False
                     self.state["last_error"] = "Setup token not recognized — ask HR/Admin to check your setup."
-                self.stop_event.wait(SETTINGS_POLL_SECONDS)
+                stop_event.wait(SETTINGS_POLL_SECONDS)
                 continue
 
             enabled = bool(settings.get("enabled"))
@@ -687,9 +725,9 @@ class TrackerApp:
 
             remaining = interval_minutes * 60 if enabled else SETTINGS_POLL_SECONDS
             waited = 0
-            while waited < remaining and not self.stop_event.is_set():
+            while waited < remaining and not stop_event.is_set():
                 chunk = min(SETTINGS_POLL_SECONDS, remaining - waited)
-                self.stop_event.wait(chunk)
+                stop_event.wait(chunk)
                 waited += chunk
 
     # ---------- periodic UI refresh ----------
@@ -741,6 +779,17 @@ class TrackerApp:
 
     def hide_window(self):
         self.root.withdraw()
+        # One-time reminder of where to find the app again — this is the
+        # most common point of confusion ("I closed it, how do I reopen
+        # it?"). Only shown once per run so it isn't annoying on every
+        # minimize.
+        if not getattr(self, "_shown_tray_hint", False):
+            self._shown_tray_hint = True
+            if self.tray_icon:
+                try:
+                    self.tray_icon.notify(tray_location_hint(), title=APP_NAME + " is still running")
+                except Exception:
+                    pass  # Notifications aren't supported on every OS/config — non-critical.
 
     def show_window(self):
         self.root.deiconify()
