@@ -547,7 +547,7 @@ class TrackerApp:
         self.status_label.pack(fill="x", padx=16)
 
         self.detail_var = tk.StringVar(value="")
-        tk.Label(card, textvariable=self.detail_var, bg="white", fg=MUTED, font=("Segoe UI", 9), justify="left", anchor="w", padx=16, pady=(0, 14)).pack(fill="x")
+        tk.Label(card, textvariable=self.detail_var, bg="white", fg=MUTED, font=("Segoe UI", 9), justify="left", anchor="w").pack(fill="x", padx=16, pady=(0, 14))
 
         ttk.Button(frame, text="Minimize to Tray", style="Muted.TButton", command=self.hide_window).pack(fill="x", pady=(4, 8))
 
