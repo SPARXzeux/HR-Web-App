@@ -155,6 +155,37 @@ export interface TrackingSettings {
   agentToken: string;
 }
 
+// Live "is the desktop agent actually installed and reachable right now"
+// status — separate from TrackingSettings.enabled (which only says whether
+// HR/Admin has *authorized* capturing). Each employee gets their own
+// individual delcargo_store row (key: tracker_heartbeat_<slug>, see
+// heartbeatKeyFor) rather than a shared array, exactly like Screenshot,
+// so heartbeat writes from many employees' agents never race each other.
+// The desktop agent (tracker-agent/agent_gui.py) is the only writer of
+// these rows — it force-overwrites `deviceId` whenever a human explicitly
+// connects the app on a computer, and refreshes `lastSeenAt` every polling
+// cycle as long as `deviceId` still matches its own. Connecting from a
+// second computer therefore silently supersedes the first: the first
+// agent notices on its next poll that the row's deviceId no longer
+// matches its own and stops itself. The web app only ever reads this row.
+export interface TrackerHeartbeat {
+  employeeEmail: string;
+  deviceId: string;
+  deviceLabel?: string;
+  connectedAt: string;
+  lastSeenAt: string;
+}
+
+function heartbeatKeyFor(email: string): string {
+  return `tracker_heartbeat_${email.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+}
+
+// A connection is considered live if the agent has checked in within the
+// last few polling cycles. The agent refreshes every ~60s, so 3 minutes
+// gives comfortable slack for a slow network/laptop-sleep blip without
+// flapping the UI between Connected/Not Connected.
+export const TRACKER_HEARTBEAT_STALE_MS = 3 * 60 * 1000;
+
 // A single captured screenshot. Stored as its own row in the delcargo_store
 // KV table (key: `screenshot_<id>`) rather than one big array, so that
 // multiple employees' agents uploading concurrently never race each other
@@ -191,6 +222,13 @@ export interface Notification {
 // notification }. Stored via the generic delcargo_store KV table so no
 // new Supabase table/column is required.
 type NotificationReadMap = Record<string, string[]>;
+
+// Same per-user shape as NotificationReadMap, but for "Clear All" — lets
+// one employee dismiss their notification list without deleting the
+// underlying notification (which other recipients of a broadcast, or HR/
+// Admin's own records, still need). A cleared notification is always
+// treated as read too, so it never counts toward the unread badge.
+type NotificationClearedMap = Record<string, string[]>;
 
 export interface CareerPosition {
   id: string;
@@ -578,7 +616,7 @@ async function syncFromSupabase() {
     // 8. Key-Value Sync Fallback for tickets, custom teams, careers
     if (kvStore && kvStore.length > 0) {
       kvStore.forEach((row: any) => {
-        if (['hr_tickets_prod_v1', 'hr_custom_teams_prod_v1', 'hr_careers_prod_v1', 'hr_payroll_prod_v1', 'hr_notification_reads_prod_v1', 'hr_deleted_profile_emails_v1', 'hr_career_applications_prod_v1', 'hr_tracking_settings_prod_v1', 'hr_screenshot_retention_state_v1'].includes(row.key)) {
+        if (['hr_tickets_prod_v1', 'hr_custom_teams_prod_v1', 'hr_careers_prod_v1', 'hr_payroll_prod_v1', 'hr_notification_reads_prod_v1', 'hr_notification_cleared_prod_v1', 'hr_deleted_profile_emails_v1', 'hr_career_applications_prod_v1', 'hr_tracking_settings_prod_v1', 'hr_screenshot_retention_state_v1'].includes(row.key)) {
           localStorage.setItem(row.key, JSON.stringify(row.value));
         }
       });
@@ -899,6 +937,36 @@ export const db = {
   getTrackingSettings: (): TrackingSettings[] => getInitialData('hr_tracking_settings_prod_v1', []),
   saveTrackingSettings: (data: TrackingSettings[]) => saveData('hr_tracking_settings_prod_v1', data),
 
+  // Fetches the tracking-settings row directly from Supabase, bypassing the
+  // local localStorage cache. getTrackingSettings() above is cache-only and
+  // can be stale on any tab that hasn't run a full syncFromSupabase() since
+  // another device/tab last wrote this row — using it as the base for a
+  // read-modify-write (as updateTrackingSettings must) risks silently
+  // creating a *second* settings row for the same employee with a brand
+  // new agentToken, orphaning whatever token is already baked into an
+  // employee's already-installed desktop agent. Also refreshes the local
+  // cache as a side effect so subsequent cache-only reads on this tab stay
+  // in sync.
+  getTrackingSettingsFresh: async (): Promise<TrackingSettings[]> => {
+    try {
+      const { data, error } = await supabase
+        .from('delcargo_store')
+        .select('value')
+        .eq('key', 'hr_tracking_settings_prod_v1')
+        .maybeSingle();
+      if (error) {
+        console.error('[Supabase Sync] Fresh tracking settings fetch error:', error);
+        return db.getTrackingSettings(); // fall back to cache rather than fail the whole action
+      }
+      const fresh: TrackingSettings[] = (data?.value as TrackingSettings[]) || [];
+      if (isClient) localStorage.setItem('hr_tracking_settings_prod_v1', JSON.stringify(fresh));
+      return fresh;
+    } catch (err) {
+      console.error('[Supabase Sync] Unexpected fresh tracking settings fetch error:', err);
+      return db.getTrackingSettings();
+    }
+  },
+
   getTrackingSettingsFor: (email: string): TrackingSettings => {
     const all = db.getTrackingSettings();
     const existing = all.find(t => t.employeeEmail.toLowerCase() === email.toLowerCase());
@@ -906,11 +974,49 @@ export const db = {
     return { employeeEmail: email, enabled: false, intervalMinutes: 15, excludeFromAutoDelete: false, agentToken: '' };
   },
 
+  // Fresh (uncached) read of one employee's desktop-agent connection
+  // status. Always hits Supabase directly — a cached/stale read here would
+  // defeat the entire point of a "is it connected right now" indicator.
+  getTrackerHeartbeat: async (email: string): Promise<TrackerHeartbeat | null> => {
+    try {
+      const { data, error } = await supabase
+        .from('delcargo_store')
+        .select('value')
+        .eq('key', heartbeatKeyFor(email))
+        .maybeSingle();
+      if (error || !data) return null;
+      return data.value as TrackerHeartbeat;
+    } catch (err) {
+      console.error('[Supabase Sync] Heartbeat fetch error:', err);
+      return null;
+    }
+  },
+
+  isHeartbeatLive: (hb: TrackerHeartbeat | null): boolean =>
+    !!hb?.lastSeenAt && (Date.now() - new Date(hb.lastSeenAt).getTime()) < TRACKER_HEARTBEAT_STALE_MS,
+
+  // Bulk fetch for HR/Admin's Screen Tracking table, so it doesn't need one
+  // round trip per employee. Mirrors getScreenshots()'s "like" pattern.
+  getAllTrackerHeartbeats: async (): Promise<TrackerHeartbeat[]> => {
+    try {
+      const { data, error } = await supabase.from('delcargo_store').select('key,value').like('key', 'tracker_heartbeat_%');
+      if (error || !data) return [];
+      return data.map((row: any) => row.value as TrackerHeartbeat);
+    } catch (err) {
+      console.error('[Supabase Sync] Bulk heartbeat fetch error:', err);
+      return [];
+    }
+  },
+
   // Creates settings (with a freshly generated agent pairing token) for an
   // employee the first time HR/Admin touches their tracking config, or
-  // applies updates to existing settings.
+  // applies updates to existing settings. Always merges against a FRESH
+  // Supabase read (see getTrackingSettingsFresh) rather than the local
+  // cache — this is a whole-row read-modify-write, so basing it on stale
+  // local data risks silently dropping or duplicating another employee's
+  // (or this same employee's, from another tab/device) settings.
   updateTrackingSettings: async (email: string, updates: Partial<TrackingSettings>): Promise<TrackingSettings[]> => {
-    const all = db.getTrackingSettings();
+    const all = await db.getTrackingSettingsFresh();
     const idx = all.findIndex(t => t.employeeEmail.toLowerCase() === email.toLowerCase());
     let updated: TrackingSettings[];
     if (idx >= 0) {
@@ -1490,6 +1596,45 @@ export const db = {
       return (readMap[n.id] || []).map(e => e.toLowerCase()).includes(email.toLowerCase());
     }
     return n.read;
+  },
+
+  getNotificationClearedMap: (): NotificationClearedMap => getInitialData('hr_notification_cleared_prod_v1', {}),
+  saveNotificationClearedMap: (data: NotificationClearedMap) => saveData('hr_notification_cleared_prod_v1', data),
+
+  // Whether this user has dismissed this notification via "Clear All".
+  isNotificationCleared: (n: Notification, email: string): boolean => {
+    const clearedMap = db.getNotificationClearedMap();
+    return (clearedMap[n.id] || []).map(e => e.toLowerCase()).includes(email.toLowerCase());
+  },
+
+  // "Clear All" — available to every role. Dismisses every notification
+  // currently visible to this user (their own personal ones + any
+  // role-broadcasts) from their own bell only. Implemented as a per-user
+  // marker (like read state) rather than deleting the notification itself,
+  // so it never affects what other recipients of a broadcast — or HR/
+  // Admin's own copies — see. Also implicitly marks everything read, since
+  // a cleared notification obviously shouldn't count as unread.
+  clearAllNotificationsFor: async (email: string, role: string): Promise<void> => {
+    await db.markNotificationsAsRead(email, role);
+    const notifications = db.getNotifications();
+    const visible = notifications.filter(n =>
+      n.recipientEmail.toLowerCase() === email.toLowerCase() ||
+      (n.recipientEmail === 'all' && n.recipientRole === role)
+    );
+    if (visible.length === 0) return;
+    const clearedMap = db.getNotificationClearedMap();
+    const emailLower = email.toLowerCase();
+    let changed = false;
+    visible.forEach(n => {
+      const clearers = clearedMap[n.id] || [];
+      if (!clearers.map(e => e.toLowerCase()).includes(emailLower)) {
+        clearedMap[n.id] = [...clearers, email];
+        changed = true;
+      }
+    });
+    if (changed) {
+      await db.saveNotificationClearedMap(clearedMap);
+    }
   },
 
   getWarehouses: (): Warehouse[] => getInitialData('hr_warehouses_prod_v1', defaultWarehouses),

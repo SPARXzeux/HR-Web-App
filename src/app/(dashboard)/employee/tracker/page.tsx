@@ -3,9 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { db, Profile, TimesheetEntry, TrackingSettings } from '@/lib/db';
+import { db, Profile, TimesheetEntry, TrackingSettings, TrackerHeartbeat } from '@/lib/db';
 import { encodeSetupCode, getSupabasePublicConfig, TRACKER_RELEASES_URL } from '@/lib/trackerSetup';
-import { Timer, Monitor, ShieldAlert, MapPin, Download, Copy, RefreshCw } from 'lucide-react';
+import { Timer, Monitor, ShieldAlert, MapPin, Download, Copy, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 
 export default function TrackerPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -14,6 +14,9 @@ export default function TrackerPage() {
   const [elapsedLabel, setElapsedLabel] = useState('0h 0m 0s');
   const [trackingSettings, setTrackingSettings] = useState<TrackingSettings | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [heartbeat, setHeartbeat] = useState<TrackerHeartbeat | null>(null);
+  const [heartbeatChecking, setHeartbeatChecking] = useState(false);
+  const [heartbeatCheckedOnce, setHeartbeatCheckedOnce] = useState(false);
 
   useEffect(() => {
     const email = localStorage.getItem('user_email');
@@ -23,8 +26,34 @@ export default function TrackerPage() {
       setProfile(userProfile);
       refreshShiftData(userProfile.email);
       loadOwnTrackingSettings(userProfile.email);
+      refreshHeartbeat(userProfile.email);
     }
   }, []);
+
+  // Poll the live "is the desktop app actually connected" heartbeat while
+  // this page is open, so the badge below updates on its own without the
+  // employee needing to keep clicking Reconnect just to check.
+  useEffect(() => {
+    if (!profile?.email) return;
+    const interval = setInterval(() => refreshHeartbeat(profile.email), 30000);
+    return () => clearInterval(interval);
+  }, [profile]);
+
+  const refreshHeartbeat = async (email: string) => {
+    setHeartbeatChecking(true);
+    try {
+      const hb = await db.getTrackerHeartbeat(email);
+      setHeartbeat(hb);
+    } finally {
+      setHeartbeatChecking(false);
+      setHeartbeatCheckedOnce(true);
+    }
+  };
+
+  const handleReconnectCheck = () => {
+    if (!profile) return;
+    refreshHeartbeat(profile.email);
+  };
 
   // Employee self-service: fetch (and if needed, create) this employee's own
   // tracking settings row. Scoped strictly to their own logged-in email —
@@ -168,6 +197,42 @@ export default function TrackerPage() {
               <p className="text-[10px] text-slate-450 leading-relaxed font-semibold">
                 Install the free DelCargo Tracker app once — it runs quietly in the background (system tray) and only captures periodic screenshots while HR/Admin has tracking enabled for you and you&apos;re on a manually-started shift. Keyboard/mouse activity monitoring is not implemented — only periodic screenshots.
               </p>
+
+              {/* Live "is the desktop app actually installed & reachable" indicator —
+                  separate from the Active/Off badge above, which only reflects whether
+                  HR/Admin has authorized capturing. Sourced from the agent's own
+                  periodic heartbeat check-in, not from anything this web page assumes. */}
+              <div className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 ${db.isHeartbeatLive(heartbeat) ? 'bg-emerald-50 border-emerald-150' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="flex items-center gap-1.5">
+                  {db.isHeartbeatLive(heartbeat) ? (
+                    <Wifi className="h-3.5 w-3.5 text-emerald-600" />
+                  ) : (
+                    <WifiOff className="h-3.5 w-3.5 text-slate-400" />
+                  )}
+                  <div>
+                    <p className={`text-[10px] font-bold ${db.isHeartbeatLive(heartbeat) ? 'text-emerald-700' : 'text-slate-500'}`}>
+                      {db.isHeartbeatLive(heartbeat)
+                        ? `App Connected${heartbeat?.deviceLabel ? ` — ${heartbeat.deviceLabel}` : ''}`
+                        : heartbeatCheckedOnce ? 'App Not Connected' : 'Checking connection…'}
+                    </p>
+                    {heartbeat?.lastSeenAt && (
+                      <p className="text-[9px] text-slate-400 font-semibold">Last check-in: {new Date(heartbeat.lastSeenAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={handleReconnectCheck}
+                  disabled={heartbeatChecking}
+                  className="text-[9px] font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50 px-2 py-1.5 rounded-md flex items-center gap-1 active:scale-97 transition-all shrink-0"
+                >
+                  <RefreshCw className={`h-3 w-3 ${heartbeatChecking ? 'animate-spin' : ''}`} /> Reconnect
+                </button>
+              </div>
+              {heartbeatCheckedOnce && !db.isHeartbeatLive(heartbeat) && (
+                <p className="text-[9px] text-slate-400 leading-relaxed -mt-1">
+                  If you&apos;ve installed the app, make sure it&apos;s running (check your system tray / menu bar), then click Reconnect. If you haven&apos;t installed it yet, use the button below.
+                </p>
+              )}
 
               {trackingSettings?.agentToken ? (
                 <>

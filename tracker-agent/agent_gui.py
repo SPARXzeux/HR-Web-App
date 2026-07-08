@@ -51,6 +51,7 @@ import io
 import json
 import os
 import platform
+import re
 import sys
 import threading
 import time
@@ -225,6 +226,59 @@ def get_tracking_settings(base_url, anon_key, agent_token):
     return None
 
 
+# ─────────────────────── connection heartbeat / single-device claim ─────────
+#
+# Lets the web dashboard show a live "app is connected" indicator, and makes
+# connecting from a second computer automatically supersede the first one —
+# without needing a real backend. Each employee gets their own individual
+# delcargo_store row (key: tracker_heartbeat_<slug>), matching db.ts's
+# heartbeatKeyFor() on the web side. Whichever device most recently WROTE
+# its deviceId into this row is the "claimed" device; every other device
+# that later notices a mismatch treats itself as superseded and stops.
+
+def heartbeat_key_for(email):
+    return "tracker_heartbeat_" + re.sub(r"[^a-z0-9]", "_", (email or "").lower())
+
+
+def get_device_label():
+    try:
+        return platform.node() or "Unknown device"
+    except Exception:
+        return "Unknown device"
+
+
+def get_heartbeat(base_url, anon_key, employee_email):
+    key = heartbeat_key_for(employee_email)
+    url = f"{base_url}/rest/v1/delcargo_store?key=eq.{key}&select=value"
+    resp = requests.get(url, headers=supabase_headers(anon_key), timeout=15)
+    resp.raise_for_status()
+    rows = resp.json()
+    if not rows:
+        return None
+    return rows[0].get("value")
+
+
+def upsert_heartbeat(base_url, anon_key, employee_email, device_id, device_label, connected_at=None):
+    """Claims (or refreshes) this device's heartbeat row. Passing
+    connected_at preserves the original connection time on a routine
+    refresh; omitting it (a fresh claim) resets it to now."""
+    key = heartbeat_key_for(employee_email)
+    now = datetime.now(timezone.utc).isoformat()
+    value = {
+        "employeeEmail": employee_email,
+        "deviceId": device_id,
+        "deviceLabel": device_label,
+        "connectedAt": connected_at or now,
+        "lastSeenAt": now,
+    }
+    url = f"{base_url}/rest/v1/delcargo_store"
+    payload = {"key": key, "value": value}
+    headers = supabase_headers(anon_key)
+    headers["Prefer"] = "resolution=merge-duplicates"
+    resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=20)
+    resp.raise_for_status()
+
+
 def capture_and_encode():
     img = pyautogui.screenshot()
     w, h = img.size
@@ -292,10 +346,23 @@ class TrackerApp:
             "interval": None,
             "last_capture": None,
             "last_error": None,
+            "connection_status": "unknown",  # "connected" | "disconnected" | "superseded"
+            "superseded_device": None,
+            "heartbeat_error": None,
         }
         self.stop_event = threading.Event()
         self.worker = None
         self.tray_icon = None
+        # Set when we should (re)claim the device slot on the worker loop's
+        # next pass: a brand new connect, an upgrade from an older install
+        # that never had a device_id, or a manual "Reconnect" click.
+        self.force_claim_next = False
+
+        if self.cfg and not self.cfg.get("device_id"):
+            self.cfg["device_id"] = uuid.uuid4().hex
+            self.cfg["device_label"] = get_device_label()
+            save_config(self.cfg)
+            self.force_claim_next = True
 
         self._build_style()
         if self.cfg:
@@ -412,8 +479,15 @@ class TrackerApp:
                     "url": url, "key": key, "token": token,
                     "employee_email": resolved_email,
                     "autostart": False,
+                    "device_id": uuid.uuid4().hex,
+                    "device_label": get_device_label(),
                 }
                 save_config(self.cfg)
+                # This is a brand new connection — claim the device slot
+                # outright. If some other computer was previously connected
+                # for this account, it will notice on its next check-in that
+                # it's no longer the claimed device and stop itself.
+                self.force_claim_next = True
                 self._on_connected()
 
             self.root.after(0, confirm_and_save)
@@ -435,7 +509,13 @@ class TrackerApp:
         frame.pack(fill="both", expand=True)
 
         ttk.Label(frame, text="DelCargo Tracker", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(frame, text=f"Connected as {self.state['employee_email']}", style="Muted.TLabel").pack(anchor="w", pady=(2, 18))
+        ttk.Label(frame, text=f"Connected as {self.state['employee_email']}", style="Muted.TLabel").pack(anchor="w", pady=(2, 4))
+
+        self.conn_status_var = tk.StringVar(value="Checking connection…")
+        tk.Label(frame, textvariable=self.conn_status_var, bg=BG, fg=MUTED, font=("Segoe UI", 9, "bold"), anchor="w", justify="left", wraplength=360).pack(anchor="w", pady=(0, 4))
+
+        self.reconnect_btn = ttk.Button(frame, text="Reconnect", style="Muted.TButton", command=self._handle_reconnect)
+        self.reconnect_btn.pack(anchor="w", pady=(0, 14))
 
         card = tk.Frame(frame, bg="white", highlightbackground="#e2e8f0", highlightthickness=1)
         card.pack(fill="x", pady=(0, 16))
@@ -479,7 +559,12 @@ class TrackerApp:
         if self.cfg.get("autostart"):
             set_autostart(False)
         self.cfg = None
-        self.state = {"connected": False, "enabled": False, "employee_email": "", "interval": None, "last_capture": None, "last_error": None}
+        self.state = {
+            "connected": False, "enabled": False, "employee_email": "", "interval": None,
+            "last_capture": None, "last_error": None, "connection_status": "unknown",
+            "superseded_device": None, "heartbeat_error": None,
+        }
+        self.force_claim_next = False
         self.stop_event = threading.Event()
         self._build_setup_screen()
 
@@ -492,9 +577,82 @@ class TrackerApp:
         self.worker = threading.Thread(target=self._worker_loop, daemon=True)
         self.worker.start()
 
+    def _checkin(self, cfg):
+        """Claims (first run / reconnect) or refreshes this device's
+        heartbeat row. Returns False if another device has since claimed
+        this account (this device should stand down)."""
+        force = self.force_claim_next
+        self.force_claim_next = False
+        try:
+            if not force:
+                hb = get_heartbeat(cfg["url"], cfg["key"], cfg["employee_email"])
+                if hb and hb.get("deviceId") and hb.get("deviceId") != cfg.get("device_id"):
+                    with self.state_lock:
+                        self.state["connection_status"] = "superseded"
+                        self.state["superseded_device"] = hb.get("deviceLabel") or "another computer"
+                        self.state["heartbeat_error"] = None
+                    return False
+                preserved_connected_at = (hb or {}).get("connectedAt")
+            else:
+                preserved_connected_at = None
+
+            upsert_heartbeat(
+                cfg["url"], cfg["key"], cfg["employee_email"],
+                cfg.get("device_id"), cfg.get("device_label", ""),
+                connected_at=preserved_connected_at,
+            )
+            with self.state_lock:
+                self.state["connection_status"] = "connected"
+                self.state["superseded_device"] = None
+                self.state["heartbeat_error"] = None
+            return True
+        except Exception as e:
+            with self.state_lock:
+                self.state["connection_status"] = "disconnected"
+                self.state["heartbeat_error"] = f"Couldn't reach the server: {e}"
+            # A network blip shouldn't permanently stand this device down —
+            # keep trying tracking settings/capture as before; only an
+            # explicit supersede (a different deviceId) stops the agent.
+            return True
+
+    def _handle_reconnect(self):
+        if not self.cfg:
+            return
+        self.force_claim_next = True
+        with self.state_lock:
+            self.state["heartbeat_error"] = None
+        if not (self.worker and self.worker.is_alive()):
+            self._start_worker()
+
+        def worker():
+            try:
+                upsert_heartbeat(
+                    self.cfg["url"], self.cfg["key"], self.cfg["employee_email"],
+                    self.cfg.get("device_id"), self.cfg.get("device_label", ""),
+                )
+                with self.state_lock:
+                    self.state["connection_status"] = "connected"
+                    self.state["superseded_device"] = None
+                    self.state["heartbeat_error"] = None
+                self.force_claim_next = False
+            except Exception as e:
+                with self.state_lock:
+                    self.state["heartbeat_error"] = f"Reconnect failed: {e}"
+                    self.state["connection_status"] = "disconnected"
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _worker_loop(self):
         cfg = self.cfg
         while not self.stop_event.is_set():
+            if not self._checkin(cfg):
+                # Superseded by another device — don't poll tracking
+                # settings or capture anything until reconnected.
+                with self.state_lock:
+                    self.state["enabled"] = False
+                self.stop_event.wait(SETTINGS_POLL_SECONDS)
+                continue
+
             try:
                 settings = get_tracking_settings(cfg["url"], cfg["key"], cfg["token"])
             except Exception as e:
@@ -540,6 +698,19 @@ class TrackerApp:
         if self.cfg and hasattr(self, "status_var"):
             with self.state_lock:
                 s = dict(self.state)
+
+            if hasattr(self, "conn_status_var"):
+                conn = s.get("connection_status")
+                if conn == "superseded":
+                    self.conn_status_var.set(f"\U0001f7e0 Connected elsewhere ({s.get('superseded_device') or 'another computer'}) — click Reconnect to take over here")
+                elif conn == "connected":
+                    label = (self.cfg or {}).get("device_label", "")
+                    self.conn_status_var.set(f"\U0001f7e2 App Connected" + (f" ({label})" if label else ""))
+                elif conn == "disconnected":
+                    self.conn_status_var.set("\U0001f534 Not connected — " + (s.get("heartbeat_error") or "check your internet connection"))
+                else:
+                    self.conn_status_var.set("Checking connection…")
+
             if s.get("last_error"):
                 self.status_var.set("⚠ Connection issue")
                 self.detail_var.set(s["last_error"])

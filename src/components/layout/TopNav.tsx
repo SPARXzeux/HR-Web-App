@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, Search, X, User, CheckCircle2, Settings, LogOut, UserCircle, KeyRound, ClipboardList, HelpCircle, Users, BadgeHelp } from 'lucide-react';
+import { Bell, Search, X, User, CheckCircle2, Settings, LogOut, UserCircle, KeyRound, ClipboardList, HelpCircle, Users, BadgeHelp, Trash2 } from 'lucide-react';
 import { db, Notification, Profile, Task, Ticket } from '@/lib/db';
 import { useRouter } from 'next/navigation';
 
@@ -14,6 +14,7 @@ export function TopNav() {
   // per-user read map, not component state).
   const [readVersion, setReadVersion] = useState(0);
   const [isBellOpen, setIsBellOpen] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
 
@@ -54,8 +55,9 @@ export function TopNav() {
       if (!savedRole || !savedEmail) return;
       const allNotifs = db.getNotifications();
       const filtered = allNotifs.filter(n =>
-        n.recipientEmail === savedEmail ||
-        (n.recipientRole === savedRole && n.recipientEmail === 'all')
+        (n.recipientEmail === savedEmail ||
+          (n.recipientRole === savedRole && n.recipientEmail === 'all')) &&
+        !db.isNotificationCleared(n, savedEmail)
       );
       setNotifications(filtered);
     };
@@ -152,6 +154,21 @@ export function TopNav() {
       // poll — the actual read tracking (per-user for broadcasts) already
       // lives in Supabase via markNotificationsAsRead.
       setReadVersion(v => v + 1);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!email || !role || notifications.length === 0 || isClearing) return;
+    setIsClearing(true);
+    try {
+      await db.clearAllNotificationsFor(email, role);
+      // Dismissal is per-user (see clearAllNotificationsFor in db.ts) — this
+      // only empties this user's own bell, not the underlying notifications
+      // other recipients of a broadcast still have.
+      setNotifications([]);
+      setReadVersion(v => v + 1);
+    } finally {
+      setIsClearing(false);
     }
   };
 
@@ -316,9 +333,20 @@ export function TopNav() {
 
             {isBellOpen && (
               <div className="fixed top-16 left-4 right-4 sm:absolute sm:top-12 sm:right-0 sm:left-auto sm:w-[320px] bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-3 duration-150">
-                <div className="p-3.5 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
+                <div className="p-3.5 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center gap-2">
                   <span className="font-bold text-xs text-slate-800">Notifications</span>
-                  <span className="text-[9px] text-slate-500 font-semibold capitalize">Scope: {role}</span>
+                  <div className="flex items-center gap-2">
+                    {notifications.length > 0 && (
+                      <button
+                        onClick={handleClearAll}
+                        disabled={isClearing}
+                        className="text-[9px] font-bold text-slate-500 hover:text-rose-600 disabled:opacity-50 flex items-center gap-1 transition-colors"
+                      >
+                        <Trash2 className="h-3 w-3" /> {isClearing ? 'Clearing…' : 'Clear All'}
+                      </button>
+                    )}
+                    <span className="text-[9px] text-slate-500 font-semibold capitalize">Scope: {role}</span>
+                  </div>
                 </div>
                 <div className="max-h-[300px] overflow-y-auto divide-y divide-slate-100">
                   {notifications.map(n => (

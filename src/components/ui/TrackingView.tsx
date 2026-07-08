@@ -4,9 +4,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
-import { db, Profile, TrackingSettings, Screenshot } from '@/lib/db';
+import { db, Profile, TrackingSettings, TrackerHeartbeat, Screenshot } from '@/lib/db';
 import { encodeSetupCode, getSupabasePublicConfig, TRACKER_RELEASES_URL } from '@/lib/trackerSetup';
-import { Monitor, Settings, Image as ImageIcon, Download, Copy, RefreshCw, ShieldAlert } from 'lucide-react';
+import { Monitor, Settings, Image as ImageIcon, Download, Copy, RefreshCw, ShieldAlert, Wifi, WifiOff } from 'lucide-react';
 
 interface TrackingViewProps {
   role: 'admin' | 'hr';
@@ -18,6 +18,7 @@ const RELEASES_URL = TRACKER_RELEASES_URL;
 export function TrackingView({ role }: TrackingViewProps) {
   const [employees, setEmployees] = useState<Profile[]>([]);
   const [settingsList, setSettingsList] = useState<TrackingSettings[]>([]);
+  const [heartbeats, setHeartbeats] = useState<TrackerHeartbeat[]>([]);
   const [regionFilter, setRegionFilter] = useState<'All' | 'USA' | 'Pakistan'>('All');
 
   // Setup Agent modal
@@ -31,10 +32,15 @@ export function TrackingView({ role }: TrackingViewProps) {
   const [viewerLoading, setViewerLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  const loadData = useCallback(() => {
+  const loadData = useCallback(async () => {
     const emps = db.getEmployees().filter(e => e.role === 'employee' || e.role === 'team_lead');
     setEmployees(emps);
-    setSettingsList(db.getTrackingSettings());
+    // Fresh (uncached) read on load — this table needs to reflect the real
+    // current enabled/disabled state (e.g. after an employee's Start/End
+    // Shift buttons flipped it elsewhere), not whatever this browser tab
+    // happened to have cached from an earlier visit.
+    setSettingsList(await db.getTrackingSettingsFresh());
+    setHeartbeats(await db.getAllTrackerHeartbeats());
   }, []);
 
   useEffect(() => {
@@ -44,6 +50,9 @@ export function TrackingView({ role }: TrackingViewProps) {
     // has already been checked (see checkScreenshotRetention in db.ts).
     db.checkScreenshotRetention();
   }, [loadData]);
+
+  const heartbeatFor = (email: string): TrackerHeartbeat | null =>
+    heartbeats.find(h => h.employeeEmail?.toLowerCase() === email.toLowerCase()) || null;
 
   const settingsFor = (email: string): TrackingSettings =>
     settingsList.find(s => s.employeeEmail.toLowerCase() === email.toLowerCase())
@@ -197,11 +206,12 @@ export function TrackingView({ role }: TrackingViewProps) {
 
       <Card className="overflow-hidden p-0 border border-slate-200">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-sm text-left border-collapse">
+          <table className="w-full min-w-[1000px] text-sm text-left border-collapse">
             <thead className="text-xs font-bold text-slate-500 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
               <tr>
                 <th className="px-6 py-4">Employee</th>
                 <th className="px-6 py-4">Region</th>
+                <th className="px-6 py-4 text-center">Device</th>
                 <th className="px-6 py-4 text-center">Tracking</th>
                 <th className="px-6 py-4 text-center">Interval (min)</th>
                 <th className="px-6 py-4 text-center">Exclude from Auto-Delete</th>
@@ -211,6 +221,8 @@ export function TrackingView({ role }: TrackingViewProps) {
             <tbody className="divide-y divide-slate-200">
               {filteredEmployees.map(emp => {
                 const settings = settingsFor(emp.email);
+                const hb = heartbeatFor(emp.email);
+                const isLive = db.isHeartbeatLive(hb);
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4">
@@ -218,6 +230,17 @@ export function TrackingView({ role }: TrackingViewProps) {
                       <div className="text-xs text-slate-450">{emp.email}</div>
                     </td>
                     <td className="px-6 py-4 text-slate-600 font-semibold">{emp.region || 'Pakistan'}</td>
+                    <td className="px-6 py-4 text-center">
+                      {isLive ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-150 px-2 py-1 rounded-full" title={hb?.deviceLabel || ''}>
+                          <Wifi className="h-3 w-3" /> Connected
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-full">
+                          <WifiOff className="h-3 w-3" /> {hb ? 'Offline' : 'Not installed'}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-6 py-4 text-center">
                       <button
                         onClick={() => handleToggle(emp.email, !settings.enabled)}
@@ -267,7 +290,7 @@ export function TrackingView({ role }: TrackingViewProps) {
               })}
               {filteredEmployees.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400 font-semibold italic">No employees found.</td>
+                  <td colSpan={7} className="py-12 text-center text-slate-400 font-semibold italic">No employees found.</td>
                 </tr>
               )}
             </tbody>
