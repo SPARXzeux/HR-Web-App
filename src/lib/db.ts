@@ -765,6 +765,10 @@ async function saveData<T>(key: string, data: T): Promise<void> {
           score: 0
         }));
         await supabase.from('timesheets').upsert(rows);
+        await supabase.from('delcargo_store').upsert({
+          key: 'hr_timesheets_prod_v1',
+          value: data
+        });
       } else if (key === 'hr_announcements_prod_v1') {
         const rows = (data as Announcement[]).map(ann => ({
           id: ann.id,

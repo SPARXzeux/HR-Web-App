@@ -228,14 +228,20 @@ def get_tracking_settings(base_url, anon_key, agent_token):
 
 
 def check_active_shift(base_url, anon_key, employee_email):
-    """Checks the timesheets table to ensure the employee is on an active shift."""
+    """Checks the hr_timesheets_prod_v1 table to ensure the employee is on an active shift."""
     if not employee_email:
         return False
-    url = f"{base_url}/rest/v1/timesheets?employee_email=eq.{employee_email}&status=eq.in_progress&select=id"
+    url = f"{base_url}/rest/v1/delcargo_store?key=eq.hr_timesheets_prod_v1&select=value"
     resp = requests.get(url, headers=supabase_headers(anon_key), timeout=15)
     resp.raise_for_status()
     rows = resp.json()
-    return len(rows) > 0
+    if not rows:
+        return False
+    timesheets = rows[0].get("value") or []
+    for t in timesheets:
+        if t.get("employeeEmail", "").lower() == employee_email.lower() and t.get("status") == "in_progress":
+            return True
+    return False
 
 
 # ─────────────────────── connection heartbeat / single-device claim ─────────
@@ -729,7 +735,7 @@ class TrackerApp:
                 continue
 
             enabled = enabled_by_hr and shift_active
-            interval_minutes = max(1, int(settings.get("intervalMinutes", 15)))
+            interval_minutes = max(0.1, float(settings.get("intervalMinutes", 15)))
             with self.state_lock:
                 self.state["enabled"] = enabled
                 self.state["enabled_by_hr"] = enabled_by_hr

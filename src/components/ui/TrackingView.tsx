@@ -64,7 +64,7 @@ export function TrackingView({ role }: TrackingViewProps) {
   };
 
   const handleIntervalChange = async (email: string, minutes: number) => {
-    if (minutes < 1) return;
+    if (minutes <= 0) return;
     const updated = await db.updateTrackingSettings(email, { intervalMinutes: minutes });
     setSettingsList(updated);
   };
@@ -255,9 +255,11 @@ export function TrackingView({ role }: TrackingViewProps) {
                     <td className="px-6 py-4 text-center">
                       <input
                         type="number"
-                        min={1}
-                        defaultValue={settings.intervalMinutes}
-                        onBlur={(e) => handleIntervalChange(emp.email, Number(e.target.value) || settings.intervalMinutes)}
+                        min="0.1"
+                        step="0.1"
+                        max="60"
+                        value={settings.intervalMinutes}
+                        onChange={(e) => handleIntervalChange(emp.email, Number(e.target.value))}
                         className="w-20 bg-slate-50 border border-slate-200 rounded-md py-1.5 px-2 text-center text-xs focus:border-orange-500 outline-none"
                       />
                     </td>
