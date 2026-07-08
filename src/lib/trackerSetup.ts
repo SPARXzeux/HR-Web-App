@@ -12,8 +12,10 @@ export const TRACKER_RELEASES_URL = 'https://github.com/SPARXzeux/HR-Web-App/rel
 export function encodeSetupCode(url: string, key: string, token: string): string {
   const json = JSON.stringify({ u: url, k: key, t: token });
   if (typeof window === 'undefined') return '';
-  // btoa is ASCII-only; escape/encodeURIComponent round-trip handles UTF-8 safely.
-  const b64 = window.btoa(unescape(encodeURIComponent(json)));
+  // Use TextEncoder to handle UTF-8 safely instead of deprecated unescape()
+  const utf8Bytes = new TextEncoder().encode(json);
+  const binaryString = Array.from(utf8Bytes).map(byte => String.fromCharCode(byte)).join('');
+  const b64 = window.btoa(binaryString);
   return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 

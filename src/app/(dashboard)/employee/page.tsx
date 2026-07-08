@@ -489,10 +489,8 @@ export default function EmployeeDashboard() {
                         setGeofenceStatus('Shift Active');
                         db.clockIn(userProfile.email);
                         // Screen tracking (if this employee has the desktop
-                        // agent installed) follows the shift — capturing
-                        // only turns on while actively clocked in, not
-                        // around the clock.
-                        await db.updateTrackingSettings(userProfile.email, { enabled: true });
+                        // agent installed) automatically follows the active shift state
+                        // via the timesheets table check inside the agent itself.
                         await db.addNotification(userProfile.email, 'employee', 'Shift started manually. Screen tracking is now active for this shift.');
                         await db.addNotification('all', 'hr', `${userProfile.fullName} started shift manually.`);
                       }}
@@ -507,7 +505,6 @@ export default function EmployeeDashboard() {
                         setShiftActive(false);
                         setGeofenceStatus('Shift Ended');
                         db.clockOut(userProfile.email);
-                        await db.updateTrackingSettings(userProfile.email, { enabled: false });
                         await db.addNotification(userProfile.email, 'employee', 'Shift ended manually. Screen tracking has stopped.');
                         await db.addNotification('all', 'hr', `${userProfile.fullName} ended shift manually.`);
                       }}

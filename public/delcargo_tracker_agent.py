@@ -60,6 +60,8 @@ import base64
 import io
 import json
 import os
+import platform
+import re
 import sys
 import time
 import uuid
@@ -151,6 +153,57 @@ def get_tracking_settings(base_url, anon_key, agent_token):
         return None
 
 
+def heartbeat_key_for(email):
+    return "tracker_heartbeat_" + re.sub(r"[^a-z0-9]", "_", (email or "").lower())
+
+
+def get_device_label():
+    try:
+        return platform.node() or "Unknown device"
+    except Exception:
+        return "Unknown device"
+
+
+def upsert_heartbeat(base_url, anon_key, employee_email, device_id, device_label):
+    key = heartbeat_key_for(employee_email)
+    now = datetime.now(timezone.utc).isoformat()
+    value = {
+        "employeeEmail": employee_email,
+        "deviceId": device_id,
+        "deviceLabel": device_label,
+        "connectedAt": now,
+        "lastSeenAt": now,
+    }
+    url = f"{base_url}/rest/v1/delcargo_store"
+    payload = {"key": key, "value": value}
+    headers = supabase_headers(anon_key)
+    headers["Prefer"] = "resolution=merge-duplicates"
+    try:
+        requests.post(url, headers=headers, data=json.dumps(payload), timeout=20)
+    except Exception as e:
+        print(f"[warn] Heartbeat failed: {e}")
+
+
+def check_active_shift(base_url, anon_key, employee_email):
+    """Checks the hr_timesheets_prod_v1 table to ensure the employee is on an active shift."""
+    if not employee_email:
+        return False
+    url = f"{base_url}/rest/v1/delcargo_store?key=eq.hr_timesheets_prod_v1&select=value"
+    try:
+        resp = requests.get(url, headers=supabase_headers(anon_key), timeout=15)
+        resp.raise_for_status()
+        rows = resp.json()
+        if not rows:
+            return False
+        timesheets = rows[0].get("value") or []
+        for t in timesheets:
+            if t.get("employeeEmail", "").lower() == employee_email.lower() and t.get("status") == "in_progress":
+                return True
+    except Exception as e:
+        print(f"[warn] Shift check failed: {e}")
+    return False
+
+
 def capture_and_encode():
     img = pyautogui.screenshot()
     w, h = img.size
@@ -193,6 +246,8 @@ def main():
     base_url = config["SUPABASE_URL"].rstrip("/")
     anon_key = config["SUPABASE_ANON_KEY"]
     agent_token = config["AGENT_TOKEN"]
+    device_id = uuid.uuid4().hex
+    device_label = get_device_label()
 
     print("DelCargo HR tracking agent starting. Waiting for tracking to be enabled by HR/Admin...")
 
@@ -205,6 +260,13 @@ def main():
             continue
 
         if not settings.get("enabled"):
+            time.sleep(SETTINGS_POLL_SECONDS)
+            continue
+
+        employee_email = settings.get("employeeEmail")
+        upsert_heartbeat(base_url, anon_key, employee_email, device_id, device_label)
+
+        if not check_active_shift(base_url, anon_key, employee_email):
             time.sleep(SETTINGS_POLL_SECONDS)
             continue
 
