@@ -738,6 +738,8 @@ class TrackerApp:
             interval_minutes = max(1, int(settings.get("intervalMinutes", 15)))
             with self.state_lock:
                 self.state["enabled"] = enabled
+                self.state["enabled_by_hr"] = enabled_by_hr
+                self.state["shift_active"] = shift_active
                 self.state["interval"] = interval_minutes
                 self.state["last_error"] = None
 
@@ -781,10 +783,13 @@ class TrackerApp:
                 self.status_var.set("⚠ Connection issue")
                 self.detail_var.set(s["last_error"])
             elif s.get("enabled"):
-                self.status_var.set("\U0001f7e2 Tracking Active")
+                self.status_var.set("🟢 Tracking Active")
                 last = s.get("last_capture")
                 last_str = self._format_time(last) if last else "not yet"
                 self.detail_var.set(f"Interval: every {s.get('interval') or '?'} min\nLast capture: {last_str}")
+            elif s.get("enabled_by_hr") and not s.get("shift_active"):
+                self.status_var.set("⏸ Tracking Paused")
+                self.detail_var.set("Waiting for your shift to start.\nTracking will automatically resume when you clock in.")
             else:
                 self.status_var.set("⚪ Tracking Off")
                 self.detail_var.set("Waiting for HR/Admin to enable tracking for your account.\nNothing is being captured right now.")
