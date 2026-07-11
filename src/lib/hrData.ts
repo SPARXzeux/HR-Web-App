@@ -1048,7 +1048,7 @@ export const hrActions = {
       id: r.id,
       employeeEmail: r.employee_email,
       timestamp: r.captured_at,
-      imageUrl: r.image ? pb.files.getUrl(r, r.image) : '',
+      imageUrl: r.image ? pb.files.getURL(r, r.image) : '',
       deviceLabel: r.device_label || undefined,
     }));
     if (filters?.employeeEmail) {
