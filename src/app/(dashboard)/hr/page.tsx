@@ -8,19 +8,21 @@ import { OrgCalendar } from '@/components/ui/OrgCalendar';
 import { TaskModal } from '@/components/ui/TaskModal';
 import { Users, Clock, CheckCircle2, ClipboardList, UserCog, PlusCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { db, LeaveApplication, Profile, Task } from '@/lib/db';
+import { hrActions, Profile, useProfiles, useLeaves, useTasks, useTeams, useAnnouncements, useWarehouses } from '@/lib/hrData';
 
 export default function HRDashboard() {
   const router = useRouter();
 
   // Data
-  const [employees, setEmployees] = useState<Profile[]>([]);
-  const [leaves, setLeaves] = useState<LeaveApplication[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [teams, setTeams] = useState<string[]>([]);
+  const { data: employees = [], refetch: refetchProfiles } = useProfiles();
+  const { data: leaves = [], refetch: refetchLeaves } = useLeaves();
+  const { data: tasks = [], refetch: refetchTasks } = useTasks();
+  const { data: teamsData = [], refetch: refetchTeams } = useTeams();
+  const teams = teamsData.map(t => t.name); // extract names
+  const { data: announcements = [], refetch: refetchAnnouncements } = useAnnouncements();
+  const { data: warehouses = [], refetch: refetchWarehouses } = useWarehouses();
+  
   const [searchQuery, setSearchQuery] = useState('');
-  const [announcements, setAnnouncements] = useState<any[]>([]);
-  const [warehouses, setWarehouses] = useState<any[]>([]);
 
   // Modals
   const [isTaskOpen, setIsTaskOpen] = useState(false);
@@ -51,15 +53,9 @@ export default function HRDashboard() {
   const [onboardSuccess, setOnboardSuccess] = useState('');
 
   useEffect(() => {
-    setEmployees(db.getEmployees());
-    setLeaves(db.getLeaves());
-    setTasks(db.getTasks());
-    setTeams(db.getTeams());
-    setAnnouncements(db.getAnnouncements());
-    setWarehouses(db.getWarehouses());
     // Monthly screenshot retention sweep — no-ops if already checked this
-    // month or nothing is due; see checkScreenshotRetention in db.ts.
-    db.checkScreenshotRetention();
+    // month or nothing is due; see checkScreenshotRetention in hrData.ts.
+    hrActions.checkScreenshotRetention();
 
     const handleSearch = (e: Event) => setSearchQuery((e as CustomEvent).detail || '');
     window.addEventListener('globalSearch', handleSearch);
@@ -71,8 +67,8 @@ export default function HRDashboard() {
     if (!annTitle.trim() || !annContent.trim()) return;
 
     const targetVal = annTargetType === 'warehouses' ? annSelectedWarehouses : annTargetType;
-    await db.addAnnouncement(annTitle, annContent, targetVal, 'HR Manager');
-    setAnnouncements(db.getAnnouncements());
+    await hrActions.addAnnouncement(annTitle, annContent, targetVal, 'HR Manager');
+    refetchAnnouncements();
     setAnnSuccess('Announcement posted successfully!');
 
     setTimeout(() => {
@@ -91,10 +87,11 @@ export default function HRDashboard() {
     if (!fullName || !email || !salary) { setOnboardError('Please fill in all required fields.'); return; }
     if (isNaN(Number(salary)) || Number(salary) <= 0) { setOnboardError('Please enter a valid base salary.'); return; }
 
-    await db.addEmployee({ fullName, email, role: role as Profile['role'], joinedDate: new Date().toISOString().split('T')[0], baseSalary: Number(salary), teams: [team], password: tempPassword || 'employee123' });
-    await db.addNotification('all', 'hr', `New employee ${fullName} (${role}) registered.`);
+    await hrActions.addEmployee({ fullName, email, role: role as Profile['role'], joinedDate: new Date().toISOString().split('T')[0], baseSalary: Number(salary), teams: [team], password: tempPassword || 'employee123' });
+    await hrActions.addNotification('all', 'hr', `New employee ${fullName} (${role}) registered.`);
+    await hrActions.addNotification('all', 'admin', `New employee ${fullName} (${role}) registered.`);
     setOnboardSuccess('Employee registered!');
-    setEmployees(db.getEmployees());
+    refetchProfiles();
     setTimeout(() => { setIsOnboardOpen(false); setFullName(''); setEmail(''); setSalary(''); setTempPassword(''); setOnboardSuccess(''); }, 1200);
   };
 
@@ -104,11 +101,11 @@ export default function HRDashboard() {
     );
   };
 
-  const handleSaveTeamLead = () => {
+  const handleSaveTeamLead = async () => {
     if (!leadEmployeeId) return;
-    db.setTeamLead(leadEmployeeId, leadTeamSelections);
-    setEmployees(db.getEmployees());
-    const emp = employees.find(e => e.id === leadEmployeeId);
+    await hrActions.setTeamLead(leadEmployeeId, leadTeamSelections);
+    refetchProfiles();
+    const emp = employees.find((e: Profile) => e.id === leadEmployeeId);
     setLeadSuccess(`${emp?.fullName} is now team lead of: ${leadTeamSelections.join(', ') || '(none)'}`);
     setTimeout(() => { setIsTeamLeadOpen(false); setLeadSuccess(''); setLeadEmployeeId(''); setLeadTeamSelections([]); }, 1400);
   };
@@ -205,7 +202,7 @@ export default function HRDashboard() {
           <p className="text-[10px] md:text-xs text-slate-500 mt-0.5">Leaves, task deadlines, and schedule conflicts — all teams in one view.</p>
         </div>
         <div className="p-3 md:p-6">
-          <OrgCalendar leaves={leaves} tasks={tasks} employees={employees} />
+          <OrgCalendar leaves={leaves as any} tasks={tasks as any} employees={employees} />
         </div>
       </Card>
 
@@ -355,9 +352,9 @@ export default function HRDashboard() {
       <TaskModal
         isOpen={isTaskOpen}
         onClose={() => setIsTaskOpen(false)}
-        employees={employees.filter(e => e.role === 'employee' || e.isTeamLead)}
+        employees={employees.filter((e: Profile) => e.role === 'employee' || e.isTeamLead)}
         createdBy="hr"
-        onTaskAdded={task => setTasks(prev => [task, ...prev])}
+        onTaskAdded={(task) => refetchTasks()}
       />
 
     </div>

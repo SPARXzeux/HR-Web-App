@@ -1,11 +1,15 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import {
+  useProfiles, useTimesheets, useAnnouncements, useWarehouses, useLeaves, useTasks, usePayroll, useTeams,
+  hrActions, calculatePTOAccrued, getPTOAccrualDate, LeaveApplication, Profile, Task, Warehouse, TimesheetEntry,
+} from '@/lib/hrData';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { Avatar } from '@/components/ui/Avatar';
 import { Clock, CheckCircle2, ChevronRight, AlertTriangle, Briefcase, Calendar, User, Flag, Monitor, MapPin, LocateFixed } from 'lucide-react';
-import { db, LeaveApplication, Profile, Task, Warehouse, TimesheetEntry } from '@/lib/db';
 import { checkGeofence } from '@/lib/geofence';
 import { useRouter } from 'next/navigation';
 
@@ -28,6 +32,15 @@ const STATUS_LABELS: Record<Task['status'], string> = {
 };
 
 export default function EmployeeDashboard() {
+  const { data: allProfiles } = useProfiles();
+  const { data: allLeaves } = useLeaves();
+  const { data: allTasks, refetch: refetchTasks } = useTasks();
+  const { data: allAnnouncements } = useAnnouncements();
+  const { data: allWarehouses } = useWarehouses();
+  const { data: allTimesheets, refetch: refetchTimesheets } = useTimesheets();
+  const { data: allPayroll } = usePayroll();
+  const { data: allTeams } = useTeams();
+
   const router = useRouter();
   const [userProfile, setUserProfile] = useState<Profile | null>(null);
   const [leaves, setLeaves] = useState<LeaveApplication[]>([]);
@@ -62,21 +75,21 @@ export default function EmployeeDashboard() {
     setSelectedReviewEmp(emp);
     // Real, Supabase-synced shift history — visible regardless of which
     // device/region the employee actually clocked in from.
-    const entries = db.getTimesheets()
+    const entries = (allTimesheets || [])
       .filter(t => t.employeeEmail.toLowerCase() === emp.email.toLowerCase())
       .sort((a, b) => (b.clockIn || '').localeCompare(a.clockIn || ''));
     setReviewEntries(entries);
   };
 
   useEffect(() => {
+    if (!allProfiles || !allLeaves || !allTasks || !allAnnouncements || !allWarehouses || !allTimesheets) return;
+
     const email = localStorage.getItem('user_email');
-    const employees = db.getEmployees();
+    const employees = allProfiles;
     const profile = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (profile) {
       setUserProfile(profile);
-      // Derive shift status from the real, synced timesheet record rather than
-      // a plain boolean flag — this is the single source of truth.
-      const openShift = db.getOpenShift(profile.email);
+      const openShift = allTimesheets.find(t => t.employeeEmail.toLowerCase() === (profile.email).toLowerCase() && !t.clockOut);
       setShiftActive(!!openShift);
       if (openShift) {
         setGeofenceStatus(profile.region === 'USA' ? 'Inside Warehouse' : 'Shift Active');
@@ -84,13 +97,10 @@ export default function EmployeeDashboard() {
     }
     
     setAllEmployees(employees);
-    setAnnouncements(db.getAnnouncements());
-    setWarehouses(db.getWarehouses());
-
-    const allLeaves = db.getLeaves();
-    const allTasks = db.getTasks();
+    setAnnouncements(allAnnouncements);
+    setWarehouses(allWarehouses);
     if (profile) {
-      setLeaves(allLeaves.filter(l => l.employeeName === profile.fullName));
+      setLeaves(allLeaves.filter(l => l.employeeName === profile.fullName) as any);
       setMyTasks(allTasks.filter(t => t.assignedEmail === profile.email));
     }
 
@@ -99,7 +109,7 @@ export default function EmployeeDashboard() {
     };
     window.addEventListener('globalSearch', handleSearch);
     return () => window.removeEventListener('globalSearch', handleSearch);
-  }, []);
+  }, [allProfiles, allLeaves, allTasks, allAnnouncements, allWarehouses, allTimesheets]);
 
   // Keep refs in sync so the long-lived geolocation callback always reads
   // fresh data without needing to be re-registered on every render.
@@ -149,17 +159,21 @@ export default function EmployeeDashboard() {
         shiftActiveRef.current = true;
         setShiftActive(true);
         setGeofenceStatus(`Inside ${nearestWarehouse.name}`);
-        db.clockIn(profile.email);
-        await db.addNotification(profile.email, 'employee', `Auto Shift ON: Checked-in at ${nearestWarehouse.name} via GPS geofencing.`);
-        await db.addNotification('all', 'hr', `${profile.fullName} checked-in at ${nearestWarehouse.name} via geofencing.`);
+        await hrActions.clockIn(profile.email);
+        await refetchTimesheets();
+        await hrActions.addNotification(profile.email, 'employee', `Auto Shift ON: Checked-in at ${nearestWarehouse.name} via GPS geofencing.`);
+        await hrActions.addNotification('all', 'hr', `${profile.fullName} checked-in at ${nearestWarehouse.name} via geofencing.`);
+        await hrActions.addNotification('all', 'admin', `${profile.fullName} checked-in at ${nearestWarehouse.name} via geofencing.`);
       } else if (!isInside && shiftActiveRef.current) {
         const whName = nearestWarehouse ? nearestWarehouse.name : 'the warehouse';
         shiftActiveRef.current = false;
         setShiftActive(false);
         setGeofenceStatus('Outside Geofence');
-        db.clockOut(profile.email);
-        await db.addNotification(profile.email, 'employee', `Auto Shift OFF: Left the geofence at ${whName}.`);
-        await db.addNotification('all', 'hr', `${profile.fullName} checked-out (left warehouse geofence at ${whName}).`);
+        await hrActions.clockOut(profile.email);
+        await refetchTimesheets();
+        await hrActions.addNotification(profile.email, 'employee', `Auto Shift OFF: Left the geofence at ${whName}.`);
+        await hrActions.addNotification('all', 'hr', `${profile.fullName} checked-out (left warehouse geofence at ${whName}).`);
+        await hrActions.addNotification('all', 'admin', `${profile.fullName} checked-out (left warehouse geofence at ${whName}).`);
       }
     };
 
@@ -188,9 +202,8 @@ export default function EmployeeDashboard() {
   }, [userProfile?.email, userProfile?.region]);
 
   const handleUpdateTaskStatus = async (taskId: string, nextStatus: Task['status']) => {
-    const updated = await db.updateTaskStatus(taskId, nextStatus);
-    const email = localStorage.getItem('user_email');
-    setMyTasks(updated.filter(t => t.assignedEmail === email));
+    await hrActions.updateTaskStatus(taskId, nextStatus);
+    await refetchTasks();
     setSelectedTask(null);
   };
 
@@ -211,12 +224,12 @@ export default function EmployeeDashboard() {
 
   // Find my team details
   const myTeams = userProfile && userProfile.teams ? userProfile.teams : [];
-  const teamMembers = allEmployees.filter(emp => 
+  const teamMembers = (allProfiles || []).filter(emp => 
     emp.id !== userProfile?.id && 
     emp.teams && Array.isArray(emp.teams) &&
     emp.teams.some(t => myTeams.includes(t))
   );
-  const teamLead = allEmployees.find(emp => 
+  const teamLead = (allProfiles || []).find(emp => 
     emp.isTeamLead && 
     emp.leadTeams?.some(t => myTeams.includes(t))
   );
@@ -237,11 +250,7 @@ export default function EmployeeDashboard() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white border border-slate-200 p-4 md:p-6 rounded-xl shadow-sm">
         <div className="flex items-center gap-3 md:gap-4">
-          <img 
-            src={userProfile?.profilePicture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=256&auto=format&fit=crop'} 
-            alt="Profile Preview" 
-            className="h-12 w-12 md:h-14 md:w-14 rounded-full object-cover border-2 border-orange-500 shadow-sm" 
-          />
+          <Avatar src={userProfile?.profilePicture} name={userProfile?.fullName || 'Employee'} size={56} className="border-2 border-orange-500" />
           <div>
             <h1 className="text-lg md:text-xl font-bold text-slate-900">{userProfile?.fullName || 'Employee'}</h1>
             <p className="text-xs text-slate-500 font-semibold">{userProfile?.jobTitle || 'Team Member'} · <span className="text-orange-655 font-bold">{userProfile?.region === 'USA' ? 'USA Operations' : 'Pakistan (Remote)'}</span></p>
@@ -265,7 +274,7 @@ export default function EmployeeDashboard() {
                   <div>
                     <p className="text-xs font-semibold text-slate-500">Leave Balance (PTO + Sick)</p>
                     <p className="text-2xl font-bold text-slate-900 mt-1">
-                      {userProfile ? db.getRemainingPTO(userProfile.fullName, userProfile.joinedDate) : 0} Days
+                      {userProfile ? Math.max(0, calculatePTOAccrued(getPTOAccrualDate(userProfile)) - (allLeaves || []).filter(l => l.employeeName === userProfile.fullName && l.status === 'approved' && ['PTO', 'Sick Leave'].includes(l.type)).length) : 0} Days
                     </p>
                   </div>
                   <div className="h-10 w-10 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-orange-600">
@@ -280,7 +289,7 @@ export default function EmployeeDashboard() {
                   <div>
                     <p className="text-xs font-semibold text-slate-500">Total Accrued This Cycle</p>
                     <p className="text-2xl font-bold text-slate-900 mt-1">
-                      {userProfile ? db.calculatePTOAccrued(userProfile.joinedDate) : 0} Days
+                      {userProfile ? calculatePTOAccrued(getPTOAccrualDate(userProfile)) : 0} Days
                     </p>
                   </div>
                   <div className="h-10 w-10 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
@@ -487,12 +496,14 @@ export default function EmployeeDashboard() {
                         if (!userProfile?.email) return;
                         setShiftActive(true);
                         setGeofenceStatus('Shift Active');
-                        db.clockIn(userProfile.email);
+                        await hrActions.clockIn(userProfile.email);
+                        await refetchTimesheets();
                         // Screen tracking (if this employee has the desktop
                         // agent installed) automatically follows the active shift state
                         // via the timesheets table check inside the agent itself.
-                        await db.addNotification(userProfile.email, 'employee', 'Shift started manually. Screen tracking is now active for this shift.');
-                        await db.addNotification('all', 'hr', `${userProfile.fullName} started shift manually.`);
+                        await hrActions.addNotification(userProfile.email, 'employee', 'Shift started manually. Screen tracking is now active for this shift.');
+                        await hrActions.addNotification('all', 'hr', `${userProfile.fullName} started shift manually.`);
+                        await hrActions.addNotification('all', 'admin', `${userProfile.fullName} started shift manually.`);
                       }}
                       disabled={shiftActive}
                       className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold py-2 px-3 rounded-lg text-xs transition-all active:scale-97 text-center shadow-sm"
@@ -504,9 +515,11 @@ export default function EmployeeDashboard() {
                         if (!userProfile?.email) return;
                         setShiftActive(false);
                         setGeofenceStatus('Shift Ended');
-                        db.clockOut(userProfile.email);
-                        await db.addNotification(userProfile.email, 'employee', 'Shift ended manually. Screen tracking has stopped.');
-                        await db.addNotification('all', 'hr', `${userProfile.fullName} ended shift manually.`);
+                        await hrActions.clockOut(userProfile.email);
+                        await refetchTimesheets();
+                        await hrActions.addNotification(userProfile.email, 'employee', 'Shift ended manually. Screen tracking has stopped.');
+                        await hrActions.addNotification('all', 'hr', `${userProfile.fullName} ended shift manually.`);
+                        await hrActions.addNotification('all', 'admin', `${userProfile.fullName} ended shift manually.`);
                       }}
                       disabled={!shiftActive}
                       className="bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold py-2 px-3 rounded-lg text-xs transition-all active:scale-97 text-center shadow-sm"
@@ -560,7 +573,7 @@ export default function EmployeeDashboard() {
                     .map(member => (
                       <div key={member.id} className="flex items-center justify-between p-2.5 rounded-xl border border-slate-150 bg-slate-50/50 text-xs font-semibold">
                         <div className="flex items-center gap-2">
-                          <img src={member.profilePicture || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=256&auto=format&fit=crop'} alt="Member" className="h-6 w-6 rounded-full object-cover border" />
+                        <Avatar src={member.profilePicture} name={member.fullName} size={24} />
                           <div className="truncate max-w-[110px]">
                             <div className="font-bold text-slate-800 truncate">{member.fullName}</div>
                             <div className="text-[9px] text-slate-450 font-semibold truncate">{member.jobTitle || 'Staff'}</div>
@@ -594,7 +607,7 @@ export default function EmployeeDashboard() {
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Team Lead</p>
                 {teamLead ? (
                   <div className="flex items-center gap-2.5 bg-purple-50/80 border border-purple-100 p-2.5 rounded-lg text-xs">
-                    <img src={teamLead.profilePicture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=256&auto=format&fit=crop'} alt="Lead" className="h-6 w-6 rounded-full object-cover border" />
+                  <Avatar src={teamLead.profilePicture} name={teamLead.fullName} size={24} />
                     <div>
                       <div className="font-bold text-slate-800">⭐ {teamLead.fullName}</div>
                       <div className="text-[10px] text-slate-450 font-semibold">{teamLead.email}</div>
@@ -611,7 +624,7 @@ export default function EmployeeDashboard() {
                 <div className="space-y-1.5 max-h-40 overflow-y-auto">
                   {teamMembers.map(member => (
                     <div key={member.id} className="flex items-center gap-2 p-2 rounded-lg border border-slate-100 bg-white text-xs">
-                      <img src={member.profilePicture || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=256&auto=format&fit=crop'} alt="Member" className="h-5 w-5 rounded-full object-cover" />
+                    <Avatar src={member.profilePicture} name={member.fullName} size={20} />
                       <div className="truncate">
                         <div className="font-semibold text-slate-800 truncate">{member.fullName}</div>
                         <div className="text-[9px] text-slate-400 truncate">{member.email}</div>

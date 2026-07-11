@@ -1,13 +1,16 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
-import { db } from '@/lib/db';
 import { MapPin, Edit, Trash, CheckCircle2 } from 'lucide-react';
+import { useWarehouses, useProfiles, hrActions } from '@/lib/hrData';
 
 export default function AdminWarehousesPage() {
-  const [warehouses, setWarehouses] = useState<any[]>([]);
+  const { data: warehouses = [], refetch: refetchWarehouses } = useWarehouses();
+  // Needed so deleting a warehouse can also clear it out of any employee's
+  // assignedWarehouses list (previously left dangling — see hrActions.deleteWarehouse).
+  const { data: employees = [] } = useProfiles();
   const [whName, setWhName] = useState('');
   const [whLat, setWhLat] = useState('');
   const [whLon, setWhLon] = useState('');
@@ -42,10 +45,6 @@ export default function AdminWarehousesPage() {
   const [editingWhLon, setEditingWhLon] = useState('');
   const [editingWhRadius, setEditingWhRadius] = useState('500');
 
-  useEffect(() => {
-    setWarehouses(db.getWarehouses());
-  }, []);
-
   const handleCreateWarehouse = async (e: React.FormEvent) => {
     e.preventDefault();
     setWhError('');
@@ -57,13 +56,13 @@ export default function AdminWarehousesPage() {
       return;
     }
 
-    await db.addWarehouse({
+    await hrActions.addWarehouse({
       name: whName.trim(),
       latitude: Number(whLat),
       longitude: Number(whLon),
       radius: Number(whRadius)
     });
-    setWarehouses(db.getWarehouses());
+    refetchWarehouses();
     setWhName('');
     setWhLat('');
     setWhLon('');
@@ -72,12 +71,12 @@ export default function AdminWarehousesPage() {
     setTimeout(() => setWhSuccess(''), 1500);
   };
 
-  const handleDeleteWarehouse = (id: string) => {
+  const handleDeleteWarehouse = async (id: string) => {
     const confirmDelete = window.confirm('Are you sure you want to delete this warehouse? Assignments will be updated.');
     if (!confirmDelete) return;
 
-    db.deleteWarehouse(id);
-    setWarehouses(db.getWarehouses());
+    await hrActions.deleteWarehouse(id, employees);
+    refetchWarehouses();
     setWhSuccess('Warehouse deleted successfully.');
     setTimeout(() => setWhSuccess(''), 1500);
   };
@@ -102,13 +101,13 @@ export default function AdminWarehousesPage() {
       return;
     }
 
-    await db.updateWarehouse(editingWhId, {
+    await hrActions.updateWarehouse(editingWhId, {
       name: editingWhName.trim(),
       latitude: Number(editingWhLat),
       longitude: Number(editingWhLon),
       radius: Number(editingWhRadius)
     });
-    setWarehouses(db.getWarehouses());
+    refetchWarehouses();
     setEditingWhId(null);
     setWhSuccess('Warehouse updated successfully.');
     setTimeout(() => setWhSuccess(''), 1500);
@@ -146,8 +145,8 @@ export default function AdminWarehousesPage() {
                 )}
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider">Warehouse Name *</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     required
                     value={whName}
                     onChange={e => setWhName(e.target.value)}
@@ -159,8 +158,8 @@ export default function AdminWarehousesPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold text-slate-455 uppercase tracking-wider">Latitude *</label>
-                      <input 
-                        type="number" 
+                      <input
+                        type="number"
                         step="0.000001"
                         required
                         value={whLat}
@@ -171,8 +170,8 @@ export default function AdminWarehousesPage() {
                     </div>
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold text-slate-455 uppercase tracking-wider">Longitude *</label>
-                      <input 
-                        type="number" 
+                      <input
+                        type="number"
                         step="0.000001"
                         required
                         value={whLon}
@@ -184,8 +183,8 @@ export default function AdminWarehousesPage() {
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-455 uppercase tracking-wider">Radius (meters) *</label>
-                    <input 
-                      type="number" 
+                    <input
+                      type="number"
                       required
                       value={whRadius}
                       onChange={e => setWhRadius(e.target.value)}
@@ -194,8 +193,8 @@ export default function AdminWarehousesPage() {
                     />
                   </div>
                 </div>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-sm active:scale-97"
                 >
                   Create Warehouse
@@ -223,14 +222,14 @@ export default function AdminWarehousesPage() {
                     </div>
                   </div>
                   <div className="flex gap-2" onClick={e => e.stopPropagation()}>
-                    <button 
+                    <button
                       onClick={() => handleStartEditWarehouse(wh)}
                       className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-200 transition-all active:scale-95"
                       title="Edit Warehouse"
                     >
                       <Edit className="h-4 w-4" />
                     </button>
-                    <button 
+                    <button
                       onClick={() => handleDeleteWarehouse(wh.id)}
                       className="p-2 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-100 transition-all active:scale-95"
                       title="Delete Warehouse"
@@ -260,8 +259,8 @@ export default function AdminWarehousesPage() {
             )}
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Warehouse Name *</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 required
                 value={editingWhName}
                 onChange={e => setEditingWhName(e.target.value)}
@@ -271,8 +270,8 @@ export default function AdminWarehousesPage() {
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Latitude *</label>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   step="0.000001"
                   required
                   value={editingWhLat}
@@ -282,8 +281,8 @@ export default function AdminWarehousesPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Longitude *</label>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   step="0.000001"
                   required
                   value={editingWhLon}
@@ -293,8 +292,8 @@ export default function AdminWarehousesPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Radius (m) *</label>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   required
                   value={editingWhRadius}
                   onChange={e => setEditingWhRadius(e.target.value)}

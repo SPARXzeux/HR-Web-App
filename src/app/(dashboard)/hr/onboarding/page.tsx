@@ -4,12 +4,13 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { db, Profile } from '@/lib/db';
+import { hrActions, Profile, useProfiles, useTeams } from '@/lib/hrData';
 import { UserPlus, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function HROnboardingPage() {
-  const [employees, setEmployees] = useState<Profile[]>([]);
-  const [teams, setTeams] = useState<string[]>([]);
+  const { data: employees = [], refetch: refetchProfiles } = useProfiles();
+  const { data: teamsData = [], refetch: refetchTeams } = useTeams();
+  const teams = teamsData.map(t => t.name);
   const [isOnboardOpen, setIsOnboardOpen] = useState(false);
 
   // Form states
@@ -22,13 +23,13 @@ export default function HROnboardingPage() {
   const [jobTitle, setJobTitle] = useState('');
   const [gender, setGender] = useState<'male' | 'female'>('male');
   const [region, setRegion] = useState<'USA' | 'Pakistan'>('Pakistan');
+  const today = new Date().toISOString().split('T')[0];
+  const [joinedDate, setJoinedDate] = useState(today);
+  const [accountCreationDate, setAccountCreationDate] = useState(today);
   const [onboardError, setOnboardError] = useState('');
   const [onboardSuccess, setOnboardSuccess] = useState('');
 
-  useEffect(() => {
-    setEmployees(db.getEmployees());
-    setTeams(db.getTeams());
-  }, []);
+
 
   const handleOnboardSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,11 +46,12 @@ export default function HROnboardingPage() {
       return;
     }
 
-    await db.addEmployee({
+    await hrActions.addEmployee({
       fullName,
       email,
-      role: role as 'employee' | 'hr' | 'admin',
-      joinedDate: new Date().toISOString().split('T')[0],
+      role: role as 'employee' | 'hr' | 'admin' | 'team_lead',
+      joinedDate,
+      accountCreationDate,
       baseSalary: Number(salary),
       teams: [team],
       password: tempPassword || 'employee123',
@@ -58,9 +60,17 @@ export default function HROnboardingPage() {
       region,
     });
 
-    await db.addNotification('all', 'hr', `New employee ${fullName} onboarded onto team ${team}.`);
+    // Mirror membership onto the authoritative hr_teams.members list.
+    const targetTeam = teamsData.find(t => t.name === team);
+    if (targetTeam && !targetTeam.members.includes(email)) {
+      await hrActions.updateTeamMembers(targetTeam.id, [...targetTeam.members, email]);
+      refetchTeams();
+    }
+
+    await hrActions.addNotification('all', 'hr', `New employee ${fullName} onboarded onto team ${team}.`);
+    await hrActions.addNotification('all', 'admin', `New employee ${fullName} onboarded onto team ${team}.`);
     setOnboardSuccess('Employee successfully registered!');
-    setEmployees(db.getEmployees());
+    refetchProfiles();
 
     setTimeout(() => {
       setIsOnboardOpen(false);
@@ -72,6 +82,8 @@ export default function HROnboardingPage() {
       setJobTitle('');
       setGender('male');
       setRegion('Pakistan');
+      setJoinedDate(today);
+      setAccountCreationDate(today);
       setOnboardSuccess('');
     }, 1500);
   };
@@ -264,6 +276,32 @@ export default function HROnboardingPage() {
               >
                 {teams.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Joining Date *</label>
+              <input
+                type="date"
+                required
+                value={joinedDate}
+                onChange={e => setJoinedDate(e.target.value)}
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider" title="PTO accrual is calculated from this date, not the joining date">
+                Account Creation Date *
+              </label>
+              <input
+                type="date"
+                required
+                value={accountCreationDate}
+                onChange={e => setAccountCreationDate(e.target.value)}
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer"
+              />
+              <p className="text-[9px] text-slate-400 font-semibold">PTO accrual is calculated from this date.</p>
             </div>
           </div>
 

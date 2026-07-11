@@ -3,11 +3,12 @@
 import React, { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { TopNav } from '@/components/layout/TopNav';
-import { useRouter } from 'next/navigation';
-import { db, Profile } from '@/lib/db';
+import { useRouter, usePathname } from 'next/navigation';
+import { Profile, hrActions, useProfiles } from '@/lib/hrData';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { compressImageToWebP } from '@/lib/imageCompressor';
+import { AvatarCropperModal } from '@/components/ui/AvatarCropperModal';
+import { compressImageToWebP, MAX_DOCUMENT_IMAGE_BYTES } from '@/lib/imageCompressor';
 import { CheckCircle2, ChevronRight, BookOpen, User, ShieldCheck, HelpCircle, FileText, Upload } from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -31,6 +32,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [region, setRegion] = useState<'USA' | 'Pakistan'>('Pakistan');
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
   const [uploadingPic, setUploadingPic] = useState(false);
+  const [pendingPhotoFile, setPendingPhotoFile] = useState<File | null>(null);
 
   // Real document upload state — filename + base64 data for each file.
   // Images are compressed via compressImageToWebP (same as profile
@@ -58,10 +60,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [dbReady, setDbReady] = useState(false);
   const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
+
+  const { data: allProfiles, isLoading: isProfilesLoading } = useProfiles();
+
+  // Redirect if unauthorized
+  useEffect(() => {
+    if (!isProfilesLoading && profile) {
+      if (pathname.startsWith('/admin') && profile.role !== 'admin') {
+        router.push(`/${profile.role}`);
+      } else if (pathname.startsWith('/hr') && !['hr', 'admin'].includes(profile.role)) {
+        router.push(`/${profile.role}`);
+      } else if (pathname.startsWith('/employee') && profile.role !== 'employee') {
+        router.push(`/${profile.role}`);
+      }
+    }
+  }, [pathname, profile, isProfilesLoading, router]);
 
   useEffect(() => {
-    db.syncFromSupabase().then(() => {
-      setDbReady(true);
       const savedRole = localStorage.getItem('user_role') as 'admin' | 'hr' | 'employee' | null;
       const savedEmail = localStorage.getItem('user_email');
       
@@ -71,24 +87,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         setRole(savedRole);
         setEmail(savedEmail);
         
-        const employees = db.getEmployees();
-        const userProfile = employees.find(e => e && e.email && e.email.toLowerCase() === savedEmail.toLowerCase());
-        if (userProfile) {
-          setProfile(userProfile);
-        }
+        if (!isProfilesLoading && allProfiles) {
+          setDbReady(true);
+          const userProfile = allProfiles.find(e => e && e.email && e.email.toLowerCase() === savedEmail.toLowerCase()) as any;
+          if (userProfile) {
+            setProfile(userProfile);
+          }
 
-        if (savedRole === 'employee' && (!userProfile || !userProfile.onboardingCompleted)) {
-          const consent = localStorage.getItem(`consent_accepted_${savedEmail}`);
-          if (!consent) {
-            setShowConsent(true);
+          if (savedRole === 'employee' && (!userProfile || !userProfile.onboardingCompleted)) {
+            const consent = localStorage.getItem(`consent_accepted_${savedEmail}`);
+            if (!consent) {
+              setShowConsent(true);
+            }
           }
         }
       }
-    }).catch(err => {
-      console.error('[Supabase Sync] Fatal initial sync error:', err);
-      setDbReady(true);
-    });
-  }, [router]);
+  }, [router, allProfiles, isProfilesLoading]);
 
   const handleConsentAccept = () => {
     if (email) {
@@ -126,7 +140,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
     setUploading(prev => ({ ...prev, cnic: true }));
     try {
-      const compressed = await compressImageToWebP(file, 0.65);
+      const compressed = await compressImageToWebP(file, 0.75, MAX_DOCUMENT_IMAGE_BYTES);
       setCnicFilesData(prev => [...prev, compressed].slice(0, 2));
       setCnicFiles(prev => [...prev, file.name].slice(0, 2));
     } catch (err) {
@@ -146,7 +160,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
     setUploadingPassport(true);
     try {
-      const compressed = await compressImageToWebP(file, 0.65);
+      const compressed = await compressImageToWebP(file, 0.75, MAX_DOCUMENT_IMAGE_BYTES);
       setPassportFileData(compressed);
       setPassportFile(file.name);
     } catch (err) {
@@ -207,20 +221,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       return;
     }
 
-    if (email) {
+    if (email && profile?.id) {
       setIsCompletingOnboarding(true);
       try {
-        // Single combined write — previously this was two separate
-        // updateProfileDetails/updateOnboardingStatus calls fired back to
-        // back without awaiting either. Both independently read-merged-wrote
-        // the full profiles table to Supabase, so their upsert requests
-        // raced each other: whichever landed last in Postgres won, and it
-        // was possible for the earlier (stale, pre-completion) payload to
-        // land last and silently revert onboardingCompleted back to false —
-        // which is exactly the "onboarding restarts after refresh" bug.
-        // Merging into one atomic update removes the race entirely.
         const isUsaEmployee = profile?.region === 'USA';
-        await db.updateProfileDetails(email, {
+
+        // hrActions.updateProfileDetails automatically routes real
+        // hr_profiles columns (bank/account/iban/profilePicture/
+        // onboardingCompleted) vs the KV overlay fields (cv/identity/
+        // passport docs) to the right place.
+        await hrActions.updateProfileDetails(profile.id, {
           bankName,
           accountNumber,
           iban,
@@ -235,16 +245,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               }))
             : undefined,
           passportFileName: passportFile || undefined,
-          passportFileData: passportFileData || undefined
+          passportFileData: passportFileData || undefined,
         });
 
-        const employees = db.getEmployees();
-        const updated = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
-        if (updated) {
-          setProfile(updated);
-        }
         // Add welcome notification
-        await db.addNotification(email, 'employee', 'Welcome onboard! Your dashboard is now fully unlocked.');
+        await hrActions.addNotification(email, 'employee', 'Welcome onboard! Your dashboard is now fully unlocked.');
+
+        // Reload to let React Query fetch fresh profile and bypass onboarding screen
+        window.location.reload();
+      } catch (err) {
+        console.error('Failed to complete onboarding:', err);
+        setStepperError('Failed to save onboarding data. Please try again.');
       } finally {
         setIsCompletingOnboarding(false);
       }
@@ -405,30 +416,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           <div className="flex items-center gap-2">
                             <img src={profilePicture} alt="Preview" className="h-8 w-8 rounded-full object-cover border border-slate-200" />
                             <span className="text-emerald-600 font-bold text-xs flex items-center gap-0.5"><CheckCircle2 className="h-4 w-4" /> Added</span>
+                            <label className="text-[10px] text-slate-500 hover:text-orange-600 font-bold cursor-pointer underline">
+                              Change
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  e.target.value = '';
+                                  if (file) setPendingPhotoFile(file);
+                                }}
+                              />
+                            </label>
                           </div>
                         ) : uploadingPic ? (
                           <span className="text-slate-400 text-xs animate-pulse">Uploading photo...</span>
                         ) : (
                           <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
                             Upload Photo
-                            <input 
-                              type="file" 
+                            <input
+                              type="file"
                               accept="image/*"
                               className="hidden"
                               onChange={(e) => {
                                 const file = e.target.files?.[0];
-                                if (file) {
-                                  setUploadingPic(true);
-                                  compressImageToWebP(file, 0.6)
-                                    .then(compressed => {
-                                      setProfilePicture(compressed);
-                                      setUploadingPic(false);
-                                    })
-                                    .catch(err => {
-                                      console.error('Image compression failed:', err);
-                                      setUploadingPic(false);
-                                    });
-                                }
+                                e.target.value = '';
+                                if (file) setPendingPhotoFile(file);
                               }}
                             />
                           </label>
@@ -790,6 +804,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           </Modal>
         )}
+
+        <AvatarCropperModal
+          file={pendingPhotoFile}
+          onClose={() => setPendingPhotoFile(null)}
+          onSave={(webpDataUrl) => {
+            setProfilePicture(webpDataUrl);
+            setPendingPhotoFile(null);
+          }}
+        />
       </div>
     );
   }

@@ -3,12 +3,12 @@
 import React, { useState } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
-import { db, Task } from '@/lib/db';
+import { Task, hrActions } from '@/lib/hrData';
 import { Trash2, CheckCircle2, RotateCcw, Clock, AlertTriangle, Briefcase, Calendar, User, Tag, Flag, ArrowRight } from 'lucide-react';
 
 interface TaskBoardProps {
   tasks: Task[];
-  onUpdate: (tasks: Task[]) => void;
+  onUpdate: (tasks?: Task[]) => void;
   filterEmails?: string[];
   canDelete?: boolean;
   readOnly?: boolean;
@@ -43,7 +43,7 @@ const STATUS_SEQUENCE: Task['status'][] = ['todo', 'in_progress', 'done'];
 function TaskDetailModal({ task, onClose, onUpdate, canDelete, readOnly }: {
   task: Task;
   onClose: () => void;
-  onUpdate: (tasks: Task[]) => void;
+  onUpdate: (tasks?: Task[]) => void;
   canDelete: boolean;
   readOnly: boolean;
 }) {
@@ -54,21 +54,21 @@ function TaskDetailModal({ task, onClose, onUpdate, canDelete, readOnly }: {
   const cycleStatus = async () => {
     if (readOnly) return;
     const next = STATUS_SEQUENCE[(STATUS_SEQUENCE.indexOf(task.status) + 1) % STATUS_SEQUENCE.length];
-    const updated = await db.updateTaskStatus(task.id, next);
-    onUpdate(updated);
+    await hrActions.updateTaskStatus(task.id, next);
+    onUpdate();
     onClose();
   };
 
   const handleDelete = async () => {
     if (!canDelete) return;
-    const updated = await db.deleteTask(task.id);
-    onUpdate(updated);
+    await hrActions.deleteTask(task.id);
+    onUpdate();
     onClose();
   };
 
   const handleReset = async () => {
-    const updated = await db.updateTaskStatus(task.id, 'todo');
-    onUpdate(updated);
+    await hrActions.updateTaskStatus(task.id, 'todo');
+    onUpdate();
     onClose();
   };
 

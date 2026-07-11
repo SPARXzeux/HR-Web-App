@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, AlertTriangle, Calendar, Briefcase, FileText, X } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
-import { LeaveApplication, Task, Profile } from '@/lib/db';
+import { LeaveApplication, Task, Profile } from '@/lib/hrData';
 
 interface CalendarEvent {
   type: 'leave' | 'task';

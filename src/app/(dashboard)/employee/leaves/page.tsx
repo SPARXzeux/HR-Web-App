@@ -1,13 +1,16 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useProfiles, useLeaves, hrActions, calculatePTOAccrued, calculateTenure, getPTOAccrualDate, LeaveApplication, Profile, formatMoney } from '@/lib/hrData';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { db, LeaveApplication, Profile, formatMoney } from '@/lib/db';
 import { Clock, PlusCircle, CheckCircle2, AlertCircle, HelpCircle, BadgeCheck } from 'lucide-react';
 
 export default function EmployeeLeavesPage() {
+  const { data: allProfiles } = useProfiles();
+  const { data: allLeaves, refetch: refetchLeaves } = useLeaves();
+
   const [leaves, setLeaves] = useState<LeaveApplication[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [userProfile, setUserProfile] = useState<Profile | null>(null);
@@ -27,12 +30,11 @@ export default function EmployeeLeavesPage() {
 
   useEffect(() => {
     const email = localStorage.getItem('user_email');
-    const employees = db.getEmployees();
-    const profile = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
+    if (!email || !allProfiles || !allLeaves) return;
+    const profile = allProfiles.find(e => e.email && e.email.toLowerCase() === email.toLowerCase());
     if (profile) {
       setUserProfile(profile);
-      const allLeaves = db.getLeaves();
-      setLeaves(allLeaves.filter(l => l.employeeName === profile.fullName));
+      setLeaves(allLeaves.filter(l => l.employeeName === profile.fullName) as any);
     }
 
     const handleSearch = (e: Event) => {
@@ -40,10 +42,10 @@ export default function EmployeeLeavesPage() {
     };
     window.addEventListener('globalSearch', handleSearch);
     return () => window.removeEventListener('globalSearch', handleSearch);
-  }, []);
+  }, [allProfiles, allLeaves]);
 
   // Sync cashout days input limit with remaining PTO balance
-  const remainingPTO = userProfile ? db.getRemainingPTO(userProfile.fullName, userProfile.joinedDate) : 0;
+  const remainingPTO = userProfile && userProfile.joinedDate ? (calculatePTOAccrued(getPTOAccrualDate(userProfile)) - (allLeaves || []).filter(l => l.employeeName === userProfile.fullName && l.status === 'approved' && ['PTO'].includes(l.type)).length) : 0;
   useEffect(() => {
     if (remainingPTO > 0) {
       setCashoutDays(Math.floor(remainingPTO));
@@ -79,7 +81,7 @@ export default function EmployeeLeavesPage() {
         setError('Parental leave is only available to female employees.');
         return;
       }
-      const tenure = db.calculateTenure(userProfile.joinedDate);
+      const tenure = calculateTenure(userProfile.joinedDate);
       if (tenure.totalMonths < 12) {
         setError('Parental leave requires at least 1 year (12 months) of continuous service at DelCargo.');
         return;
@@ -144,21 +146,36 @@ export default function EmployeeLeavesPage() {
       date.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
     const durationStr = `${formatDate(start)} - ${formatDate(end)}`;
 
-    const newLeave: LeaveApplication = {
-      id: `l_${Date.now()}`,
+    const newLeaveType: LeaveApplication['type'] = leaveType === 'pto' ? 'PTO' : leaveType === 'parental_leave' ? 'Parental Leave' : 'Urgent';
+    const newLeave: Omit<LeaveApplication, 'id'> = {
       employeeName: userProfile?.fullName || 'Employee',
-      type: leaveType === 'pto' ? 'PTO' : leaveType === 'sick' ? 'Sick Leave' : leaveType === 'parental_leave' ? 'Parental Leave' : 'Urgent',
+      type: newLeaveType,
       duration: durationStr,
       reason,
-      status: 'pending'
+      status: 'pending',
     };
 
-    const allLeaves = db.getLeaves();
-    db.saveLeaves([newLeave, ...allLeaves]);
-    await db.addNotification('all', 'hr', `New ${newLeave.type} leave request from ${userProfile?.fullName || 'an employee'}.`);
-    setLeaves(prev => [newLeave, ...prev]);
-    setSuccess('Leave request submitted!');
-    setTimeout(() => { setIsLeaveOpen(false); setLeaveType('pto'); setStartDate(''); setEndDate(''); setReason(''); setSuccess(''); }, 1400);
+    try {
+      await hrActions.addLeave(newLeave);
+      // Both HR and Admin manage leave approvals (see admin/leaves + hr/leaves
+      // pages) — this previously only notified 'hr', so Admin never found
+      // out a request existed until they happened to open the Leaves page.
+      await hrActions.addNotification('all', 'hr', `New ${newLeave.type} leave request from ${userProfile?.fullName || 'an employee'}.`);
+      await hrActions.addNotification('all', 'admin', `New ${newLeave.type} leave request from ${userProfile?.fullName || 'an employee'}.`);
+      await refetchLeaves();
+
+      setSuccess('Leave request submitted!');
+      setTimeout(() => {
+        setIsLeaveOpen(false);
+        setSuccess('');
+        setStartDate('');
+        setEndDate('');
+        setReason('');
+      }, 1000);
+    } catch (err) {
+      console.error('[Leaves] Submit error:', err);
+      setError('Failed to submit leave. Please try again.');
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -183,11 +200,13 @@ export default function EmployeeLeavesPage() {
   );
 
   // Accurate combined PTO + Sick Leave bank stats
-  const accruedPTO = userProfile ? db.calculatePTOAccrued(userProfile.joinedDate) : 0;
-  const takenPTO = userProfile ? db.getApprovedLeaveDays(userProfile.fullName, ['PTO', 'Sick Leave']) : 0;
+  const accruedPTO = userProfile ? calculatePTOAccrued(getPTOAccrualDate(userProfile)) : 0;
+  const takenPTO = userProfile ? ((allLeaves || []).filter(l => l.employeeName === userProfile.fullName && l.status === 'approved' && ['PTO', 'Sick Leave'].includes(l.type)).length) : 0;
 
-  // Settlement computations
-  const currentBaseSalary = userProfile ? db.calculateCurrentSalary(userProfile) : 0;
+  // Settlement computations. Profile.baseSalary already reflects every
+  // anniversary increment that has actually been processed, so it IS the
+  // current effective salary (mirrors old db.calculateCurrentSalary()).
+  const currentBaseSalary = userProfile ? userProfile.baseSalary : 0;
   const ptoDailyRate = Math.round(currentBaseSalary / 22);
   const potentialCashoutVal = Math.max(0, cashoutDays * ptoDailyRate);
 
@@ -360,9 +379,8 @@ export default function EmployeeLeavesPage() {
               onChange={(e) => setLeaveType(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900"
             >
-              <option value="pto">PTO / Vacation</option>
-              <option value="sick">Sick Leave</option>
-              <option value="urgent">Urgent Leave</option>
+              <option value="pto">Paid Time Off (PTO)</option>
+              <option value="urgent">Urgent Unpaid Leave</option>
               {userProfile?.gender === 'female' && (
                 <option value="parental_leave">Parental Leave (30 Days)</option>
               )}

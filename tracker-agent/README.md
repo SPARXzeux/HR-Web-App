@@ -45,6 +45,35 @@ values. `decode_setup_code()` / `encode_setup_code()` in `agent_gui.py` are
 the matching implementation — keep them in sync with `copySetupCode` in
 `src/components/ui/TrackingView.tsx` if the format ever changes.
 
+## Installer experience (Windows)
+
+`setup.iss` (built with [Inno Setup](https://jrsoftware.org/isinfo.php))
+now provides a full first-run install experience:
+
+- **License/consent step** — `LICENSE.txt` (screen-monitoring consent +
+  standard EULA terms) must be accepted before Next is enabled.
+- **Desktop icon** — optional, via the "Create a desktop icon" task.
+- **Taskbar pin** — optional, via the "Pin to taskbar" task (Windows
+  requires the user to right-click → Pin once for unsigned installers;
+  Microsoft removed silent taskbar pinning).
+- **Start Menu entry** — always created (`{group}`), including an
+  Uninstall shortcut.
+- **Start on login** — optional, via the "Start automatically" task
+  (same effect as the in-app "Start automatically when I log in"
+  checkbox — either one works).
+
+Rebuild the installer after changing `agent_gui.py`:
+`build_windows.bat` (or the GitHub Actions workflow) → then compile
+`setup.iss` with Inno Setup to produce `dist\DelCargo_Tracker_Setup.exe`.
+
+## Close-to-tray behavior
+
+The dashboard status screen now has a **"Closing the window (✕) minimizes
+to tray instead of quitting"** checkbox (on by default when a tray icon is
+available). Previously this was hardcoded — closing always hid to tray
+with no way to opt out short of "Quit" from the tray menu. The setting is
+saved per-device in `config.json` right alongside the setup connection.
+
 ## Notes / limitations
 
 - Unsigned builds: Windows SmartScreen and macOS Gatekeeper will both show
@@ -54,9 +83,15 @@ the matching implementation — keep them in sync with `copySetupCode` in
   small-scale testing.
 - No auto-update mechanism yet — if you change `agent_gui.py`, re-run the
   build/release and have employees reinstall.
-- Uses the same public Supabase anon key already embedded in the web app;
-  there is no separate backend. Acceptable for the current small-scale test
-  phase, same caveat as the rest of this app's current security model.
+- Runs entirely against the self-hosted PocketBase server; there is no
+  separate backend or API key required (matches the rest of the app's
+  current security model — see the caveat below).
+- Screenshots are uploaded as real files into the dedicated `hr_screenshots`
+  PocketBase collection (see `migration_data/create_screenshots_collection.py`)
+  rather than embedded as base64 JSON — smaller uploads, native thumbnails,
+  and the dashboard serves them directly via PocketBase file URLs. Legacy
+  base64 screenshots captured before this change remain viewable (see
+  `getScreenshots()` in `src/lib/hrData.ts`).
 - Screenshots are always labeled with the `employeeEmail` resolved
   server-side from the settings row matched by the pasted token — the app
   itself never declares whose screenshots they are. Combined with the

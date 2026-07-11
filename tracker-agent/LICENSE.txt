@@ -1,0 +1,76 @@
+DELCARGO TRACKER — END USER LICENSE & SCREEN MONITORING CONSENT AGREEMENT
+Last updated: 2026
+
+PLEASE READ THIS AGREEMENT CAREFULLY BEFORE INSTALLING DELCARGO TRACKER.
+BY CLICKING "I ACCEPT" DURING SETUP, YOU AGREE TO THE TERMS BELOW.
+
+1. WHAT THIS APPLICATION IS
+
+DelCargo Tracker ("the Application") is a companion desktop application to
+the DelCargo HR web dashboard. It allows an employer (HR/Admin) to enable
+periodic desktop screenshot capture for employees who use it, strictly for
+workplace attendance and productivity oversight during active, employee-
+initiated work shifts.
+
+2. WHAT THE APPLICATION DOES
+
+  a. The Application runs quietly in the background (system tray / menu
+     bar) on the computer where it is installed.
+  b. It periodically checks with the DelCargo HR server whether screen
+     tracking has been turned on for the connected employee account.
+  c. Screenshots are ONLY captured when ALL of the following are true:
+       - HR/Admin has explicitly enabled tracking for that employee's
+         account on the dashboard, AND
+       - The employee has manually clocked in / started an active shift
+         on their Timesheet Tracker.
+  d. Captured screenshots are uploaded to DelCargo's PocketBase server and
+     are visible to HR/Admin roles on the web dashboard. They are retained
+     for 30 days by default and then automatically deleted, unless the
+     employer has excluded a specific employee from automatic deletion.
+  e. The Application does not record keystrokes, audio, webcam video, or
+     browsing history, and does not run when tracking is off or no shift
+     is active.
+
+3. YOUR CONSENT
+
+By installing and connecting this Application to your own DelCargo HR
+account (using a setup code issued to you by HR/Admin), you acknowledge
+and agree that:
+
+  a. Your employer may capture periodic screenshots of your screen while
+     you are on an active, tracked shift, as described above.
+  b. You should only ever use a setup code that belongs to your own
+     account. The Application will show you which email address a setup
+     code resolves to before connecting, and will ask you to confirm this
+     is you — never connect using a coworker's setup code.
+  c. You may disconnect this Application from your account at any time
+     ("Disconnect this computer" in the app), which stops all future
+     screenshot capture from that device immediately.
+  d. Questions about your employer's specific monitoring policy, data
+     retention, or workplace consent requirements under local law should
+     be directed to your HR/Admin, not to the software itself.
+
+4. NO WARRANTY
+
+The Application is provided "as is," without warranty of any kind, express
+or implied, including but not limited to warranties of merchantability,
+fitness for a particular purpose, and non-infringement. In no event shall
+DelCargo or its developers be liable for any claim, damages, or other
+liability arising from the use of the Application.
+
+5. UPDATES
+
+This Application may be updated from time to time by your employer's IT/HR
+team. Continued use after an update constitutes acceptance of any changes
+to this agreement communicated at that time.
+
+6. UNINSTALLING
+
+You may uninstall the Application at any time using your operating
+system's standard "Add or Remove Programs" (Windows) or by dragging the
+app to Trash (macOS). Uninstalling does not automatically delete
+previously captured screenshots from the DelCargo HR server — contact
+HR/Admin for deletion requests.
+
+By proceeding with installation, you confirm you have read, understood,
+and agree to this License & Consent Agreement.

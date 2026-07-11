@@ -4,13 +4,16 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { db, Profile, formatMoney, TimesheetEntry } from '@/lib/db';
+import { Profile, formatMoney, TimesheetEntry, hrActions, useProfiles, useWarehouses, useTimesheets } from '@/lib/hrData';
 import { FileText, Search, Filter, ShieldCheck, Download, MapPin, Edit2, Monitor } from 'lucide-react';
 import { UserProfileModal } from '@/components/ui/UserProfileModal';
 import { DocumentsModal } from '@/components/ui/DocumentsModal';
+import { Avatar } from '@/components/ui/Avatar';
 
 export default function ReportsPage() {
-  const [employees, setEmployees] = useState<Profile[]>([]);
+  const { data: employees = [], refetch: refetchProfiles } = useProfiles();
+  const { data: warehouses = [] } = useWarehouses();
+  const { data: timesheets = [] } = useTimesheets();
   const [regionFilter, setRegionFilter] = useState<'All' | 'USA' | 'Pakistan'>('All');
   const [onboardingFilter, setOnboardingFilter] = useState<'All' | 'Completed' | 'Pending'>('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -20,7 +23,6 @@ export default function ReportsPage() {
   const [selectedRegion, setSelectedRegion] = useState<'USA' | 'Pakistan'>('Pakistan');
   const [selectedWarehouses, setSelectedWarehouses] = useState<string[]>([]);
   const [trackingEnabled, setTrackingEnabled] = useState(false);
-  const [warehouses, setWarehouses] = useState<any[]>([]);
   const [successMsg, setSuccessMsg] = useState('');
 
   // Timesheet Review states
@@ -35,21 +37,19 @@ export default function ReportsPage() {
   const [selectedDocsEmp, setSelectedDocsEmp] = useState<Profile | null>(null);
 
   useEffect(() => {
-    setEmployees(db.getEmployees());
-    setWarehouses(db.getWarehouses());
     const email = localStorage.getItem('user_email');
     if (email) setCurrentUserEmail(email);
   }, []);
 
   const filteredEmployees = employees.filter(emp => {
-    const matchesSearch = emp.fullName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          emp.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          (emp.jobTitle && emp.jobTitle.toLowerCase().includes(searchQuery.toLowerCase()));
-    
+    const matchesSearch = emp.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      emp.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (emp.jobTitle && emp.jobTitle.toLowerCase().includes(searchQuery.toLowerCase()));
+
     const matchesRegion = regionFilter === 'All' ? true : emp.region === regionFilter;
-    
-    const matchesOnboarding = onboardingFilter === 'All' ? true : 
-                              onboardingFilter === 'Completed' ? emp.onboardingCompleted : !emp.onboardingCompleted;
+
+    const matchesOnboarding = onboardingFilter === 'All' ? true :
+      onboardingFilter === 'Completed' ? emp.onboardingCompleted : !emp.onboardingCompleted;
 
     return matchesSearch && matchesRegion && matchesOnboarding;
   });
@@ -68,9 +68,9 @@ export default function ReportsPage() {
       formatMoney(emp.baseSalary, emp.region)
     ]);
 
-    const csvContent = "data:text/csv;charset=utf-8," 
+    const csvContent = "data:text/csv;charset=utf-8,"
       + [headers.join(','), ...rows.map(e => e.map(val => `"${val}"`).join(','))].join('\n');
-    
+
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -88,23 +88,23 @@ export default function ReportsPage() {
   };
 
   const handleToggleWarehouse = (whId: string) => {
-    setSelectedWarehouses(prev => 
+    setSelectedWarehouses(prev =>
       prev.includes(whId) ? prev.filter(id => id !== whId) : [...prev, whId]
     );
   };
 
-  const handleSaveAssignment = () => {
+  const handleSaveAssignment = async () => {
     if (!selectedEmp) return;
-    
+
     const assignedWh = selectedRegion === 'Pakistan' ? [] : selectedWarehouses;
 
-    db.updateProfileDetails(selectedEmp.email, {
+    await hrActions.updateProfileDetails(selectedEmp.id, {
       region: selectedRegion,
       assignedWarehouses: assignedWh,
       trackingEnabled: trackingEnabled
     });
 
-    setEmployees(db.getEmployees());
+    refetchProfiles();
     setSuccessMsg(`Successfully updated assignment for ${selectedEmp.fullName}`);
     setTimeout(() => {
       setSelectedEmp(null);
@@ -116,7 +116,7 @@ export default function ReportsPage() {
     setSelectedReviewEmp(emp);
     // Real, Supabase-synced shift history — visible regardless of which
     // device/region the employee actually clocked in from.
-    const entries = db.getTimesheets()
+    const entries = timesheets
       .filter(t => t.employeeEmail.toLowerCase() === emp.email.toLowerCase())
       .sort((a, b) => (b.clockIn || '').localeCompare(a.clockIn || ''));
     setReviewEntries(entries);
@@ -216,11 +216,7 @@ export default function ReportsPage() {
                 <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4 cursor-pointer hover:bg-slate-100/70" onClick={() => setSelectedProfileEmail(emp.email)}>
                     <div className="flex items-center gap-3">
-                      <img 
-                        src={emp.profilePicture || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=256&auto=format&fit=crop'} 
-                        alt={emp.fullName} 
-                        className="h-10 w-10 rounded-full object-cover border border-slate-200"
-                      />
+                      <Avatar src={emp.profilePicture} name={emp.fullName} size={28} />
                       <div>
                         <div className="font-semibold text-slate-900">{emp.fullName}</div>
                         <div className="text-xs text-slate-450">{emp.email} · <span className="font-bold text-orange-600">{emp.jobTitle || 'Staff'}</span></div>
@@ -247,7 +243,7 @@ export default function ReportsPage() {
                   </td>
                   <td className="px-6 py-4 text-center">
                     <div className="flex flex-col sm:flex-row justify-center gap-2">
-                      <button 
+                      <button
                         onClick={() => handleOpenAssignModal(emp)}
                         className="text-[10px] font-bold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1.5"
                       >
@@ -294,29 +290,27 @@ export default function ReportsPage() {
               <p className="text-xs text-slate-500 font-semibold mb-1">Employee</p>
               <p className="text-sm font-bold text-slate-800">{selectedEmp.fullName} ({selectedEmp.email})</p>
             </div>
-            
+
             <div className="space-y-2">
               <p className="text-xs text-slate-500 font-semibold">Select Region / Base Location</p>
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
                   onClick={() => setSelectedRegion('Pakistan')}
-                  className={`py-2 px-3 text-xs font-bold border rounded-lg transition-all ${
-                    selectedRegion === 'Pakistan'
-                      ? 'border-orange-500 bg-orange-50 text-orange-600'
-                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
+                  className={`py-2 px-3 text-xs font-bold border rounded-lg transition-all ${selectedRegion === 'Pakistan'
+                    ? 'border-orange-500 bg-orange-50 text-orange-600'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
                 >
                   Pakistan (Remote)
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelectedRegion('USA')}
-                  className={`py-2 px-3 text-xs font-bold border rounded-lg transition-all ${
-                    selectedRegion === 'USA'
-                      ? 'border-orange-500 bg-orange-50 text-orange-600'
-                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
+                  className={`py-2 px-3 text-xs font-bold border rounded-lg transition-all ${selectedRegion === 'USA'
+                    ? 'border-orange-500 bg-orange-50 text-orange-600'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
                 >
                   USA
                 </button>
@@ -479,7 +473,7 @@ export default function ReportsPage() {
           currentUserRole="admin"
           currentUserEmail={currentUserEmail}
           onUpdate={() => {
-            setEmployees(db.getEmployees());
+            refetchProfiles();
           }}
         />
       )}

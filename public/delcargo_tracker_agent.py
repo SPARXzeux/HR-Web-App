@@ -17,17 +17,11 @@ script is the background-service approach.
 
 HOW IT WORKS
 ------------
-1. On each cycle, it asks Supabase (using the same public anon key the web
-   app itself uses — there is no separate server here) whether tracking is
+1. On each cycle, it asks the DelCargo PocketBase server (using the public
+   `hr_delcargo_store` collection — no auth token needed) whether tracking is
    currently enabled for this agent's token, and what interval to use.
 2. If enabled, it takes a screenshot, compresses it, and uploads it.
 3. It sleeps for the configured interval and repeats.
-
-This is intentionally simple for small-scale testing. It stores images as
-base64 rows in Supabase's free-tier database (via the same generic
-`delcargo_store` table the web app already uses) rather than a Storage
-bucket — fine for a handful of employees over a short test period, but
-should move to a real Storage bucket before scaling up.
 
 SETUP
 -----
@@ -35,13 +29,12 @@ SETUP
 2. Open a terminal / command prompt in this file's folder and run:
        pip install pyautogui pillow requests --break-system-packages
    (drop --break-system-packages on Windows if it errors)
-3. Get your SUPABASE_URL, SUPABASE_ANON_KEY, and AGENT_TOKEN from HR/Admin
+3. Get your POCKETBASE_URL and AGENT_TOKEN from HR/Admin
    (Screen Tracking page → Setup Agent for your account). Either:
      a) create a file named config.txt next to this script with:
-            SUPABASE_URL=...
-            SUPABASE_ANON_KEY=...
+            POCKETBASE_URL=...
             AGENT_TOKEN=...
-        (one per line, no quotes)
+         (one per line, no quotes)
      b) or set them as environment variables before running.
 4. Run it:
        python delcargo_tracker_agent.py
@@ -87,23 +80,24 @@ except ImportError:
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.txt")
 
-# Screenshots are resized/compressed before upload to keep them small on the
-# Supabase free tier (500MB database limit). Tune these down further if you
-# have many employees or a short retention window.
+# Screenshots are resized/compressed before upload to keep payloads small.
+# Tune these down further if you have many employees or a short retention window.
 MAX_WIDTH = 1280
-JPEG_QUALITY = 45
+WEBP_QUALITY = 80  # WebP at 80 looks visually equivalent to (often better than) JPEG
+                   # at much higher settings, while producing a smaller file
 
 # How often to re-check whether tracking is still enabled / interval has
 # changed, even between capture cycles (in case HR/Admin disables tracking
-# mid-cycle — the agent should stop promptly, not keep capturing for a
-# potentially long configured interval).
-SETTINGS_POLL_SECONDS = 60
+# mid-cycle).
+SETTINGS_POLL_SECONDS = 20  # how often we re-check tracking/shift status (was 60s — this is how
+                            # quickly the app notices you clocked in and starts capturing)
+
+PB_COLLECTION = "hr_delcargo_store"
 
 
 def load_config():
     config = {
-        "SUPABASE_URL": os.environ.get("SUPABASE_URL", ""),
-        "SUPABASE_ANON_KEY": os.environ.get("SUPABASE_ANON_KEY", ""),
+        "POCKETBASE_URL": os.environ.get("POCKETBASE_URL", ""),
         "AGENT_TOKEN": os.environ.get("AGENT_TOKEN", ""),
     }
     if os.path.exists(CONFIG_FILE):
@@ -125,32 +119,56 @@ def load_config():
     return config
 
 
-def supabase_headers(anon_key):
-    return {
-        "apikey": anon_key,
-        "Authorization": f"Bearer {anon_key}",
-        "Content-Type": "application/json",
-    }
+# ── PocketBase REST helpers ──────────────────────────────────────────────────
+# PocketBase's public collections (open listRule/viewRule) need no auth header.
+# POST/PATCH to open createRule/updateRule collections likewise need none.
+
+JSON_HEADERS = {"Content-Type": "application/json"}
 
 
-def get_tracking_settings(base_url, anon_key, agent_token):
-    """Fetch this agent's tracking settings (enabled/interval/employeeEmail)
-    by looking up its token inside the hr_tracking_settings_prod_v1 KV row."""
-    url = f"{base_url}/rest/v1/delcargo_store?key=eq.hr_tracking_settings_prod_v1&select=value"
+def pb_get_kv(base_url, key):
+    """Fetch a single key from hr_delcargo_store. Returns the 'value' field or None."""
+    url = f"{base_url}/api/collections/{PB_COLLECTION}/records"
+    params = {"filter": f'(key="{key}")', "perPage": 1}
     try:
-        resp = requests.get(url, headers=supabase_headers(anon_key), timeout=15)
+        resp = requests.get(url, params=params, timeout=15)
         resp.raise_for_status()
-        rows = resp.json()
-        if not rows:
-            return None
-        all_settings = rows[0].get("value") or []
-        for s in all_settings:
-            if s.get("agentToken") == agent_token:
-                return s
-        return None
+        items = resp.json().get("items", [])
+        if not items:
+            return None, None
+        row = items[0]
+        return row.get("id"), row.get("value")
     except Exception as e:
-        print(f"[warn] Failed to fetch tracking settings: {e}")
+        print(f"[warn] pb_get_kv({key}) failed: {e}")
+        return None, None
+
+
+def pb_set_kv(base_url, key, value):
+    """Upsert a key/value pair in hr_delcargo_store."""
+    record_id, _ = pb_get_kv(base_url, key)
+    payload = json.dumps({"key": key, "value": value})
+    try:
+        if record_id:
+            url = f"{base_url}/api/collections/{PB_COLLECTION}/records/{record_id}"
+            resp = requests.patch(url, headers=JSON_HEADERS, data=payload, timeout=20)
+        else:
+            url = f"{base_url}/api/collections/{PB_COLLECTION}/records"
+            resp = requests.post(url, headers=JSON_HEADERS, data=payload, timeout=20)
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"[warn] pb_set_kv({key}) failed: {e}")
+
+
+def get_tracking_settings(base_url, agent_token):
+    """Fetch this agent's tracking settings by looking up its token."""
+    _, value = pb_get_kv(base_url, "hr_tracking_settings_prod_v1")
+    if value is None:
         return None
+    all_settings = value if isinstance(value, list) else []
+    for s in all_settings:
+        if s.get("agentToken") == agent_token:
+            return s
+    return None
 
 
 def heartbeat_key_for(email):
@@ -164,7 +182,7 @@ def get_device_label():
         return "Unknown device"
 
 
-def upsert_heartbeat(base_url, anon_key, employee_email, device_id, device_label):
+def upsert_heartbeat(base_url, employee_email, device_id, device_label):
     key = heartbeat_key_for(employee_email)
     now = datetime.now(timezone.utc).isoformat()
     value = {
@@ -174,63 +192,71 @@ def upsert_heartbeat(base_url, anon_key, employee_email, device_id, device_label
         "connectedAt": now,
         "lastSeenAt": now,
     }
-    url = f"{base_url}/rest/v1/delcargo_store"
-    payload = {"key": key, "value": value}
-    headers = supabase_headers(anon_key)
-    headers["Prefer"] = "resolution=merge-duplicates"
-    try:
-        requests.post(url, headers=headers, data=json.dumps(payload), timeout=20)
-    except Exception as e:
-        print(f"[warn] Heartbeat failed: {e}")
+    pb_set_kv(base_url, key, value)
 
 
-def check_active_shift(base_url, anon_key, employee_email):
-    """Checks the hr_timesheets_prod_v1 table to ensure the employee is on an active shift."""
+def check_active_shift(base_url, employee_email):
+    """Checks the real hr_timesheets collection for an open shift for this
+    employee. IMPORTANT: hr_timesheets has no literal "in_progress" status
+    value — its fixed status enum is pending/approved/rejected only. An
+    open shift is represented by clock_out still being empty (see
+    TimesheetEntry's derived .status in src/lib/hrData.ts and
+    Notes/SCHEMA_REFERENCE.md). This used to read a KV row
+    (hr_timesheets_prod_v1) from before the PocketBase migration, which the
+    web app no longer writes to — that was silently making the agent stay
+    "Paused" forever regardless of actual shift status."""
     if not employee_email:
         return False
-    url = f"{base_url}/rest/v1/delcargo_store?key=eq.hr_timesheets_prod_v1&select=value"
     try:
-        resp = requests.get(url, headers=supabase_headers(anon_key), timeout=15)
+        url = f"{base_url}/api/collections/hr_timesheets/records"
+        params = {"filter": '(clock_out="")', "perPage": 200}
+        resp = requests.get(url, params=params, timeout=15)
         resp.raise_for_status()
-        rows = resp.json()
-        if not rows:
-            return False
-        timesheets = rows[0].get("value") or []
-        for t in timesheets:
-            if t.get("employeeEmail", "").lower() == employee_email.lower() and t.get("status") == "in_progress":
-                return True
+        items = resp.json().get("items", [])
+        # employee_id on hr_timesheets actually stores the employee's email
+        # (matches employeeEmail convention used everywhere else in the app).
+        return any((it.get("employee_id") or "").lower() == employee_email.lower() for it in items)
     except Exception as e:
-        print(f"[warn] Shift check failed: {e}")
-    return False
+        print(f"[warn] check_active_shift failed: {e}")
+        return False
 
 
 def capture_and_encode():
+    """Captures a screenshot, resizes/compresses it, and returns raw WebP
+    bytes plus its final width/height (no base64 — uploaded as a real file,
+    see upload_screenshot). WebP at this quality/method settings is
+    noticeably smaller than JPEG at a visually equivalent quality."""
     img = pyautogui.screenshot()
     w, h = img.size
     if w > MAX_WIDTH:
         new_h = int(h * (MAX_WIDTH / w))
         img = img.resize((MAX_WIDTH, new_h), Image.LANCZOS)
+        w, h = MAX_WIDTH, new_h
     buf = io.BytesIO()
-    img.convert("RGB").save(buf, format="JPEG", quality=JPEG_QUALITY)
-    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-    return f"data:image/jpeg;base64,{b64}"
+    img.convert("RGB").save(buf, format="WEBP", quality=WEBP_QUALITY, method=6)
+    return buf.getvalue(), w, h
 
 
-def upload_screenshot(base_url, anon_key, employee_email, image_data_url):
-    shot_id = f"scr_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
+def upload_screenshot(base_url, employee_email, webp_bytes, width, height, agent_token=None):
+    """Uploads a screenshot as a real file into the hr_screenshots collection
+    (multipart/form-data) — replaces the old approach of embedding a base64
+    data URL inside a JSON row in hr_delcargo_store. See
+    migration_data/create_screenshots_collection.py for the collection
+    schema (mimeTypes there must include image/webp)."""
     timestamp = datetime.now(timezone.utc).isoformat()
-    value = {
-        "id": shot_id,
-        "employeeEmail": employee_email,
-        "timestamp": timestamp,
-        "imageData": image_data_url,
-    }
-    url = f"{base_url}/rest/v1/delcargo_store"
-    payload = {"key": f"screenshot_{shot_id}", "value": value}
-    headers = supabase_headers(anon_key)
-    headers["Prefer"] = "resolution=merge-duplicates"
+    filename = f"scr_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}.webp"
     try:
-        resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=20)
+        url = f"{base_url}/api/collections/hr_screenshots/records"
+        data = {
+            "employee_email": employee_email or "",
+            "captured_at": timestamp,
+            "width": str(width),
+            "height": str(height),
+        }
+        if agent_token:
+            data["agent_token"] = agent_token
+        files = {"image": (filename, webp_bytes, "image/webp")}
+        resp = requests.post(url, data=data, files=files, timeout=30)
         if resp.status_code >= 300:
             print(f"[warn] Upload failed ({resp.status_code}): {resp.text[:200]}")
             return False
@@ -243,8 +269,7 @@ def upload_screenshot(base_url, anon_key, employee_email, image_data_url):
 
 def main():
     config = load_config()
-    base_url = config["SUPABASE_URL"].rstrip("/")
-    anon_key = config["SUPABASE_ANON_KEY"]
+    base_url = config["POCKETBASE_URL"].rstrip("/")
     agent_token = config["AGENT_TOKEN"]
     device_id = uuid.uuid4().hex
     device_label = get_device_label()
@@ -252,7 +277,7 @@ def main():
     print("DelCargo HR tracking agent starting. Waiting for tracking to be enabled by HR/Admin...")
 
     while True:
-        settings = get_tracking_settings(base_url, anon_key, agent_token)
+        settings = get_tracking_settings(base_url, agent_token)
 
         if settings is None:
             print("[warn] Could not find tracking settings for this token. Check your config and ask HR/Admin to confirm setup. Retrying in 60s.")
@@ -264,24 +289,25 @@ def main():
             continue
 
         employee_email = settings.get("employeeEmail")
-        upsert_heartbeat(base_url, anon_key, employee_email, device_id, device_label)
+        upsert_heartbeat(base_url, employee_email, device_id, device_label)
 
-        if not check_active_shift(base_url, anon_key, employee_email):
+        if not check_active_shift(base_url, employee_email):
             time.sleep(SETTINGS_POLL_SECONDS)
             continue
 
-        employee_email = settings.get("employeeEmail")
-        interval_minutes = max(0.1, float(settings.get("intervalMinutes", 15)))
+        # 1 minute is the enforced floor (matches the minimum HR/Admin can
+        # set on the dashboard — see TrackingView.tsx's interval input);
+        # this max() is just a safety net for any older saved settings.
+        interval_minutes = max(1.0, float(settings.get("intervalMinutes", 15)))
 
         try:
-            image_data_url = capture_and_encode()
-            upload_screenshot(base_url, anon_key, employee_email, image_data_url)
+            webp_bytes, w, h = capture_and_encode()
+            upload_screenshot(base_url, employee_email, webp_bytes, w, h, agent_token=agent_token)
         except Exception as e:
             print(f"[warn] Capture failed: {e}")
 
         # Sleep in short chunks so a mid-interval "disable tracking" from
-        # HR/Admin is noticed promptly rather than waiting out the full
-        # (possibly long) interval.
+        # HR/Admin is noticed promptly rather than waiting out the full interval.
         remaining = interval_minutes * 60
         while remaining > 0:
             chunk = min(SETTINGS_POLL_SECONDS, remaining)

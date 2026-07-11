@@ -3,18 +3,13 @@
 import React, { useState, useEffect } from 'react';
 import { TaskBoard } from '@/components/ui/TaskBoard';
 import { TaskModal } from '@/components/ui/TaskModal';
-import { db, Task, Profile } from '@/lib/db';
+import { Task, Profile, useTasks, useProfiles } from '@/lib/hrData';
 import { ClipboardList } from 'lucide-react';
 
 export default function HRTasksPage() {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [employees, setEmployees] = useState<Profile[]>([]);
+  const { data: tasks = [], refetch: refetchTasks } = useTasks();
+  const { data: employees = [] } = useProfiles();
   const [isTaskOpen, setIsTaskOpen] = useState(false);
-
-  useEffect(() => {
-    setTasks(db.getTasks());
-    setEmployees(db.getEmployees());
-  }, []);
 
   return (
     <div className="space-y-6">
@@ -33,7 +28,7 @@ export default function HRTasksPage() {
 
       <TaskBoard
         tasks={tasks}
-        onUpdate={updated => setTasks(updated)}
+        onUpdate={() => refetchTasks()}
         canDelete={true}
         readOnly={false}
       />
@@ -41,9 +36,9 @@ export default function HRTasksPage() {
       <TaskModal
         isOpen={isTaskOpen}
         onClose={() => setIsTaskOpen(false)}
-        employees={employees.filter(e => e.role === 'employee' || e.isTeamLead)}
+        employees={employees.filter((e: Profile) => e.role === 'employee' || e.isTeamLead)}
         createdBy="hr"
-        onTaskAdded={task => setTasks(prev => [task, ...prev])}
+        onTaskAdded={() => refetchTasks()}
       />
     </div>
   );

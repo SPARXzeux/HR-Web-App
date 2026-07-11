@@ -2,6 +2,5 @@
 # delcargo_tracker_agent.py. Fill in the values shown to you on the
 # DelCargo HR dashboard under Screen Tracking → Setup Agent.
 
-SUPABASE_URL=
-SUPABASE_ANON_KEY=
+POCKETBASE_URL=http://157.230.7.89
 AGENT_TOKEN=

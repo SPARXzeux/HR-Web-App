@@ -3,8 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { db, LeaveApplication } from '@/lib/db';
 import { CheckCircle2, ShieldCheck, List } from 'lucide-react';
+import { useLeaves, useProfiles, hrActions, LeaveApplication } from '@/lib/hrData';
 
 const TYPE_COLORS: Record<string, string> = {
   'PTO': 'bg-blue-100 text-blue-800',
@@ -22,7 +22,8 @@ const STATUS_BADGE_MAP: Record<LeaveApplication['status'], { variant: 'success' 
 type TabView = 'queue' | 'history';
 
 export default function AdminLeavesPage() {
-  const [leaves, setLeaves] = useState<LeaveApplication[]>([]);
+  const { data: leaves = [], refetch: refetchLeaves } = useLeaves();
+  const { data: employees = [] } = useProfiles();
   const [searchQuery, setSearchQuery] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [activeTab, setActiveTab] = useState<TabView>('queue');
@@ -30,26 +31,26 @@ export default function AdminLeavesPage() {
   const [histType, setHistType] = useState<'all' | 'PTO' | 'Sick Leave' | 'Urgent'>('all');
 
   useEffect(() => {
-    setLeaves(db.getLeaves());
     const handleSearch = (e: Event) => setSearchQuery((e as CustomEvent).detail || '');
     window.addEventListener('globalSearch', handleSearch);
     return () => window.removeEventListener('globalSearch', handleSearch);
   }, []);
 
   const handleCEOAction = async (id: string, action: 'approve' | 'reject') => {
-    const updated: LeaveApplication[] = await Promise.all(leaves.map(async l => {
-      if (l.id !== id) return l;
-      const nextStatus: LeaveApplication['status'] = action === 'approve' ? 'approved' : 'rejected';
-      const employees = db.getEmployees();
+    const nextStatus = action === 'approve' ? 'approved' : 'rejected';
+
+    await hrActions.updateLeaveStatus(id, nextStatus);
+
+    const l = leaves.find(lv => lv.id === id);
+    if (l) {
       const emp = employees.find(e => e.fullName === l.employeeName);
       if (emp) {
-        await db.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was ${action === 'approve' ? 'approved' : 'rejected'} by the CEO.`);
+        await hrActions.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was ${action === 'approve' ? 'approved' : 'rejected'} by the CEO.`);
       }
-      await db.addNotification('all', 'hr', `CEO ${action === 'approve' ? 'Approved' : 'Rejected'} leave for ${l.employeeName}.`);
-      return { ...l, status: nextStatus };
-    }));
-    setLeaves(updated);
-    db.saveLeaves(updated);
+      await hrActions.addNotification('all', 'hr', `CEO ${action === 'approve' ? 'Approved' : 'Rejected'} leave for ${l.employeeName}.`);
+    }
+
+    refetchLeaves();
     setSuccessMsg(`Leave ${action === 'approve' ? 'approved' : 'rejected'} by CEO!`);
     setTimeout(() => setSuccessMsg(''), 1500);
   };

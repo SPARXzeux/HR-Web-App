@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { DollarSign, CheckCircle2, TrendingUp } from 'lucide-react';
-import { db, PayrollRecord, formatMoney } from '@/lib/db';
+import { usePayroll, useProfiles, useLeaves, hrActions, formatMoney, PayrollRecord } from '@/lib/hrData';
 
 interface PayrollSummary {
   department: string;
@@ -28,20 +28,24 @@ interface PayrollSummary {
 }
 
 export default function AdminPayrollPage() {
+  const { data: rawPayroll = [], refetch: refetchPayroll } = usePayroll();
+  const { data: employees = [], refetch: refetchProfiles } = useProfiles();
+  const { data: leaves = [] } = useLeaves();
+  // computePayrollView is a PURE function — it never writes. It recomputes
+  // the current view (pending increments, urgent-leave deductions, etc.) on
+  // top of whatever payroll records already exist server-side. Memoized so
+  // it doesn't produce a fresh array reference (and re-trigger the summary
+  // effect) on every render.
+  const payroll = useMemo(() => hrActions.computePayrollView(employees, rawPayroll, leaves), [employees, rawPayroll, leaves]);
   const [summaries, setSummaries] = useState<PayrollSummary[]>([]);
-  const [payroll, setPayroll] = useState<PayrollRecord[]>([]);
   const [isReleasing, setIsReleasing] = useState(false);
 
-  const loadPayroll = () => {
-    const freshPayroll = db.getPayroll();
-    const employees = db.getEmployees();
-    setPayroll(freshPayroll);
-
+  useEffect(() => {
     // Group dynamically by employee teams/departments
     const depts = Array.from(new Set(employees.flatMap(e => e.teams)));
     const calculatedSummaries = depts.map(dept => {
       const deptEmployees = employees.filter(e => e.teams.includes(dept));
-      const deptPayroll = freshPayroll.filter(p => deptEmployees.some(e => e.id === p.employeeId));
+      const deptPayroll = payroll.filter(p => deptEmployees.some(e => e.id === p.employeeId));
       const usdPayroll = deptPayroll.filter(p => p.region === 'USA');
       const pkrPayroll = deptPayroll.filter(p => p.region !== 'USA');
       const netOf = (p: PayrollRecord) => p.baseSalary + p.incrementAmount + p.bonus - p.deductions;
@@ -67,11 +71,7 @@ export default function AdminPayrollPage() {
     });
 
     setSummaries(calculatedSummaries);
-  };
-
-  useEffect(() => {
-    loadPayroll();
-  }, []);
+  }, [payroll, employees]);
 
   // Real status — derived from actual payroll records, not a local toggle.
   // "Released" means every current payroll record has genuinely been
@@ -89,14 +89,22 @@ export default function AdminPayrollPage() {
     // employee's real base salary before finalizing the cycle.
     for (const record of pending) {
       if (record.incrementAmount > 0) {
-        await db.applyAnniversaryIncrement(record.employeeId, record.incrementAmount);
+        const emp = employees.find(e => e.id === record.employeeId);
+        if (emp) {
+          await hrActions.applyAnniversaryIncrement(record.employeeId, emp.baseSalary, record.incrementAmount);
+        }
       }
     }
 
-    const updated = payroll.map(p => ({ ...p, processed: true }));
-    await db.savePayroll(updated);
+    // Process all payroll records (persist the current computed view now
+    // that the admin has explicitly clicked Release).
+    for (const record of payroll) {
+      await hrActions.upsertPayrollRecord({ ...record, processed: true });
+    }
+
+    refetchProfiles();
+    refetchPayroll();
     setIsReleasing(false);
-    loadPayroll();
   };
 
   // Net payable and bonuses must stay split by currency — USA (USD) and

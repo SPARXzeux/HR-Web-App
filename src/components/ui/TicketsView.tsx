@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { db, Ticket, Profile } from '@/lib/db';
+import { useProfiles, useTickets, hrActions, Ticket, Profile, markTicketActivitySeen } from '@/lib/hrData';
 import { HelpCircle, Plus, Send, Lock, RotateCcw, User, Mail, Calendar, Briefcase, Users, Eye, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface TicketsViewProps {
@@ -44,26 +44,26 @@ export function TicketsView({ role }: TicketsViewProps) {
     });
   };
 
+  const { data: allProfiles, refetch: refetchProfiles } = useProfiles();
+  const { data: allTickets, refetch: refetchTickets } = useTickets();
+
   useEffect(() => {
     const email = localStorage.getItem('user_email') || '';
     setCurrentEmail(email);
-    const emps = db.getEmployees();
-    setEmployees(emps);
-    setUserProfile(emps.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase()) || null);
+    
+    if (allProfiles) {
+      setEmployees(allProfiles);
+      setUserProfile(allProfiles.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase()) || null);
+    }
 
-    applyTickets(db.getTickets(), email);
-  }, [role]);
-
-  // Poll Supabase for ticket changes every 8s — new tickets and replies from
-  // other users/devices appear without a full page reload.
-  useEffect(() => {
-    const email = localStorage.getItem('user_email') || '';
-    const interval = setInterval(async () => {
-      const fresh = await db.refreshTickets();
-      applyTickets(fresh, email);
-    }, 8000);
-    return () => clearInterval(interval);
-  }, [role]);
+    if (allTickets) {
+      applyTickets(allTickets, email);
+      // Viewing this page clears the sidebar's unseen-activity dot for this
+      // role+email. Re-runs on every poll while the page stays open, so new
+      // activity that arrives elsewhere still lights the dot back up later.
+      markTicketActivitySeen(allTickets, role, email);
+    }
+  }, [role, allProfiles, allTickets]);
 
   // Scroll chat to bottom when replies change
   useEffect(() => {
@@ -74,14 +74,14 @@ export function TicketsView({ role }: TicketsViewProps) {
     e.preventDefault();
     if (!title || !desc || !userProfile) return;
 
-    const newT = await db.createTicket({
+    await hrActions.createTicket({
       employeeName: userProfile.fullName,
       employeeEmail: userProfile.email,
       title,
-      description: desc
+      description: desc,
     });
 
-    setTickets(prev => [newT, ...prev]);
+    refetchTickets();
     setSuccess('Support ticket opened successfully!');
     setTimeout(() => {
       setIsNewOpen(false);
@@ -97,33 +97,30 @@ export function TicketsView({ role }: TicketsViewProps) {
 
     const senderName = userProfile?.fullName || (role === 'hr' ? 'HR Manager' : role === 'admin' ? 'System Admin' : currentEmail.split('@')[0]);
 
-    const updated = await db.addTicketReply(selectedTicket.id, {
+    await hrActions.addTicketReply(selectedTicket, {
       senderName,
       senderRole: role,
-      message: replyMsg.trim()
+      message: replyMsg.trim(),
     });
 
-    // Update locally
-    const updatedTicket = updated.find(t => t.id === selectedTicket.id);
-    if (updatedTicket) setSelectedTicket(updatedTicket);
-    setTickets(role === 'employee' || role === 'team_lead' ? updated.filter(t => t.employeeEmail.toLowerCase() === currentEmail.toLowerCase()) : updated);
+    refetchTickets();
     setReplyMsg('');
   };
 
   const handleCloseTicket = async (id: string) => {
     if (!window.confirm('Are you sure you want to mark this support ticket as closed?')) return;
-    const updated = await db.updateTicketStatus(id, 'closed');
-    const updatedTicket = updated.find(t => t.id === id);
-    if (updatedTicket) setSelectedTicket(updatedTicket);
-    setTickets(role === 'employee' || role === 'team_lead' ? updated.filter(t => t.employeeEmail.toLowerCase() === currentEmail.toLowerCase()) : updated);
+    const ticket = tickets.find(t => t.id === id) || selectedTicket;
+    if (!ticket) return;
+    await hrActions.updateTicketStatus(ticket, 'closed');
+    refetchTickets();
   };
 
   const handleReopenTicket = async (id: string) => {
     if (!window.confirm('Are you sure you want to re-open this ticket?')) return;
-    const updated = await db.updateTicketStatus(id, 'open');
-    const updatedTicket = updated.find(t => t.id === id);
-    if (updatedTicket) setSelectedTicket(updatedTicket);
-    setTickets(role === 'employee' || role === 'team_lead' ? updated.filter(t => t.employeeEmail.toLowerCase() === currentEmail.toLowerCase()) : updated);
+    const ticket = tickets.find(t => t.id === id) || selectedTicket;
+    if (!ticket) return;
+    await hrActions.updateTicketStatus(ticket, 'open');
+    refetchTickets();
   };
 
   const handleInspectApplicant = (email: string) => {

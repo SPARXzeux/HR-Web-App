@@ -1,4 +1,4 @@
-import type { Warehouse } from './db';
+import type { Warehouse } from './hrData';
 
 /**
  * Great-circle distance between two lat/lon points, in meters.

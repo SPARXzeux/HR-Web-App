@@ -1,13 +1,16 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useProfiles, useTimesheets, hrActions, Profile, TimesheetEntry, TrackingSettings, TrackerHeartbeat } from '@/lib/hrData';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { db, Profile, TimesheetEntry, TrackingSettings, TrackerHeartbeat } from '@/lib/db';
-import { encodeSetupCode, getSupabasePublicConfig, TRACKER_RELEASES_URL } from '@/lib/trackerSetup';
+import { encodeSetupCode, getPocketBaseConfig, TRACKER_RELEASES_URL } from '@/lib/trackerSetup';
 import { Timer, Monitor, ShieldAlert, MapPin, Download, Copy, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 
 export default function TrackerPage() {
+  const { data: allProfiles = [] } = useProfiles();
+  const { data: allTimesheets = [], refetch: refetchTimesheets } = useTimesheets();
+
   const [profile, setProfile] = useState<Profile | null>(null);
   const [openShift, setOpenShift] = useState<TimesheetEntry | null>(null);
   const [timesheetEntries, setTimesheetEntries] = useState<TimesheetEntry[]>([]);
@@ -20,7 +23,7 @@ export default function TrackerPage() {
 
   useEffect(() => {
     const email = localStorage.getItem('user_email');
-    const employees = db.getEmployees();
+    const employees = allProfiles;
     const userProfile = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (userProfile) {
       setProfile(userProfile);
@@ -28,7 +31,7 @@ export default function TrackerPage() {
       loadOwnTrackingSettings(userProfile.email);
       refreshHeartbeat(userProfile.email);
     }
-  }, []);
+  }, [allProfiles]);
 
   // Poll the live "is the desktop app actually connected" heartbeat while
   // this page is open, so the badge below updates on its own without the
@@ -42,7 +45,7 @@ export default function TrackerPage() {
   const refreshHeartbeat = async (email: string) => {
     setHeartbeatChecking(true);
     try {
-      const hb = await db.getTrackerHeartbeat(email);
+      const hb = await hrActions.getTrackerHeartbeat(email);
       setHeartbeat(hb);
     } finally {
       setHeartbeatChecking(false);
@@ -62,18 +65,18 @@ export default function TrackerPage() {
   // on; that "enabled" flag is still only ever flipped by HR/Admin or by
   // this employee's own Start/End Shift buttons on the Dashboard page.
   const loadOwnTrackingSettings = async (email: string) => {
-    let settings = db.getTrackingSettingsFor(email);
+    let settings = await hrActions.getTrackingSettingsFor(email);
     if (!settings.agentToken) {
-      const updated = await db.updateTrackingSettings(email, {});
+      const updated = await hrActions.updateTrackingSettings(email, {});
       settings = updated.find(s => s.employeeEmail.toLowerCase() === email.toLowerCase()) || settings;
     }
-    setTrackingSettings(settings);
+    setTrackingSettings(settings || null);
   };
 
   const handleCopySetupCode = () => {
     if (!trackingSettings?.agentToken) return;
-    const { url, key } = getSupabasePublicConfig();
-    const code = encodeSetupCode(url, key, trackingSettings.agentToken);
+    const { url } = getPocketBaseConfig();
+    const code = encodeSetupCode(url, trackingSettings.agentToken);
     navigator.clipboard.writeText(code);
     setCodeCopied(true);
     setTimeout(() => setCodeCopied(false), 2000);
@@ -83,12 +86,13 @@ export default function TrackerPage() {
     if (!profile) return;
     const confirmed = window.confirm('Regenerating your setup code will disconnect the tracker app on any computer currently using your old code, until it is reconnected with the new one. Continue?');
     if (!confirmed) return;
-    await db.regenerateAgentToken(profile.email);
+    await hrActions.regenerateAgentToken(profile.email);
     loadOwnTrackingSettings(profile.email);
   };
 
-  const refreshShiftData = (email: string) => {
-    const all = db.getTimesheets().filter(t => t.employeeEmail.toLowerCase() === email.toLowerCase());
+  const refreshShiftData = async (email: string) => {
+    const { data } = await refetchTimesheets();
+    const all = (data || []).filter(t => t.employeeEmail.toLowerCase() === email.toLowerCase());
     const open = all.find(t => t.status === 'in_progress') || null;
     setOpenShift(open);
     setTimesheetEntries(all.sort((a, b) => (b.clockIn || '').localeCompare(a.clockIn || '')));
@@ -202,16 +206,16 @@ export default function TrackerPage() {
                   separate from the Active/Off badge above, which only reflects whether
                   HR/Admin has authorized capturing. Sourced from the agent's own
                   periodic heartbeat check-in, not from anything this web page assumes. */}
-              <div className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 ${db.isHeartbeatLive(heartbeat) ? 'bg-emerald-50 border-emerald-150' : 'bg-slate-50 border-slate-200'}`}>
+              <div className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 ${hrActions.isHeartbeatLive(heartbeat) ? 'bg-emerald-50 border-emerald-150' : 'bg-slate-50 border-slate-200'}`}>
                 <div className="flex items-center gap-1.5">
-                  {db.isHeartbeatLive(heartbeat) ? (
+                  {hrActions.isHeartbeatLive(heartbeat) ? (
                     <Wifi className="h-3.5 w-3.5 text-emerald-600" />
                   ) : (
                     <WifiOff className="h-3.5 w-3.5 text-slate-400" />
                   )}
                   <div>
-                    <p className={`text-[10px] font-bold ${db.isHeartbeatLive(heartbeat) ? 'text-emerald-700' : 'text-slate-500'}`}>
-                      {db.isHeartbeatLive(heartbeat)
+                    <p className={`text-[10px] font-bold ${hrActions.isHeartbeatLive(heartbeat) ? 'text-emerald-700' : 'text-slate-500'}`}>
+                      {hrActions.isHeartbeatLive(heartbeat)
                         ? `App Connected${heartbeat?.deviceLabel ? ` — ${heartbeat.deviceLabel}` : ''}`
                         : heartbeatCheckedOnce ? 'App Not Connected' : 'Checking connection…'}
                     </p>
@@ -228,7 +232,7 @@ export default function TrackerPage() {
                   <RefreshCw className={`h-3 w-3 ${heartbeatChecking ? 'animate-spin' : ''}`} /> Reconnect
                 </button>
               </div>
-              {heartbeatCheckedOnce && !db.isHeartbeatLive(heartbeat) && (
+              {heartbeatCheckedOnce && !hrActions.isHeartbeatLive(heartbeat) && (
                 <p className="text-[9px] text-slate-400 leading-relaxed -mt-1">
                   If you&apos;ve installed the app, make sure it&apos;s running (check your system tray / menu bar), then click Reconnect. If you haven&apos;t installed it yet, use the button below.
                 </p>
@@ -248,7 +252,7 @@ export default function TrackerPage() {
                   <div>
                     <p className="text-[10px] text-slate-500 font-semibold mb-1">Paste this code into the app when it first opens:</p>
                     <div className="bg-slate-900 text-slate-100 rounded-lg p-3 font-mono text-[10px] leading-relaxed overflow-x-auto break-all">
-                      {encodeSetupCode(getSupabasePublicConfig().url, getSupabasePublicConfig().key, trackingSettings.agentToken)}
+                      {encodeSetupCode(getPocketBaseConfig().url, trackingSettings.agentToken)}
                     </div>
                   </div>
 

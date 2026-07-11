@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
-import { db, Task, Profile } from '@/lib/db';
+import { Task, Profile, hrActions } from '@/lib/hrData';
 import { CheckCircle2 } from 'lucide-react';
 
 interface TaskModalProps {
@@ -36,7 +36,7 @@ export function TaskModal({ isOpen, onClose, employees, createdBy, onTaskAdded }
       return;
     }
 
-    const task = await db.addTask({
+    const newTask: Omit<Task, 'id'> = {
       title,
       description,
       assignedTo: emp.fullName,
@@ -46,10 +46,13 @@ export function TaskModal({ isOpen, onClose, employees, createdBy, onTaskAdded }
       priority,
       status: 'todo',
       createdBy,
-    });
+    };
+    // hrActions.addTask persists the task and fires the assignment
+    // notification internally (it does not return the created record).
+    await hrActions.addTask(newTask);
 
     setSuccess(`Task "${title}" assigned to ${emp.fullName}!`);
-    onTaskAdded?.(task);
+    onTaskAdded?.({ id: '', ...newTask });
 
     setTimeout(() => {
       setSuccess('');

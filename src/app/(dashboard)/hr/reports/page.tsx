@@ -4,13 +4,15 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { db, Profile, formatMoney, TimesheetEntry } from '@/lib/db';
+import { Profile, formatMoney, TimesheetEntry, useProfiles, useTimesheets } from '@/lib/hrData';
 import { FileText, Search, Filter, ShieldCheck, Download, Monitor, Clock, CheckCircle2, TrendingUp, Calendar } from 'lucide-react';
 import { UserProfileModal } from '@/components/ui/UserProfileModal';
 import { DocumentsModal } from '@/components/ui/DocumentsModal';
+import { Avatar } from '@/components/ui/Avatar';
 
 export default function ReportsPage() {
-  const [employees, setEmployees] = useState<Profile[]>([]);
+  const { data: employees = [], refetch: refetchProfiles } = useProfiles();
+  const { data: allTimesheets = [] } = useTimesheets();
   const [regionFilter, setRegionFilter] = useState<'All' | 'USA' | 'Pakistan'>('All');
   const [onboardingFilter, setOnboardingFilter] = useState<'All' | 'Completed' | 'Pending'>('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -26,16 +28,13 @@ export default function ReportsPage() {
     setSelectedReviewEmp(emp);
     setDateFilter('');
 
-    // Real, Supabase-synced shift history — visible regardless of which
-    // device/region the employee actually clocked in from.
-    const entries = db.getTimesheets()
-      .filter(t => t.employeeEmail.toLowerCase() === emp.email.toLowerCase())
-      .sort((a, b) => (b.clockIn || '').localeCompare(a.clockIn || ''));
+    const entries = allTimesheets
+      .filter((t: any) => t.employeeEmail.toLowerCase() === emp.email.toLowerCase())
+      .sort((a: any, b: any) => (b.clockIn || '').localeCompare(a.clockIn || ''));
     setReviewEntries(entries);
   };
 
   useEffect(() => {
-    setEmployees(db.getEmployees());
     const email = localStorage.getItem('user_email');
     if (email) setCurrentUserEmail(email);
   }, []);
@@ -187,13 +186,7 @@ export default function ReportsPage() {
                 <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4 cursor-pointer hover:bg-slate-100/70" onClick={() => setSelectedProfileEmail(emp.email)}>
                     <div className="flex items-center gap-3">
-                      {emp.profilePicture ? (
-                        <img src={emp.profilePicture} alt={emp.fullName} className="h-10 w-10 rounded-full object-cover border border-slate-200" />
-                      ) : (
-                        <div className="h-10 w-10 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-sm font-bold text-orange-600">
-                          {emp.fullName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
-                        </div>
-                      )}
+                      <Avatar src={emp.profilePicture} name={emp.fullName} size={40} />
                       <div>
                         <div className="font-semibold text-slate-900">{emp.fullName}</div>
                         <div className="text-xs text-slate-450">{emp.email} · <span className="font-bold text-orange-600">{emp.jobTitle || 'Staff'}</span></div>
@@ -256,13 +249,7 @@ export default function ReportsPage() {
             {/* Employee info header */}
             <div className="flex justify-between items-start bg-slate-50 p-4 border border-slate-200 rounded-xl">
               <div className="flex items-center gap-3">
-                {selectedReviewEmp.profilePicture ? (
-                  <img src={selectedReviewEmp.profilePicture} alt={selectedReviewEmp.fullName} className="h-10 w-10 rounded-full object-cover border border-slate-200" />
-                ) : (
-                  <div className="h-10 w-10 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-sm font-bold text-orange-600">
-                    {selectedReviewEmp.fullName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
-                  </div>
-                )}
+                <Avatar src={selectedReviewEmp.profilePicture} name={selectedReviewEmp.fullName} size={40} />
                 <div>
                   <p className="text-sm font-bold text-slate-900">{selectedReviewEmp.fullName}</p>
                   <p className="text-[10px] text-slate-455 font-bold">{selectedReviewEmp.email} · {selectedReviewEmp.jobTitle || 'Staff'}</p>
@@ -376,7 +363,7 @@ export default function ReportsPage() {
           currentUserRole="hr"
           currentUserEmail={currentUserEmail}
           onUpdate={() => {
-            setEmployees(db.getEmployees());
+            refetchProfiles();
           }}
         />
       )}

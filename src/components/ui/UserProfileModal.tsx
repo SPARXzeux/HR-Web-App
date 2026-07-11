@@ -1,10 +1,22 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { db, Profile, formatMoney } from '@/lib/db';
+import {
+  Profile,
+  formatMoney,
+  saveProfileExtras,
+  getRemainingPTO,
+  getFinalLeavePayout,
+  getPTOAccrualDate,
+  useProfiles,
+  useWarehouses,
+  useLeaves,
+  hrActions,
+} from '@/lib/hrData';
 import { Badge } from './Badge';
 import { ConfirmDialog } from './ConfirmDialog';
-import { X, User, Mail, Shield, ShieldAlert, Key, DollarSign, Calendar, MapPin, Landmark, Briefcase, FileText, CheckSquare, Square, Trash2 } from 'lucide-react';
+import { Avatar } from './Avatar';
+import { X, User, Mail, Shield, ShieldAlert, Key, DollarSign, Calendar, MapPin, Landmark, Briefcase, FileText, CheckSquare, Square, Trash2, Download } from 'lucide-react';
 
 interface UserProfileModalProps {
   isOpen: boolean;
@@ -23,6 +35,13 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
   const [showOffboardConfirm, setShowOffboardConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Deletion is irreversible and now actually purges everything (documents,
+  // payroll, leaves, tasks, tickets, timesheets, screenshots, tracking
+  // token) — HR/Admin must download a copy of the employee's data before
+  // the delete button becomes usable. Resets whenever a different profile
+  // is opened, see the effect below.
+  const [hasDownloadedArchive, setHasDownloadedArchive] = useState(false);
+  const [isExportingArchive, setIsExportingArchive] = useState(false);
 
   // Edit fields
   const [fullName, setFullName] = useState('');
@@ -36,6 +55,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
   const [assignedWarehouses, setAssignedWarehouses] = useState<string[]>([]);
   const [joinedDate, setJoinedDate] = useState('');
   const [salaryStartDate, setSalaryStartDate] = useState('');
+  const [accountCreationDate, setAccountCreationDate] = useState('');
 
   // Offboarding fields
   const [itClearance, setItClearance] = useState(false);
@@ -43,11 +63,15 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
   const [hrClearance, setHrClearance] = useState(false);
   const [notes, setNotes] = useState('');
 
-  const warehouses = db.getWarehouses();
+  const { data: allProfiles, refetch: refetchProfiles } = useProfiles();
+  const { data: allWarehouses } = useWarehouses();
+  const { data: allLeaves } = useLeaves();
+  const warehouses = allWarehouses || [];
+  const leaves = allLeaves || [];
 
   useEffect(() => {
-    if (isOpen && employeeEmail) {
-      const emps = db.getEmployees();
+    if (isOpen && employeeEmail && allProfiles) {
+      const emps = allProfiles;
       const match = emps.find(e => e.email && employeeEmail && e.email.toLowerCase() === employeeEmail.toLowerCase());
       const curr = emps.find(e => e.email && currentUserEmail && e.email.toLowerCase() === currentUserEmail.toLowerCase());
       setCurrentUser(curr || null);
@@ -64,6 +88,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
         setRole(match.role);
         setJoinedDate(match.joinedDate || new Date().toISOString().split('T')[0]);
         setSalaryStartDate(match.salaryStartDate || match.joinedDate || new Date().toISOString().split('T')[0]);
+        setAccountCreationDate(match.accountCreationDate || match.joinedDate || new Date().toISOString().split('T')[0]);
         setAssignedWarehouses(match.assignedWarehouses || []);
         
         if (match.offboardingStatus) {
@@ -80,8 +105,9 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
       }
       setIsEditing(false);
       setIsOffboarding(false);
+      setHasDownloadedArchive(false);
     }
-  }, [isOpen, employeeEmail, currentUserEmail]);
+  }, [isOpen, employeeEmail, currentUserEmail, allProfiles]);
 
   if (!isOpen || !profile) return null;
 
@@ -125,11 +151,11 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
     );
   }
 
-  const handleSaveChanges = (e: React.FormEvent) => {
+  const handleSaveChanges = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim() || !email.trim()) return;
 
-    db.updateProfileDetails(profile.email, {
+    await hrActions.updateProfileDetails(profile.id, {
       fullName,
       email,
       password,
@@ -140,16 +166,13 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
       role,
       joinedDate,
       salaryStartDate,
-      assignedWarehouses
+      accountCreationDate,
+      assignedWarehouses,
     });
 
     setIsEditing(false);
+    refetchProfiles();
     onUpdate?.();
-    
-    // Refresh local profile view state
-    const updatedEmps = db.getEmployees();
-    const match = updatedEmps.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
-    if (match) setProfile(match);
   };
 
   const handleOffboardSubmit = (e: React.FormEvent) => {
@@ -158,12 +181,12 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
     setShowOffboardConfirm(true);
   };
 
-  const confirmOffboard = () => {
+  const confirmOffboard = async () => {
     // Company policy: full payout of the remaining combined PTO/Sick bank
     // at contract end, computed from real accrual + leave records.
-    const finalLeavePayout = db.getFinalLeavePayout(profile);
+    const finalLeavePayout = getFinalLeavePayout(profile, leaves);
 
-    db.updateProfileDetails(profile.email, {
+    await saveProfileExtras(profile.id, {
       offboarded: true,
       offboardDate: new Date().toISOString().split('T')[0],
       offboardingStatus: {
@@ -174,35 +197,56 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
         finalLeavePayout
       }
     });
+
     setShowOffboardConfirm(false);
     setIsOffboarding(false);
+    refetchProfiles();
     onUpdate?.();
+  };
 
-    const updatedEmps = db.getEmployees();
-    const match = updatedEmps.find(e => e.email === profile.email);
-    if (match) setProfile(match);
+  const handleDownloadArchive = async () => {
+    if (!profile) return;
+    setIsExportingArchive(true);
+    try {
+      const { filename, blob } = await hrActions.exportEmployeeArchive(profile);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setHasDownloadedArchive(true);
+    } catch (err) {
+      console.error('Employee data export failed:', err);
+      alert('Could not prepare the data export. See console for details — deletion is still blocked until this succeeds.');
+    } finally {
+      setIsExportingArchive(false);
+    }
   };
 
   const confirmDeletePermanently = async () => {
     setIsDeleting(true);
-    await db.deleteEmployee(profile.id);
+    // Purges everything tied to this employee — profile, documents,
+    // payroll, leaves, tasks, tickets, timesheets, screenshots, tracking
+    // token, notifications — not just the profile listing. See
+    // hrActions.deleteEmployee in hrData.ts.
+    await hrActions.deleteEmployee(profile.id, profile.email, profile.fullName);
     setIsDeleting(false);
     setShowDeleteConfirm(false);
     onUpdate?.();
     onClose();
   };
 
-  const handleReactivate = () => {
-    db.updateProfileDetails(profile.email, {
+  const handleReactivate = async () => {
+    await saveProfileExtras(profile.id, {
       offboarded: false,
       offboardDate: undefined,
       offboardingStatus: undefined
     });
+    refetchProfiles();
     onUpdate?.();
-
-    const updatedEmps = db.getEmployees();
-    const match = updatedEmps.find(e => e.email === profile.email);
-    if (match) setProfile(match);
   };
 
   return (
@@ -226,13 +270,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
         <div className="px-5 py-5 overflow-y-auto flex-1 space-y-5">
           {/* Header summary */}
           <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-            {profile.profilePicture ? (
-              <img src={profile.profilePicture} alt={profile.fullName} className="h-12 w-12 rounded-full object-cover border border-slate-200" />
-            ) : (
-              <div className="h-12 w-12 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-base font-bold text-orange-600">
-                {profile.fullName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
-              </div>
-            )}
+            <Avatar src={profile.profilePicture} name={profile.fullName} size={48} />
             <div>
               <h3 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
                 {profile.fullName}
@@ -267,6 +305,10 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                   <p className="text-xs font-semibold text-slate-700 mt-0.5 flex items-center gap-1"><Calendar className="h-3.5 w-3.5 text-slate-400" /> {profile.joinedDate}</p>
                 </div>
                 <div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase" title="PTO accrual is calculated from this date">Account Creation Date</p>
+                  <p className="text-xs font-semibold text-slate-700 mt-0.5 flex items-center gap-1"><Calendar className="h-3.5 w-3.5 text-slate-400" /> {profile.accountCreationDate || profile.joinedDate}</p>
+                </div>
+                <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase">Gender</p>
                   <p className="text-xs font-semibold text-slate-700 mt-0.5 capitalize">{profile.gender || 'male'}</p>
                 </div>
@@ -293,10 +335,28 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                   ) : (
                     profile.assignedWarehouses.map(wId => {
                       const wh = warehouses.find(w => w.id === wId);
-                      return <Badge key={wId} variant="success">{wh ? wh.name : wId}</Badge>;
+                      // If this ID doesn't resolve to a current warehouse, it's
+                      // almost always a stale/mismatched ID left over from a
+                      // past data migration rather than a real "code" — show
+                      // it as unresolved instead of printing the raw ID.
+                      return <Badge key={wId} variant="success">{wh ? wh.name : 'Unrecognized warehouse (re-assign needed)'}</Badge>;
                     })
                   )}
                 </div>
+                {(profile.assignedWarehouses || []).some(wId => !warehouses.find(w => w.id === wId)) && canManageThisProfile && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const cleaned = (profile.assignedWarehouses || []).filter(wId => warehouses.find(w => w.id === wId));
+                      await hrActions.updateProfileDetails(profile.id, { assignedWarehouses: cleaned });
+                      refetchProfiles();
+                      onUpdate?.();
+                    }}
+                    className="mt-1.5 text-[10px] font-bold text-rose-600 hover:text-rose-700 hover:underline"
+                  >
+                    Remove unrecognized warehouse links
+                  </button>
+                )}
               </div>
 
               {/* Bank Details */}
@@ -369,12 +429,30 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                     )}
                   </div>
                   {profile.offboarded && (
-                    <button
-                      onClick={() => setShowDeleteConfirm(true)}
-                      className="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" /> Delete Account Permanently
-                    </button>
+                    <div className="space-y-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={handleDownloadArchive}
+                        disabled={isExportingArchive}
+                        className="w-full flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97 disabled:opacity-60"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        {isExportingArchive ? 'Preparing download…' : hasDownloadedArchive ? 'Re-download Employee Data' : 'Download Employee Data First'}
+                      </button>
+                      <button
+                        onClick={() => setShowDeleteConfirm(true)}
+                        disabled={!hasDownloadedArchive}
+                        title={!hasDownloadedArchive ? "Download this employee's data first — deletion is permanent and cannot be undone." : undefined}
+                        className="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Delete Account Permanently
+                      </button>
+                      {!hasDownloadedArchive && (
+                        <p className="text-[10px] text-slate-400 font-medium text-center">
+                          Download their data first — includes documents, payroll, leave/task/ticket history, and screenshots. Deletion cannot be undone.
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -460,6 +538,20 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                 </div>
               </div>
 
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase" title="PTO accrual is calculated from this date instead of the joining date">
+                  Account Creation Date *
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={accountCreationDate}
+                  onChange={e => setAccountCreationDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs outline-none focus:border-orange-500 font-semibold cursor-pointer"
+                />
+                <p className="text-[9px] text-slate-400 font-semibold">PTO accrual is calculated from this date, not the joining date.</p>
+              </div>
+
               {/* Warehouse selector */}
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Assigned Warehouses</label>
@@ -506,10 +598,10 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                 <div>
                   <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Final PTO/Sick Bank Payout</p>
                   <p className="text-[9px] text-emerald-600 font-semibold mt-0.5">
-                    {db.getRemainingPTO(profile.fullName, profile.joinedDate)} remaining days × daily rate (monthly salary ÷ 22)
+                    {getRemainingPTO(leaves, profile.fullName, getPTOAccrualDate(profile))} remaining days × daily rate (monthly salary ÷ 22)
                   </p>
                 </div>
-                <p className="text-lg font-bold text-emerald-800">{formatMoney(db.getFinalLeavePayout(profile), profile.region)}</p>
+                <p className="text-lg font-bold text-emerald-800">{formatMoney(getFinalLeavePayout(profile, leaves), profile.region)}</p>
               </div>
 
               <div className="space-y-2">
@@ -573,7 +665,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
         onClose={() => setShowOffboardConfirm(false)}
         onConfirm={confirmOffboard}
         title="Offboard this employee?"
-        message={`This will deactivate ${profile.fullName}'s account and immediately block all access to the workspace. A final PTO/Sick bank payout of ${formatMoney(db.getFinalLeavePayout(profile), profile.region)} will be recorded. Their record stays in the system as "Offboarded" and can be reactivated later.`}
+        message={`This will deactivate ${profile.fullName}'s account and immediately block all access to the workspace. A final PTO/Sick bank payout of ${formatMoney(getFinalLeavePayout(profile, leaves), profile.region)} will be recorded. Their record stays in the system as "Offboarded" and can be reactivated later.`}
         confirmLabel="Yes, Offboard"
         variant="warning"
       />
@@ -583,7 +675,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
         onClose={() => !isDeleting && setShowDeleteConfirm(false)}
         onConfirm={confirmDeletePermanently}
         title="Permanently delete this account?"
-        message={`This will completely and irreversibly remove ${profile.fullName}'s profile from the database, including all history, salary records, and clearance status. This cannot be undone.`}
+        message={`This will completely and irreversibly purge ${profile.fullName} from the database: profile, uploaded documents (CV/passport/ID), payroll history, leave applications, tasks, tickets, timesheets, screenshots, and their tracking device access. This cannot be undone — make sure you've downloaded a copy first.`}
         confirmLabel={isDeleting ? 'Deleting…' : 'Delete Permanently'}
         variant="danger"
         requireTextMatch="DELETE"

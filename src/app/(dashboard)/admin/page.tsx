@@ -7,18 +7,19 @@ import { Modal } from '@/components/ui/Modal';
 import { OrgCalendar } from '@/components/ui/OrgCalendar';
 import { TaskModal } from '@/components/ui/TaskModal';
 import { DollarSign, TrendingUp, Users, Clock, ClipboardList, CheckCircle2, AlertTriangle, PlusCircle } from 'lucide-react';
-import { db, LeaveApplication, Profile, Task, formatMoney } from '@/lib/db';
 import { useRouter } from 'next/navigation';
+import { useProfiles, useLeaves, useTasks, useAnnouncements, useWarehouses, usePayroll, hrActions, formatMoney } from '@/lib/hrData';
 
 export default function AdminDashboard() {
   const router = useRouter();
-  const [employees, setEmployees] = useState<Profile[]>([]);
-  const [leaves, setLeaves] = useState<LeaveApplication[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const { data: employees = [] } = useProfiles();
+  const { data: leaves = [], refetch: refetchLeaves } = useLeaves();
+  const { data: payrollRecords = [] } = usePayroll();
+  const { data: tasks = [], refetch: refetchTasks } = useTasks();
   const [isTaskOpen, setIsTaskOpen] = useState(false);
 
-  const [announcements, setAnnouncements] = useState<any[]>([]);
-  const [warehouses, setWarehouses] = useState<any[]>([]);
+  const { data: announcements = [], refetch: refetchAnnouncements } = useAnnouncements();
+  const { data: warehouses = [] } = useWarehouses();
   const [isAnnounceOpen, setIsAnnounceOpen] = useState(false);
 
   // Announcement form states
@@ -29,14 +30,9 @@ export default function AdminDashboard() {
   const [annSuccess, setAnnSuccess] = useState('');
 
   useEffect(() => {
-    setEmployees(db.getEmployees());
-    setLeaves(db.getLeaves());
-    setTasks(db.getTasks());
-    setAnnouncements(db.getAnnouncements());
-    setWarehouses(db.getWarehouses());
     // Monthly screenshot retention sweep — no-ops if already checked this
-    // month or nothing is due; see checkScreenshotRetention in db.ts.
-    db.checkScreenshotRetention();
+    // month or nothing is due; see checkScreenshotRetention in hrData.ts.
+    hrActions.checkScreenshotRetention();
   }, []);
 
   const handleAnnouncementSubmit = async (e: React.FormEvent) => {
@@ -44,8 +40,8 @@ export default function AdminDashboard() {
     if (!annTitle.trim() || !annContent.trim()) return;
 
     const targetVal = annTargetType === 'warehouses' ? annSelectedWarehouses : annTargetType;
-    await db.addAnnouncement(annTitle, annContent, targetVal, 'CEO Admin');
-    setAnnouncements(db.getAnnouncements());
+    await hrActions.addAnnouncement(annTitle, annContent, targetVal, 'CEO Admin');
+    refetchAnnouncements();
     setAnnSuccess('Announcement posted successfully!');
 
     setTimeout(() => {
@@ -59,27 +55,36 @@ export default function AdminDashboard() {
   };
 
   const handleCEOAction = async (id: string, action: 'approve' | 'reject') => {
-    const updated: LeaveApplication[] = await Promise.all(leaves.map(async l => {
-      if (l.id !== id) return l;
-      const nextStatus: LeaveApplication['status'] = action === 'approve' ? 'approved' : 'rejected';
-      const employees = db.getEmployees();
+    const nextStatus = action === 'approve' ? 'approved' : 'rejected';
+
+    await hrActions.updateLeaveStatus(id, nextStatus);
+
+    const l = leaves.find(lv => lv.id === id);
+    if (l) {
       const emp = employees.find(e => e.fullName === l.employeeName);
-      if (emp) await db.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was ${action === 'approve' ? 'approved' : 'rejected'} by CEO.`);
-      await db.addNotification('all', 'hr', `CEO ${action === 'approve' ? 'approved' : 'rejected'} leave for ${l.employeeName}.`);
-      return { ...l, status: nextStatus };
-    }));
-    setLeaves(updated);
-    db.saveLeaves(updated);
+      if (emp) {
+        await hrActions.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was ${action === 'approve' ? 'approved' : 'rejected'} by CEO.`);
+      }
+      await hrActions.addNotification('all', 'hr', `CEO ${action === 'approve' ? 'approved' : 'rejected'} leave for ${l.employeeName}.`);
+    }
+
+    refetchLeaves();
   };
 
   // Derived stats — USA (USD) and Pakistan (PKR) salaries must never be
   // summed into a single number, so this stays split by currency.
-  const totalPayrollUSD = employees
+  // Uses the exact same computation as the Payroll & Salary page (base
+  // salary + bonus - deductions, employee/team_lead roles only) so the two
+  // pages never disagree — previously this summed raw baseSalary across
+  // every profile (including HR/Admin) with no bonus/deduction adjustment,
+  // which didn't match the real payroll totals.
+  const compiledPayroll = hrActions.computePayrollView(employees, payrollRecords, leaves);
+  const totalPayrollUSD = compiledPayroll
     .filter(emp => emp.region === 'USA')
-    .reduce((acc, emp) => acc + db.calculateCurrentSalary(emp), 0);
-  const totalPayrollPKR = employees
+    .reduce((acc, emp) => acc + (emp.baseSalary + emp.bonus - emp.deductions), 0);
+  const totalPayrollPKR = compiledPayroll
     .filter(emp => emp.region !== 'USA')
-    .reduce((acc, emp) => acc + db.calculateCurrentSalary(emp), 0);
+    .reduce((acc, emp) => acc + (emp.baseSalary + emp.bonus - emp.deductions), 0);
   const hrApprovedLeaves = leaves.filter(l => l.status === 'hr_approved');
   const activeTasks = tasks.filter(t => t.status !== 'done').length;
   const highPriorityTasks = tasks.filter(t => t.priority === 'high' && t.status !== 'done').length;
@@ -179,7 +184,7 @@ export default function AdminDashboard() {
           <p className="text-xs text-slate-500 mt-0.5">Leave schedules, task deadlines, and conflict indicators across all departments.</p>
         </div>
         <div className="p-4 md:p-6">
-          <OrgCalendar leaves={leaves} tasks={tasks} employees={employees} />
+          <OrgCalendar leaves={leaves as any} tasks={tasks as any} employees={employees} />
         </div>
       </Card>
 
@@ -392,7 +397,7 @@ export default function AdminDashboard() {
         onClose={() => setIsTaskOpen(false)}
         employees={employees.filter(e => e.role === 'employee' || e.isTeamLead)}
         createdBy="admin"
-        onTaskAdded={task => setTasks(prev => [task, ...prev])}
+        onTaskAdded={() => refetchTasks()}
       />
     </div>
   );

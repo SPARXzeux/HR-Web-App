@@ -1,17 +1,23 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
-import { db, Profile } from '@/lib/db';
 import { PasswordInput } from '@/components/ui/PasswordInput';
+import { AvatarCropperModal } from '@/components/ui/AvatarCropperModal';
 import {
-  User, Mail, Briefcase, Calendar, ShieldCheck, KeyRound, CheckCircle2, AlertCircle, Edit2
+  User, Mail, Briefcase, Calendar, ShieldCheck, KeyRound, CheckCircle2, AlertCircle, Edit2, Camera
 } from 'lucide-react';
+import { useProfiles, hrActions } from '@/lib/hrData';
 
 export default function AdminProfilePage() {
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [hrProfile, setHrProfile] = useState<Profile | null>(null);
+  const { data: employees = [], refetch: refetchProfiles } = useProfiles();
+
+  // Profile picture upload
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingPhotoFile, setPendingPhotoFile] = useState<File | null>(null);
+  const [photoError, setPhotoError] = useState('');
+  const [photoSuccess, setPhotoSuccess] = useState('');
 
   // Password reset states
   const [isResetOpen, setIsResetOpen] = useState(false);
@@ -29,18 +35,13 @@ export default function AdminProfilePage() {
   const [editTitle, setEditTitle] = useState('');
   const [editSuccess, setEditSuccess] = useState('');
 
-  const loadProfiles = () => {
-    const email = localStorage.getItem('user_email');
-    const employees = db.getEmployees();
-    const p = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
-    const hr = employees.find(e => e.email && e.email.toLowerCase() === 'hr@delcargo.us');
-    if (p) setProfile(p);
-    if (hr) setHrProfile(hr);
-  };
-
+  const [email, setEmail] = useState<string | null>(null);
   useEffect(() => {
-    loadProfiles();
+    setEmail(localStorage.getItem('user_email'));
   }, []);
+
+  const profile = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase()) || null;
+  const hrProfile = employees.find(e => e.email && e.email.toLowerCase() === 'hr@delcargo.us') || null;
 
   // Update Edit inputs when target changes
   useEffect(() => {
@@ -52,7 +53,34 @@ export default function AdminProfilePage() {
     }
   }, [targetEmail, profile, hrProfile]);
 
-  const handleResetSubmit = (e: React.FormEvent) => {
+  const handlePhotoInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setPhotoError('Please choose an image file.');
+      setTimeout(() => setPhotoError(''), 3000);
+      return;
+    }
+    setPendingPhotoFile(file);
+  };
+
+  const handlePhotoSave = async (webpDataUrl: string) => {
+    if (!profile?.id) return;
+    try {
+      await hrActions.updateProfileDetails(profile.id, { profilePicture: webpDataUrl });
+      await refetchProfiles();
+      setPendingPhotoFile(null);
+      setPhotoSuccess('Profile picture updated!');
+      setTimeout(() => setPhotoSuccess(''), 2000);
+    } catch (err) {
+      console.error('[Admin Profile] Photo update error:', err);
+      setPhotoError('Failed to save profile picture.');
+      setTimeout(() => setPhotoError(''), 3000);
+    }
+  };
+
+  const handleResetSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setResetError('');
     setResetSuccess('');
@@ -74,27 +102,34 @@ export default function AdminProfilePage() {
       return;
     }
 
-    const email = localStorage.getItem('user_email');
-    if (email) {
-      db.resetPassword(email, newPass);
-      loadProfiles();
-      setResetSuccess('Password updated successfully!');
-      setCurrentPass(''); setNewPass(''); setConfirmPass('');
-      setTimeout(() => { setIsResetOpen(false); setResetSuccess(''); }, 1400);
+    if (profile) {
+      try {
+        await hrActions.resetPassword(profile.id, newPass);
+        refetchProfiles();
+        setResetSuccess('Password updated successfully!');
+        setCurrentPass(''); setNewPass(''); setConfirmPass('');
+        setTimeout(() => { setIsResetOpen(false); setResetSuccess(''); }, 1400);
+      } catch (err) {
+        console.error('[Admin Profile] Password update error:', err);
+        setResetError('Failed to update password. Please try again.');
+      }
     }
   };
 
-  const handleEditSubmit = (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editName) return;
 
-    db.updateProfileDetails(targetEmail, {
-      fullName: editName,
-      gender: editGender,
-      jobTitle: editTitle
-    });
+    const target = targetEmail === 'admin@delcargo.us' ? profile : hrProfile;
+    if (target) {
+      await hrActions.updateProfileDetails(target.id, {
+        fullName: editName,
+        gender: editGender,
+        jobTitle: editTitle
+      });
+    }
 
-    loadProfiles();
+    refetchProfiles();
     setEditSuccess('Profile updated successfully!');
     setTimeout(() => {
       setIsEditOpen(false);
@@ -113,11 +148,11 @@ export default function AdminProfilePage() {
   const joined = new Date(profile.joinedDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
   const infoRows = [
-    { icon: Mail,      label: 'Email Address',       value: profile.email },
+    { icon: Mail, label: 'Email Address', value: profile.email },
     { icon: Briefcase, label: 'Designation / Title', value: profile.jobTitle || 'System Administrator' },
-    { icon: User,      label: 'Gender / Pronouns',   value: profile.gender ? (profile.gender.charAt(0).toUpperCase() + profile.gender.slice(1)) : 'Male' },
-    { icon: Calendar,  label: 'Joined Date',         value: joined },
-    { icon: ShieldCheck, label: 'Security Role',      value: 'System Administrator' },
+    { icon: User, label: 'Gender / Pronouns', value: profile.gender ? (profile.gender.charAt(0).toUpperCase() + profile.gender.slice(1)) : 'Male' },
+    { icon: Calendar, label: 'Joined Date', value: joined },
+    { icon: ShieldCheck, label: 'Security Role', value: 'System Administrator' },
   ];
 
   return (
@@ -144,17 +179,27 @@ export default function AdminProfilePage() {
         <div className="h-24 bg-gradient-to-r from-orange-600 to-orange-500" />
         <div className="px-6 pb-6">
           <div className="-mt-10 mb-4 flex items-end justify-between">
-            {profile.profilePicture ? (
-              <img 
-                src={profile.profilePicture} 
-                alt="Profile" 
-                className="h-20 w-20 rounded-full bg-white border-4 border-white shadow-md object-cover"
-              />
-            ) : (
-              <div className="h-20 w-20 rounded-full bg-white border-4 border-white shadow-md flex items-center justify-center text-2xl font-bold text-orange-600 bg-orange-50">
-                {profile.fullName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
-              </div>
-            )}
+            <div className="relative group">
+              {profile.profilePicture ? (
+                <img
+                  src={profile.profilePicture}
+                  alt="Profile"
+                  className="h-20 w-20 rounded-full bg-white border-4 border-white shadow-md object-cover"
+                />
+              ) : (
+                <div className="h-20 w-20 rounded-full bg-white border-4 border-white shadow-md flex items-center justify-center text-2xl font-bold text-orange-600 bg-orange-50">
+                  {profile.fullName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
+                </div>
+              )}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                title="Change profile picture"
+                className="absolute bottom-0 right-0 h-7 w-7 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center shadow-md border-2 border-white transition-all active:scale-90"
+              >
+                <Camera className="h-3.5 w-3.5" />
+              </button>
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handlePhotoInputChange} className="hidden" />
+            </div>
             <div className="flex gap-2">
               <button
                 onClick={() => setIsResetOpen(true)}
@@ -164,6 +209,13 @@ export default function AdminProfilePage() {
               </button>
             </div>
           </div>
+
+          {(photoError || photoSuccess) && (
+            <div className={`mb-3 p-2.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 ${photoError ? 'bg-rose-50 text-rose-600 border border-rose-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
+              {photoError ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              {photoError || photoSuccess}
+            </div>
+          )}
 
           <h2 className="text-xl font-bold text-slate-900">{profile.fullName}</h2>
           <div className="flex items-center gap-2 mt-1">
@@ -309,6 +361,8 @@ export default function AdminProfilePage() {
           </button>
         </form>
       </Modal>
+
+      <AvatarCropperModal file={pendingPhotoFile} onClose={() => setPendingPhotoFile(null)} onSave={handlePhotoSave} />
     </div>
   );
 }

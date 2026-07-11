@@ -3,13 +3,16 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { db, LeaveApplication } from '@/lib/db';
-import { CheckCircle2, GripVertical, Clock, XCircle, BarChart3, List, Download } from 'lucide-react';
+import { hrActions, LeaveApplication, Profile, useLeaves, useProfiles } from '@/lib/hrData';
+import { CheckCircle2, GripVertical, Clock, XCircle, BarChart3, List, Download, Lock } from 'lucide-react';
 
-const COLUMNS: { key: LeaveApplication['status']; label: string; headerBg: string }[] = [
+const COLUMNS: { key: LeaveApplication['status']; label: string; headerBg: string; locked?: boolean }[] = [
   { key: 'pending',     label: 'Pending Review',       headerBg: 'bg-amber-50 border-amber-200'   },
   { key: 'hr_approved', label: 'HR Approved → CEO',    headerBg: 'bg-blue-50 border-blue-200'     },
-  { key: 'approved',    label: 'CEO Approved',         headerBg: 'bg-emerald-50 border-emerald-200'},
+  // Dropping here is blocked in handleDrop — final approval is a CEO/Admin
+  // decision made from the Admin dashboard's CEO Approval Queue, not
+  // something HR grants by dragging a card on their own board.
+  { key: 'approved',    label: 'CEO Approved',         headerBg: 'bg-emerald-50 border-emerald-200', locked: true },
   { key: 'rejected',    label: 'Rejected (Re-open ↩)', headerBg: 'bg-rose-50 border-rose-200'     },
 ];
 
@@ -29,10 +32,12 @@ const STATUS_BADGE: Record<LeaveApplication['status'], { variant: string; label:
 type TabView = 'kanban' | 'history';
 
 export default function HRLeavesPage() {
-  const [leaves, setLeaves] = useState<LeaveApplication[]>([]);
+  const { data: leaves = [], refetch: refetchLeaves } = useLeaves();
+  const { data: employees = [] } = useProfiles();
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<LeaveApplication['status'] | null>(null);
   const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<TabView>('kanban');
 
@@ -41,7 +46,6 @@ export default function HRLeavesPage() {
   const [histType, setHistType] = useState<'all' | 'PTO' | 'Sick Leave' | 'Urgent'>('all');
 
   useEffect(() => {
-    setLeaves(db.getLeaves());
     const handleSearch = (e: Event) => setSearchQuery((e as CustomEvent).detail || '');
     window.addEventListener('globalSearch', handleSearch);
     return () => window.removeEventListener('globalSearch', handleSearch);
@@ -63,30 +67,53 @@ export default function HRLeavesPage() {
     const id = e.dataTransfer.getData('text/plain');
     if (!id) return;
 
-    const leaf = leaves.find(l => l.id === id);
+    const leaf = leaves.find((l: any) => l.id === id);
     if (!leaf || leaf.status === targetStatus) { setDragId(null); setOverCol(null); return; }
 
-    const updated: LeaveApplication[] = await Promise.all(leaves.map(async l => {
-      if (l.id !== id) return l;
-      if (targetStatus === 'hr_approved') {
-        await db.addNotification('all', 'admin', `CEO approval required: HR approved leave for ${l.employeeName}.`);
-      } else if (targetStatus === 'approved') {
-        const emps = db.getEmployees();
-        const emp = emps.find(e => e.fullName === l.employeeName);
-        if (emp) await db.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was fully approved.`);
-        await db.addNotification('all', 'hr', `Leave for ${l.employeeName} approved by CEO.`);
-      } else if (targetStatus === 'rejected') {
-        const emps = db.getEmployees();
-        const emp = emps.find(e => e.fullName === l.employeeName);
-        if (emp) await db.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was rejected.`);
-      } else if (targetStatus === 'pending') {
-        await db.addNotification('all', 'hr', `Leave for ${l.employeeName} re-opened for reconsideration.`);
-      }
-      return { ...l, status: targetStatus };
-    }));
+    // Final approval is a CEO/Admin-only decision (see admin/leaves page's
+    // CEO Approval Queue) — HR forwards a request, they don't get to grant
+    // "CEO Approved" themselves just by dragging a card. Previously nothing
+    // stopped HR from dropping straight into this column, which silently
+    // fired the exact "fully approved" notification a real CEO decision
+    // sends, even though the CEO never approved anything.
+    if (targetStatus === 'approved') {
+      setDragId(null);
+      setOverCol(null);
+      setErrorMsg('Only Admin/CEO can grant final approval. Use "Send to CEO" — they\'ll approve or reject it from their dashboard.');
+      setTimeout(() => setErrorMsg(''), 3000);
+      return;
+    }
+    // Once it's in the CEO's queue, rejecting it is also the CEO's call —
+    // HR can still reject directly from "Pending" (before forwarding), just
+    // not override a request that's already awaiting CEO review.
+    if (targetStatus === 'rejected' && leaf.status === 'hr_approved') {
+      setDragId(null);
+      setOverCol(null);
+      setErrorMsg('This request is already with the CEO for review — only they can reject it now.');
+      setTimeout(() => setErrorMsg(''), 3000);
+      return;
+    }
 
-    setLeaves(updated);
-    db.saveLeaves(updated);
+    if (targetStatus === 'hr_approved') {
+      await hrActions.addNotification('all', 'admin', `CEO approval required: HR approved leave for ${leaf.employeeName}.`);
+      // This only ever notified 'admin' — the HR user who actually dragged
+      // the card got zero feedback in their own bell (only dropping into
+      // "CEO Approved" happened to also notify 'hr', which is why that one
+      // looked like it "worked" and this one looked broken). Every HR
+      // action should show up on the shared HR feed, same as every other
+      // action type in this app.
+      await hrActions.addNotification('all', 'hr', `Leave for ${leaf.employeeName} forwarded to CEO for approval.`);
+    } else if (targetStatus === 'rejected') {
+      const emp = employees.find((e: Profile) => e.fullName === leaf.employeeName);
+      if (emp) await hrActions.addNotification(emp.email, 'employee', `Your leave (${leaf.duration.split(' - ')[0]}) was rejected.`);
+      await hrActions.addNotification('all', 'hr', `Leave for ${leaf.employeeName} rejected by HR.`);
+    } else if (targetStatus === 'pending') {
+      await hrActions.addNotification('all', 'hr', `Leave for ${leaf.employeeName} re-opened for reconsideration.`);
+    }
+
+    await hrActions.updateLeaveStatus(id, targetStatus);
+    refetchLeaves();
+
     setDragId(null);
     setOverCol(null);
     setSuccessMsg('Leave status updated!');
@@ -155,6 +182,11 @@ export default function HRLeavesPage() {
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />{successMsg}
           </div>
         )}
+        {errorMsg && (
+          <div className="bg-rose-50 text-rose-800 border border-rose-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm animate-in fade-in duration-150 max-w-sm">
+            <XCircle className="h-4 w-4 text-rose-600 shrink-0" />{errorMsg}
+          </div>
+        )}
         </div>
       </div>
 
@@ -220,7 +252,10 @@ export default function HRLeavesPage() {
                 }`}
               >
                 <div className={`px-4 py-3 rounded-t-xl border-b ${col.headerBg} flex items-center justify-between`}>
-                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">{col.label}</span>
+                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    {col.label}
+                    {col.locked && <Lock className="h-3 w-3 text-slate-400" title="CEO/Admin decides this — see the Admin dashboard's CEO Approval Queue" />}
+                  </span>
                   <span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 rounded-full h-5 w-5 flex items-center justify-center">
                     {cards.length}
                   </span>
@@ -325,20 +360,31 @@ export default function HRLeavesPage() {
                           <div className="flex justify-center gap-2">
                             <button
                               onClick={async () => {
-                                const updated: LeaveApplication[] = leaves.map(lv => lv.id === l.id ? { ...lv, status: 'hr_approved' } : lv);
-                                setLeaves(updated);
-                                db.saveLeaves(updated);
-                                await db.addNotification('all', 'admin', `CEO approval required for ${l.employeeName}'s leave.`);
+                                await hrActions.updateLeaveStatus(l.id, 'hr_approved');
+                                refetchLeaves();
+                                await hrActions.addNotification('all', 'admin', `CEO approval required for ${l.employeeName}'s leave.`);
+                                // Same gap as the Kanban path — only 'admin' was
+                                // notified, so HR itself never saw confirmation
+                                // of its own action in the bell.
+                                await hrActions.addNotification('all', 'hr', `Leave for ${l.employeeName} forwarded to CEO for approval.`);
                                 setSuccessMsg('Sent to CEO!');
                                 setTimeout(() => setSuccessMsg(''), 1500);
                               }}
                               className="text-xs font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded transition-all active:scale-97"
                             >Send to CEO</button>
                             <button
-                              onClick={() => {
-                                const updated: LeaveApplication[] = leaves.map(lv => lv.id === l.id ? { ...lv, status: 'rejected' } : lv);
-                                setLeaves(updated);
-                                db.saveLeaves(updated);
+                              onClick={async () => {
+                                await hrActions.updateLeaveStatus(l.id, 'rejected');
+                                // This quick-action button previously updated the
+                                // status with no notification at all — the
+                                // employee had no way of finding out except by
+                                // checking the portal themselves. The Kanban
+                                // drag-to-reject path already notified; this
+                                // brings the History tab's button in line with it.
+                                const emp = employees.find((e: Profile) => e.fullName === l.employeeName);
+                                if (emp) await hrActions.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was rejected.`);
+                                await hrActions.addNotification('all', 'hr', `Leave for ${l.employeeName} rejected by HR.`);
+                                refetchLeaves();
                                 setSuccessMsg('Rejected!');
                                 setTimeout(() => setSuccessMsg(''), 1500);
                               }}
@@ -348,10 +394,10 @@ export default function HRLeavesPage() {
                         )}
                         {l.status === 'rejected' && (
                           <button
-                            onClick={() => {
-                              const updated: LeaveApplication[] = leaves.map(lv => lv.id === l.id ? { ...lv, status: 'pending' } : lv);
-                              setLeaves(updated);
-                              db.saveLeaves(updated);
+                            onClick={async () => {
+                              await hrActions.updateLeaveStatus(l.id, 'pending');
+                              await hrActions.addNotification('all', 'hr', `Leave for ${l.employeeName} re-opened for reconsideration.`);
+                              refetchLeaves();
                               setSuccessMsg('Re-opened for review!');
                               setTimeout(() => setSuccessMsg(''), 1500);
                             }}

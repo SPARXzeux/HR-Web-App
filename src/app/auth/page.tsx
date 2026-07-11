@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { useRouter } from 'next/navigation';
-import { db } from '@/lib/db';
+import { useProfiles } from '@/lib/hrData';
 import { ArrowLeft, Eye, EyeOff, Mail } from 'lucide-react';
 
 export default function AuthPage() {
@@ -16,38 +16,43 @@ export default function AuthPage() {
   const [error, setError] = useState('');
   const [isForgotOpen, setIsForgotOpen] = useState(false);
   const router = useRouter();
-
-  useEffect(() => {
-    // Warm up the database by syncing from Supabase immediately on mount
-    db.syncFromSupabase().catch(err => {
-      console.error('[Auth Sync] Pre-login database synchronization failed:', err);
-    });
-  }, []);
+  const { refetch: refetchProfiles } = useProfiles();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
-    setTimeout(() => {
-      setLoading(false);
+    try {
       let role: 'admin' | 'hr' | 'employee' | 'team_lead' | null = null;
 
-      const cleanEmail = email.trim().toLowerCase();
-      if (cleanEmail === 'admin@delcargo.us' && password === 'Aamir@123') {
+      let cleanEmail = email.trim().toLowerCase();
+      // Admin override — the login credential (studiozsparx@gmail.com) is a
+      // separate super-admin login and does NOT match any hr_profiles row,
+      // so the actual admin record's email (admin@delcargo.us) must be
+      // stored as the session identity. Otherwise every page that looks up
+      // the current user's profile by email (e.g. /admin/profile) finds
+      // nothing and gets stuck on "Loading profile…" forever.
+      if (cleanEmail === 'studiozsparx@gmail.com' && password === 'Fah123@123') {
         role = 'admin';
+        cleanEmail = 'admin@delcargo.us';
       } else if (cleanEmail === 'hr@delcargo.us' && password === 'HR@123') {
         role = 'hr';
       } else {
-        // Query the local database for employee accounts
-        const employees = db.getEmployees();
-        const profile = employees.find(emp => emp.email.toLowerCase() === cleanEmail);
-        if (profile && (profile.password === password || (!profile.password && password === 'employee123'))) {
+        // Fetch a fresh employee list on every login attempt (never rely on
+        // a stale in-memory cache for a security-sensitive check).
+        const { data: employees } = await refetchProfiles();
+        const profile = (employees || []).find(emp => emp.email.toLowerCase() === cleanEmail);
+        if (profile && (profile.password === password || (!profile.password && password === '123'))) {
+          // `offboarded` isn't a real hr_profiles column — useProfiles()
+          // already merges the per-profile KV overlay into each Profile, so
+          // profile.offboarded is available directly here.
           if (profile.offboarded) {
             setError('This account has been deactivated / offboarded.');
+            setLoading(false);
             return;
           }
-          role = profile.role;
+          role = profile.role as any;
         }
       }
 
@@ -59,8 +64,13 @@ export default function AuthPage() {
         router.push(`/${dashRoute}`);
       } else {
         setError('Invalid email or password.');
+        setLoading(false);
       }
-    }, 800);
+    } catch (err) {
+      console.error(err);
+      setError('An error occurred while logging in.');
+      setLoading(false);
+    }
   };
 
   return (
@@ -108,12 +118,6 @@ export default function AuthPage() {
             {error && (
               <div className="bg-rose-50 text-rose-600 p-3 rounded-lg text-sm font-semibold mb-4 border border-rose-100">
                 {error}
-              </div>
-            )}
-            {db.getLastSyncError() && (
-              <div className="bg-rose-50 text-rose-600 p-3 rounded-lg text-xs font-semibold mb-4 border border-rose-100 text-left">
-                ⚠️ Supabase Connection Issue:<br/>
-                <span className="font-mono text-[10px] mt-1 block text-rose-700 bg-white/50 p-1.5 rounded border border-rose-200/50">{db.getLastSyncError()}</span>
               </div>
             )}
 

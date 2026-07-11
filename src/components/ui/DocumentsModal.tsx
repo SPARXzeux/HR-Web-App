@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Modal } from '@/components/ui/Modal';
-import { Profile } from '@/lib/db';
+import { Profile } from '@/lib/hrData';
 import { FileText, Download, Eye } from 'lucide-react';
 
 interface DocumentsModalProps {

@@ -1,50 +1,64 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Bell, X, ShieldAlert } from 'lucide-react';
-import { Notification } from '@/lib/db';
+import { pb } from '@/lib/pocketbase';
 
-interface ToastMsg extends Notification {
+interface ToastMsg {
+  id: string;
+  message: string;
+  timestamp: string;
   visible: boolean;
 }
 
 export function ToastNotification() {
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
-    const handleNewPush = (e: Event) => {
-      const notif = (e as CustomEvent).detail as Notification;
+    pb.collection('hr_notifications').subscribe('*', function (e) {
+      if (e.action === 'create') {
+        const notif = e.record;
 
-      // RBAC check: every db.addNotification() call dispatches this event in
-      // whichever browser tab triggered it — e.g. HR closing a ticket also
-      // fires the employee's "your ticket was closed" notification in HR's
-      // own tab. Without this check, HR/Admin would see toasts meant for
-      // other people. Only pop a toast if it's actually addressed to the
-      // current viewer — same rule the notification bell uses.
-      const savedRole = localStorage.getItem('user_role');
-      const savedEmail = localStorage.getItem('user_email');
-      const isForMe =
-        notif.recipientEmail === savedEmail ||
-        (notif.recipientRole === savedRole && notif.recipientEmail === 'all');
-      if (!isForMe) return;
+        // This subscription already gets every new notification in real
+        // time — piggyback on it to invalidate the bell's query cache too,
+        // instead of leaving TopNav's unread count/list stuck at whatever it
+        // was when the layout first mounted (previously only a page reload
+        // or the 15s polling backstop would pick this up).
+        queryClient.invalidateQueries({ queryKey: ['hr_notifications'] });
 
-      const newToast: ToastMsg = { ...notif, visible: true };
+        const savedRole = localStorage.getItem('user_role');
+        const savedEmail = localStorage.getItem('user_email');
+        const isForMe =
+          notif.recipient_email === savedEmail ||
+          (notif.recipient_role === savedRole && notif.recipient_email === 'all');
+        if (!isForMe) return;
 
-      setToasts(prev => [...prev, newToast]);
+        const newToast: ToastMsg = {
+          id: notif.id,
+          message: notif.message,
+          timestamp: notif.created,
+          visible: true
+        };
 
-      // Auto fade out after 4 seconds
-      setTimeout(() => {
-        setToasts(prev => prev.map(t => t.id === notif.id ? { ...t, visible: false } : t));
-      }, 4000);
+        setToasts(prev => [...prev, newToast]);
 
-      // Remove from state array completely after fade transition completes
-      setTimeout(() => {
-        setToasts(prev => prev.filter(t => t.id !== notif.id));
-      }, 4500);
+        // Auto fade out after 4 seconds
+        setTimeout(() => {
+          setToasts(prev => prev.map(t => t.id === notif.id ? { ...t, visible: false } : t));
+        }, 4000);
+
+        // Remove from state array completely after fade transition completes
+        setTimeout(() => {
+          setToasts(prev => prev.filter(t => t.id !== notif.id));
+        }, 4500);
+      }
+    });
+
+    return () => {
+      pb.collection('hr_notifications').unsubscribe('*');
     };
-
-    window.addEventListener('newPushNotification', handleNewPush);
-    return () => window.removeEventListener('newPushNotification', handleNewPush);
   }, []);
 
   const dismissToast = (id: string) => {

@@ -16,7 +16,21 @@ set -e
 python3 -m pip install --upgrade pip
 pip3 install -r requirements.txt
 
-pyinstaller --onefile --windowed --name "DelCargo Tracker" agent_gui.py
+# Regenerates icon.icns / icon.png from "Tracker Icon.png" if present —
+# safe to skip (build still works, just without a custom icon) if you
+# haven't added a brand icon file yet.
+if [ -f "Tracker Icon.png" ]; then python3 generate_icons.py; fi
+
+ICON_FLAG=""
+if [ -f "icon.icns" ]; then ICON_FLAG='--icon icon.icns'; fi
+
+# --add-data bundles icon.png inside the app so the in-app window icon and
+# tray/menu-bar icon can find it at runtime via sys._MEIPASS (see
+# _app_icon_path() in agent_gui.py). Skipped if icon.png doesn't exist.
+DATA_FLAG=""
+if [ -f "icon.png" ]; then DATA_FLAG='--add-data icon.png:.'; fi
+
+pyinstaller --onefile --windowed --name "DelCargo Tracker" $ICON_FLAG $DATA_FLAG agent_gui.py
 
 echo ""
 echo "Build complete. Find it at dist/DelCargo Tracker.app"

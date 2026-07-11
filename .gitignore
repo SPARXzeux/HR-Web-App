@@ -39,3 +39,20 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# AI codebase-analysis dump — regenerable, not source
+repomix-output.xml
+
+# one-off migration/refactor scripts from earlier dev sessions — not part
+# of the app; keep locally if needed, no reason to track in git
+/fix_db_types.py
+/fix_db_types2.py
+/fix_tdz.py
+/refactor_ast.js
+/refactor_ast.ts
+/refactor_employee.py
+/refactor_safe.py
+/rewrite_agent.py
+/rewrite_db.py
+/seed_test.py
+/seed_test_employee.js

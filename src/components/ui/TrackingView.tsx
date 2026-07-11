@@ -1,12 +1,23 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
-import { db, Profile, TrackingSettings, TrackerHeartbeat, Screenshot } from '@/lib/db';
-import { encodeSetupCode, getSupabasePublicConfig, TRACKER_RELEASES_URL } from '@/lib/trackerSetup';
-import { Monitor, Settings, Image as ImageIcon, Download, Copy, RefreshCw, ShieldAlert, Wifi, WifiOff } from 'lucide-react';
+import {
+  Profile,
+  TrackingSettings,
+  TrackerHeartbeat,
+  Screenshot,
+  InactivityLog,
+  TimesheetEntry,
+  useProfiles,
+  useKVByPrefix,
+  useTimesheets,
+  hrActions,
+} from '@/lib/hrData';
+import { encodeSetupCode, getPocketBaseConfig, TRACKER_RELEASES_URL, POCKETBASE_URL } from '@/lib/trackerSetup';
+import { Monitor, Settings, Image as ImageIcon, Download, Copy, RefreshCw, ShieldAlert, Wifi, WifiOff, MousePointerClick, ZoomIn, ZoomOut, X, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
 
 interface TrackingViewProps {
   role: 'admin' | 'hr';
@@ -16,9 +27,6 @@ const AGENT_SCRIPT_PATH = '/delcargo_tracker_agent.py';
 const RELEASES_URL = TRACKER_RELEASES_URL;
 
 export function TrackingView({ role }: TrackingViewProps) {
-  const [employees, setEmployees] = useState<Profile[]>([]);
-  const [settingsList, setSettingsList] = useState<TrackingSettings[]>([]);
-  const [heartbeats, setHeartbeats] = useState<TrackerHeartbeat[]>([]);
   const [regionFilter, setRegionFilter] = useState<'All' | 'USA' | 'Pakistan'>('All');
 
   // Setup Agent modal
@@ -27,29 +35,67 @@ export function TrackingView({ role }: TrackingViewProps) {
 
   // Screenshot viewer modal
   const [viewerEmp, setViewerEmp] = useState<Profile | null>(null);
-  const [viewerRange, setViewerRange] = useState<'week' | 'month'>('week');
+  const [viewerRange, setViewerRange] = useState<'day' | 'week' | 'month'>('day');
+  // Which calendar day to show when viewerRange === 'day' — defaults to
+  // today, but HR/Admin can pick any past day to see that shift's activity.
+  const [viewerDay, setViewerDay] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [viewerShots, setViewerShots] = useState<Screenshot[]>([]);
   const [viewerLoading, setViewerLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  const loadData = useCallback(async () => {
-    const emps = db.getEmployees().filter(e => e.role === 'employee' || e.role === 'team_lead');
-    setEmployees(emps);
-    // Fresh (uncached) read on load — this table needs to reflect the real
-    // current enabled/disabled state (e.g. after an employee's Start/End
-    // Shift buttons flipped it elsewhere), not whatever this browser tab
-    // happened to have cached from an earlier visit.
-    setSettingsList(await db.getTrackingSettingsFresh());
-    setHeartbeats(await db.getAllTrackerHeartbeats());
-  }, []);
+  // Inactivity summary (loaded alongside screenshots for the same
+  // employee/range — see loadViewerData below).
+  const [viewerInactivity, setViewerInactivity] = useState<InactivityLog[]>([]);
+
+  // Screenshot lightbox — full-size view with zoom, opened from a thumbnail.
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [zoom, setZoom] = useState(1);
+
+  // Dedicated Mouse Activity modal — same Daily/Weekly/Monthly filter as the
+  // screenshot viewer, but a full detail view of inactivity data on its own
+  // (not just the compact summary embedded in the Screenshots modal).
+  const [mouseEmp, setMouseEmp] = useState<Profile | null>(null);
+  const [mouseRange, setMouseRange] = useState<'day' | 'week' | 'month'>('day');
+  const [mouseDay, setMouseDay] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [mouseLogs, setMouseLogs] = useState<InactivityLog[]>([]);
+  const [mouseLoading, setMouseLoading] = useState(false);
+
+  const { data: allProfiles } = useProfiles();
+  // Tracking settings live in a single hr_delcargo_store KV row (key
+  // hr_tracking_settings_prod_v1); useKVByPrefix's "~" filter matches it.
+  const { data: settingsRows, refetch: refetchSettings } = useKVByPrefix('hr_tracking_settings_prod_v1');
+  // Heartbeats are one KV row per device: tracker_heartbeat_<slug>. React
+  // Query's own refetchInterval/staleness handles freshness here; no manual
+  // refetch trigger is needed since this view doesn't mutate heartbeats.
+  const { data: heartbeatRows } = useKVByPrefix('tracker_heartbeat_');
+  // Needed to compute "Shift Time" / "Active Time" (shift minus inactivity)
+  // in the Mouse Activity modal below.
+  const { data: allTimesheets } = useTimesheets();
+
+  const employees = (allProfiles || []).filter(e => e.role === 'employee' || e.role === 'team_lead');
+  const settingsList = ((settingsRows || []).find(r => r.key === 'hr_tracking_settings_prod_v1')?.value as TrackingSettings[]) || [];
+  const heartbeats = (heartbeatRows || []).map(r => r.value as TrackerHeartbeat);
 
   useEffect(() => {
-    loadData();
     // Monthly retention sweep — fire-and-forget, runs once per HR/Admin
     // dashboard visit. Safe to call repeatedly; it no-ops once this month
-    // has already been checked (see checkScreenshotRetention in db.ts).
-    db.checkScreenshotRetention();
-  }, [loadData]);
+    // has already been checked (see checkScreenshotRetention in hrData.ts).
+    hrActions.checkScreenshotRetention();
+  }, []);
+
+  // Keyboard controls for the screenshot lightbox — Escape closes, arrow
+  // keys move between screenshots. Only attached while the lightbox is open.
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeLightbox();
+      else if (e.key === 'ArrowLeft') lightboxNav(-1);
+      else if (e.key === 'ArrowRight') lightboxNav(1);
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lightboxIndex, viewerShots.length]);
 
   const heartbeatFor = (email: string): TrackerHeartbeat | null =>
     heartbeats.find(h => h.employeeEmail?.toLowerCase() === email.toLowerCase()) || null;
@@ -59,28 +105,29 @@ export function TrackingView({ role }: TrackingViewProps) {
     || { employeeEmail: email, enabled: false, intervalMinutes: 15, excludeFromAutoDelete: false, agentToken: '' };
 
   const handleToggle = async (email: string, enabled: boolean) => {
-    const updated = await db.updateTrackingSettings(email, { enabled });
-    setSettingsList(updated);
+    await hrActions.updateTrackingSettings(email, { enabled });
+    refetchSettings();
   };
 
   const handleIntervalChange = async (email: string, minutes: number) => {
-    if (minutes <= 0) return;
-    const updated = await db.updateTrackingSettings(email, { intervalMinutes: minutes });
-    setSettingsList(updated);
+    // 1 minute is the enforced floor — matches the agent's own safety-net
+    // clamp (see tracker-agent/agent_gui.py / public/delcargo_tracker_agent.py).
+    if (!Number.isFinite(minutes) || minutes < 1) return;
+    await hrActions.updateTrackingSettings(email, { intervalMinutes: minutes });
+    refetchSettings();
   };
 
   const handleExcludeToggle = async (email: string, excludeFromAutoDelete: boolean) => {
-    const updated = await db.updateTrackingSettings(email, { excludeFromAutoDelete });
-    setSettingsList(updated);
+    await hrActions.updateTrackingSettings(email, { excludeFromAutoDelete });
+    refetchSettings();
   };
 
   const handleOpenSetup = async (emp: Profile) => {
     setCopied(false);
-    let settings = settingsFor(emp.email);
+    const settings = settingsFor(emp.email);
     if (!settings.agentToken) {
-      const updated = await db.updateTrackingSettings(emp.email, {});
-      setSettingsList(updated);
-      settings = updated.find(s => s.employeeEmail.toLowerCase() === emp.email.toLowerCase()) || settings;
+      await hrActions.updateTrackingSettings(emp.email, {});
+      await refetchSettings();
     }
     setSetupEmp(emp);
   };
@@ -88,20 +135,20 @@ export function TrackingView({ role }: TrackingViewProps) {
   const handleRegenerateToken = async (email: string) => {
     const confirmed = window.confirm('Regenerating the token will disconnect the currently installed agent until it is reconfigured with the new token. Continue?');
     if (!confirmed) return;
-    await db.regenerateAgentToken(email);
-    setSettingsList(db.getTrackingSettings());
+    await hrActions.regenerateAgentToken(email);
+    refetchSettings();
   };
 
   const copyConfig = (settings: TrackingSettings) => {
-    const config = `SUPABASE_URL=${process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://pftbzajbfelexyyhqmef.supabase.co'}\nSUPABASE_ANON_KEY=${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_fqs9oSIYNtzkhqOa-xzAjg_9DxUGbAI'}\nAGENT_TOKEN=${settings.agentToken}`;
+    const config = `POCKETBASE_URL=${POCKETBASE_URL}\nAGENT_TOKEN=${settings.agentToken}`;
     navigator.clipboard.writeText(config);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const copySetupCode = (settings: TrackingSettings) => {
-    const { url, key } = getSupabasePublicConfig();
-    const code = encodeSetupCode(url, key, settings.agentToken);
+    const { url } = getPocketBaseConfig();
+    const code = encodeSetupCode(url, settings.agentToken);
     navigator.clipboard.writeText(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -109,27 +156,153 @@ export function TrackingView({ role }: TrackingViewProps) {
 
   const handleOpenViewer = async (emp: Profile) => {
     setViewerEmp(emp);
-    setViewerRange('week');
-    await loadViewerShots(emp.email, 'week');
+    setViewerRange('day');
+    const today = new Date().toISOString().split('T')[0];
+    setViewerDay(today);
+    await loadViewerData(emp.email, 'day', today);
   };
 
-  const loadViewerShots = async (email: string, range: 'week' | 'month') => {
+  // Computes the [since, until) window for the current range/day selection.
+  // 'day' is a single calendar day in the browser's local timezone (matches
+  // a single shift), 'week'/'month' are the existing rolling windows.
+  const computeWindow = (range: 'day' | 'week' | 'month', day: string): { since: Date; until: Date } => {
+    if (range === 'day') {
+      const since = new Date(`${day}T00:00:00`);
+      const until = new Date(since);
+      until.setDate(until.getDate() + 1);
+      return { since, until };
+    }
+    const now = new Date();
+    const since = new Date(now);
+    if (range === 'week') since.setDate(now.getDate() - 7);
+    else since.setMonth(now.getMonth() - 1);
+    return { since, until: now };
+  };
+
+  const loadViewerData = async (email: string, range: 'day' | 'week' | 'month', day: string) => {
     setViewerLoading(true);
     try {
-      const now = new Date();
-      const since = new Date(now);
-      if (range === 'week') since.setDate(now.getDate() - 7);
-      else since.setMonth(now.getMonth() - 1);
-      const shots = await db.getScreenshots({ employeeEmail: email, sinceISO: since.toISOString() });
+      const { since, until } = computeWindow(range, day);
+      const [shots, inactivity] = await Promise.all([
+        hrActions.getScreenshots({ employeeEmail: email, sinceISO: since.toISOString(), untilISO: until.toISOString() }),
+        hrActions.getInactivityLogs({ employeeEmail: email, sinceISO: since.toISOString(), untilISO: until.toISOString() }),
+      ]);
       setViewerShots(shots);
+      setViewerInactivity(inactivity);
     } finally {
       setViewerLoading(false);
     }
   };
 
-  const handleRangeChange = (range: 'week' | 'month') => {
+  const handleRangeChange = (range: 'day' | 'week' | 'month') => {
     setViewerRange(range);
-    if (viewerEmp) loadViewerShots(viewerEmp.email, range);
+    if (viewerEmp) loadViewerData(viewerEmp.email, range, viewerDay);
+  };
+
+  const handleDayChange = (day: string) => {
+    setViewerDay(day);
+    if (viewerEmp) loadViewerData(viewerEmp.email, 'day', day);
+  };
+
+  const totalInactiveSeconds = viewerInactivity.reduce((sum, l) => sum + l.durationSeconds, 0);
+
+  const formatDuration = (seconds: number): string => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.round((seconds % 3600) / 60);
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+  };
+
+  // ── Dedicated Mouse Activity modal ───────────────────────────────────────
+  const handleOpenMouseView = async (emp: Profile) => {
+    setMouseEmp(emp);
+    setMouseRange('day');
+    const today = new Date().toISOString().split('T')[0];
+    setMouseDay(today);
+    await loadMouseData(emp.email, 'day', today);
+  };
+
+  const loadMouseData = async (email: string, range: 'day' | 'week' | 'month', day: string) => {
+    setMouseLoading(true);
+    try {
+      const { since, until } = computeWindow(range, day);
+      const logs = await hrActions.getInactivityLogs({ employeeEmail: email, sinceISO: since.toISOString(), untilISO: until.toISOString() });
+      setMouseLogs(logs);
+    } finally {
+      setMouseLoading(false);
+    }
+  };
+
+  const handleMouseRangeChange = (range: 'day' | 'week' | 'month') => {
+    setMouseRange(range);
+    if (mouseEmp) loadMouseData(mouseEmp.email, range, mouseDay);
+  };
+
+  const handleMouseDayChange = (day: string) => {
+    setMouseDay(day);
+    if (mouseEmp) loadMouseData(mouseEmp.email, 'day', day);
+  };
+
+  const mouseTotalSeconds = mouseLogs.reduce((sum, l) => sum + l.durationSeconds, 0);
+  const mouseLongestSeconds = mouseLogs.reduce((max, l) => Math.max(max, l.durationSeconds), 0);
+  const mouseAvgSeconds = mouseLogs.length > 0 ? Math.round(mouseTotalSeconds / mouseLogs.length) : 0;
+
+  // Total clocked-in shift time for one employee that overlaps a given
+  // [since, until) window — sums the overlap of each timesheet entry rather
+  // than a simple date-field filter, so a shift that starts before/ends
+  // after the window boundary (e.g. spans midnight) is only counted for the
+  // portion actually inside the window. An open (still clocked-in) shift
+  // counts up to "now".
+  const getShiftSecondsInRange = (timesheets: TimesheetEntry[], email: string, since: Date, until: Date): number => {
+    const now = new Date();
+    return timesheets
+      .filter(t => t.employeeEmail.toLowerCase() === email.toLowerCase())
+      .reduce((sum, t) => {
+        const start = new Date(t.clockIn);
+        const end = t.clockOut ? new Date(t.clockOut) : now;
+        const overlapStart = start > since ? start : since;
+        const overlapEnd = end < until ? end : until;
+        const seconds = (overlapEnd.getTime() - overlapStart.getTime()) / 1000;
+        return sum + (seconds > 0 ? seconds : 0);
+      }, 0);
+  };
+
+  const mouseWindow = mouseEmp ? computeWindow(mouseRange, mouseDay) : null;
+  const mouseShiftSeconds = mouseEmp && mouseWindow
+    ? getShiftSecondsInRange(allTimesheets || [], mouseEmp.email, mouseWindow.since, mouseWindow.until)
+    : 0;
+  // Active time = time actually clocked in minus the mouse-inactive stretches
+  // within it. Floored at 0 in case inactivity data ever exceeds recorded
+  // shift time (e.g. a shift edited/approved after capture).
+  const mouseActiveSeconds = Math.max(0, mouseShiftSeconds - mouseTotalSeconds);
+
+  // Groups logs by calendar day (local time) so Weekly/Monthly views can
+  // still answer "when" clearly, not just a flat list — each day shows its
+  // own subtotal plus every interval within it.
+  const mouseLogsByDay = (): { day: string; logs: InactivityLog[]; totalSeconds: number }[] => {
+    const groups: Record<string, InactivityLog[]> = {};
+    mouseLogs.forEach(log => {
+      const key = new Date(log.startAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+      (groups[key] = groups[key] || []).push(log);
+    });
+    return Object.entries(groups)
+      .map(([day, logs]) => ({ day, logs, totalSeconds: logs.reduce((s, l) => s + l.durationSeconds, 0) }))
+      .sort((a, b) => new Date(b.logs[0].startAt).getTime() - new Date(a.logs[0].startAt).getTime());
+  };
+
+  const openLightbox = (index: number) => {
+    setLightboxIndex(index);
+    setZoom(1);
+  };
+  const closeLightbox = () => setLightboxIndex(null);
+  const zoomIn = () => setZoom(z => Math.min(4, Math.round((z + 0.5) * 10) / 10));
+  const zoomOut = () => setZoom(z => Math.max(1, Math.round((z - 0.5) * 10) / 10));
+  const lightboxNav = (delta: number) => {
+    if (lightboxIndex === null) return;
+    const next = lightboxIndex + delta;
+    if (next < 0 || next >= viewerShots.length) return;
+    setLightboxIndex(next);
+    setZoom(1);
   };
 
   const handleExportZip = async () => {
@@ -139,13 +312,20 @@ export function TrackingView({ role }: TrackingViewProps) {
       const JSZip = (await import('jszip')).default;
       const zip = new JSZip();
       const manifestRows = ['Timestamp,Filename'];
-      viewerShots.forEach((s, i) => {
+      // imageUrl is either a data: URL (legacy captures) or a real
+      // PocketBase file URL (current captures) — fetch() handles both
+      // uniformly, so we no longer need to special-case base64 extraction.
+      await Promise.all(viewerShots.map(async (s, i) => {
         const ts = new Date(s.timestamp);
-        const filename = `${ts.toISOString().replace(/[:.]/g, '-')}_${i}.jpg`;
-        const base64Data = s.imageData.split(',')[1] || s.imageData;
-        zip.file(filename, base64Data, { base64: true });
+        const res = await fetch(s.imageUrl);
+        const blob = await res.blob();
+        // Extension follows the actual file type — current captures are
+        // WebP (see agent_gui.py), legacy pre-migration captures are JPEG.
+        const ext = blob.type === 'image/webp' ? 'webp' : blob.type === 'image/png' ? 'png' : 'jpg';
+        const filename = `${ts.toISOString().replace(/[:.]/g, '-')}_${i}.${ext}`;
+        zip.file(filename, blob);
         manifestRows.push(`${s.timestamp},${filename}`);
-      });
+      }));
       zip.file('manifest.csv', manifestRows.join('\n'));
       const blob = await zip.generateAsync({ type: 'blob' });
       const url = URL.createObjectURL(blob);
@@ -198,7 +378,7 @@ export function TrackingView({ role }: TrackingViewProps) {
             It runs quietly in the background (system tray) and only captures while you&apos;ve toggled tracking on below and the employee is on a manually-started shift.
             Employees can now get their own setup code directly from their Shift Tracker page — you don&apos;t have to hand it to them, though the button below still works if you want to.
             Each employee&apos;s setup code only ever connects to their own account (the app confirms the resolved identity before connecting) and can&apos;t reveal or alter anyone else&apos;s.
-            Screenshots are stored via the Supabase free tier for small-scale testing; captured images older than 30 days are automatically deleted each month
+            Screenshots are stored on the DelCargo PocketBase server; captured images older than 30 days are automatically deleted each month
             (with a warning first), unless an employee is explicitly excluded below.
           </p>
         </CardContent>
@@ -222,7 +402,7 @@ export function TrackingView({ role }: TrackingViewProps) {
               {filteredEmployees.map(emp => {
                 const settings = settingsFor(emp.email);
                 const hb = heartbeatFor(emp.email);
-                const isLive = db.isHeartbeatLive(hb);
+                const isLive = hrActions.isHeartbeatLive(hb);
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4">
@@ -255,12 +435,14 @@ export function TrackingView({ role }: TrackingViewProps) {
                     <td className="px-6 py-4 text-center">
                       <input
                         type="number"
-                        min="0.1"
-                        step="0.1"
+                        min="1"
+                        step="1"
                         max="60"
                         value={settings.intervalMinutes}
                         onChange={(e) => handleIntervalChange(emp.email, Number(e.target.value))}
+                        onBlur={(e) => { if (Number(e.target.value) < 1) handleIntervalChange(emp.email, 1); }}
                         className="w-20 bg-slate-50 border border-slate-200 rounded-md py-1.5 px-2 text-center text-xs focus:border-orange-500 outline-none"
+                        title="Minimum 1 minute"
                       />
                     </td>
                     <td className="px-6 py-4 text-center">
@@ -284,6 +466,12 @@ export function TrackingView({ role }: TrackingViewProps) {
                           className="text-[10px] font-bold text-slate-650 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1.5"
                         >
                           <ImageIcon className="h-3.5 w-3.5" /> Screenshots
+                        </button>
+                        <button
+                          onClick={() => handleOpenMouseView(emp)}
+                          className="text-[10px] font-bold text-slate-650 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1.5"
+                        >
+                          <MousePointerClick className="h-3.5 w-3.5" /> Mouse Activity
                         </button>
                       </div>
                     </td>
@@ -325,11 +513,7 @@ export function TrackingView({ role }: TrackingViewProps) {
                   <span className="font-bold text-slate-800">Step 2.</span> Copy this one-time setup code and have them paste it into the app when it first opens.
                 </p>
                 <div className="bg-slate-900 text-slate-100 rounded-lg p-3 font-mono text-[10px] leading-relaxed overflow-x-auto break-all">
-                  {encodeSetupCode(
-                    process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://pftbzajbfelexyyhqmef.supabase.co',
-                    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_fqs9oSIYNtzkhqOa-xzAjg_9DxUGbAI',
-                    settings.agentToken
-                  )}
+                  {encodeSetupCode(getPocketBaseConfig().url, settings.agentToken)}
                 </div>
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button
@@ -351,8 +535,7 @@ export function TrackingView({ role }: TrackingViewProps) {
                 <summary className="text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer">Advanced: raw script (requires Python)</summary>
                 <div className="mt-2 space-y-2">
                   <div className="bg-slate-900 text-slate-100 rounded-lg p-3 font-mono text-[10px] leading-relaxed overflow-x-auto whitespace-pre">
-{`SUPABASE_URL=${process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://pftbzajbfelexyyhqmef.supabase.co'}
-SUPABASE_ANON_KEY=${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_fqs9oSIYNtzkhqOa-xzAjg_9DxUGbAI'}
+{`POCKETBASE_URL=${POCKETBASE_URL}
 AGENT_TOKEN=${settings.agentToken}`}
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -389,19 +572,36 @@ AGENT_TOKEN=${settings.agentToken}`}
         {viewerEmp && (
           <div className="space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
-                <button
-                  onClick={() => handleRangeChange('week')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewerRange === 'week' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
-                >
-                  Past Week
-                </button>
-                <button
-                  onClick={() => handleRangeChange('month')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewerRange === 'month' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
-                >
-                  Past Month
-                </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+                  <button
+                    onClick={() => handleRangeChange('day')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewerRange === 'day' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                  >
+                    Daily
+                  </button>
+                  <button
+                    onClick={() => handleRangeChange('week')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewerRange === 'week' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                  >
+                    Weekly
+                  </button>
+                  <button
+                    onClick={() => handleRangeChange('month')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewerRange === 'month' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                  >
+                    Monthly
+                  </button>
+                </div>
+                {viewerRange === 'day' && (
+                  <input
+                    type="date"
+                    value={viewerDay}
+                    max={new Date().toISOString().split('T')[0]}
+                    onChange={e => handleDayChange(e.target.value)}
+                    className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-orange-500"
+                  />
+                )}
               </div>
               <button
                 onClick={handleExportZip}
@@ -412,23 +612,291 @@ AGENT_TOKEN=${settings.agentToken}`}
               </button>
             </div>
 
+            {/* Mouse Inactivity Summary — total idle time + when it happened,
+                reported by the desktop agent (see agent_gui.py's
+                _inactivity_loop). Most meaningful on the Daily view (one
+                shift), but shown for Weekly/Monthly too. */}
+            {!viewerLoading && (
+              <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-3.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <MousePointerClick className="h-3.5 w-3.5" /> Mouse Inactivity (3+ min stretches)
+                  </span>
+                  <span className="text-xs font-bold text-amber-800">
+                    {viewerInactivity.length === 0 ? 'None recorded' : `${formatDuration(totalInactiveSeconds)} total`}
+                  </span>
+                </div>
+                {viewerInactivity.length > 0 && (
+                  <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
+                    {viewerInactivity.map(log => (
+                      <div key={log.id} className="flex items-center justify-between text-[10px] text-amber-700 font-semibold">
+                        <span>
+                          {new Date(log.startAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                          {' – '}
+                          {new Date(log.endAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                        </span>
+                        <span>{formatDuration(log.durationSeconds)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {viewerLoading ? (
               <p className="text-center text-slate-400 text-xs font-semibold py-10">Loading screenshots…</p>
             ) : viewerShots.length === 0 ? (
               <p className="text-center text-slate-400 text-xs font-semibold italic py-10">No screenshots captured in this period.</p>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[50vh] overflow-y-auto pr-1">
-                {viewerShots.map(shot => (
-                  <div key={shot.id} className="space-y-1">
-                    <img src={shot.imageData} alt="Screenshot" className="w-full h-24 object-cover rounded-lg border border-slate-200" />
+                {viewerShots.map((shot, idx) => (
+                  <button
+                    key={shot.id}
+                    onClick={() => openLightbox(idx)}
+                    className="space-y-1 text-left group"
+                  >
+                    <div className="relative overflow-hidden rounded-lg border border-slate-200 group-hover:border-orange-300 transition-colors">
+                      <img src={shot.imageUrl} alt="Screenshot" loading="lazy" className="w-full h-24 object-cover" />
+                      <div className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/30 transition-colors flex items-center justify-center">
+                        <ZoomIn className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                    </div>
                     <p className="text-[9px] text-slate-400 font-semibold text-center">{new Date(shot.timestamp).toLocaleString()}</p>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
           </div>
         )}
       </Modal>
+
+      {/* Mouse Activity Modal — dedicated detail view of inactivity data,
+          separate from the Screenshots modal's compact summary. */}
+      <Modal isOpen={!!mouseEmp} onClose={() => setMouseEmp(null)} title={mouseEmp ? `Mouse Activity — ${mouseEmp.fullName}` : 'Mouse Activity'}>
+        {mouseEmp && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+                  <button
+                    onClick={() => handleMouseRangeChange('day')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${mouseRange === 'day' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                  >
+                    Daily
+                  </button>
+                  <button
+                    onClick={() => handleMouseRangeChange('week')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${mouseRange === 'week' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                  >
+                    Weekly
+                  </button>
+                  <button
+                    onClick={() => handleMouseRangeChange('month')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${mouseRange === 'month' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                  >
+                    Monthly
+                  </button>
+                </div>
+                {mouseRange === 'day' && (
+                  <input
+                    type="date"
+                    value={mouseDay}
+                    max={new Date().toISOString().split('T')[0]}
+                    onChange={e => handleMouseDayChange(e.target.value)}
+                    className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-orange-500"
+                  />
+                )}
+              </div>
+            </div>
+
+            {mouseLoading ? (
+              <p className="text-center text-slate-400 text-xs font-semibold py-10">Loading mouse activity…</p>
+            ) : (
+              <>
+                {/* Stat cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                    <p className="text-sm font-bold text-slate-800">{mouseShiftSeconds > 0 ? formatDuration(mouseShiftSeconds) : '—'}</p>
+                    <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Shift Time</p>
+                  </div>
+                  <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-3 text-center">
+                    <p className="text-sm font-bold text-amber-800">{formatDuration(mouseTotalSeconds)}</p>
+                    <p className="text-[9px] text-amber-600 font-bold uppercase tracking-wider mt-0.5">Total Inactive</p>
+                  </div>
+                  <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-3 text-center" title="Shift Time minus Total Inactive">
+                    <p className="text-sm font-bold text-emerald-800">{mouseShiftSeconds > 0 ? formatDuration(mouseActiveSeconds) : '—'}</p>
+                    <p className="text-[9px] text-emerald-600 font-bold uppercase tracking-wider mt-0.5">Active Time</p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                    <p className="text-sm font-bold text-slate-800">{mouseLogs.length}</p>
+                    <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Events</p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                    <p className="text-sm font-bold text-slate-800">{mouseLogs.length ? formatDuration(mouseLongestSeconds) : '—'}</p>
+                    <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Longest Stretch</p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                    <p className="text-sm font-bold text-slate-800">{mouseLogs.length ? formatDuration(mouseAvgSeconds) : '—'}</p>
+                    <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Average / Event</p>
+                  </div>
+                </div>
+
+                {/* Active vs Inactive proportion — simple stacked bar, no
+                    charting library needed (this app has none installed;
+                    plain divs keep it dependency-free). */}
+                {mouseShiftSeconds > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                      <span>Active vs Inactive (this period)</span>
+                      <span>{Math.round((mouseActiveSeconds / mouseShiftSeconds) * 100)}% active</span>
+                    </div>
+                    <div className="w-full h-4 rounded-full overflow-hidden flex bg-slate-100 border border-slate-200">
+                      <div
+                        className="h-full bg-emerald-500"
+                        style={{ width: `${Math.max(0, Math.min(100, (mouseActiveSeconds / mouseShiftSeconds) * 100))}%` }}
+                        title={`Active: ${formatDuration(mouseActiveSeconds)}`}
+                      />
+                      <div
+                        className="h-full bg-amber-400"
+                        style={{ width: `${Math.max(0, Math.min(100, (mouseTotalSeconds / mouseShiftSeconds) * 100))}%` }}
+                        title={`Inactive: ${formatDuration(mouseTotalSeconds)}`}
+                      />
+                    </div>
+                    <div className="flex items-center gap-4 text-[9px] font-semibold text-slate-500">
+                      <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Active</span>
+                      <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400" /> Inactive</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Inactive time per day — bar chart, oldest to newest left to
+                    right. On the Daily view this is a single bar; on
+                    Weekly/Monthly it makes patterns (e.g. always sluggish on
+                    a particular day) easy to spot at a glance. */}
+                {mouseLogs.length > 0 && (() => {
+                  const chronological = [...mouseLogsByDay()].reverse();
+                  const maxSeconds = Math.max(...chronological.map(g => g.totalSeconds), 1);
+                  return (
+                    <div className="space-y-1.5">
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Inactive Time by Day</p>
+                      <div className="flex items-end gap-2 h-28 border-b border-slate-200 pb-1 overflow-x-auto">
+                        {chronological.map(group => (
+                          <div key={group.day} className="flex flex-col items-center gap-1 min-w-[2.5rem] shrink-0" title={`${group.day}: ${formatDuration(group.totalSeconds)}`}>
+                            <span className="text-[8px] font-bold text-amber-700">{formatDuration(group.totalSeconds)}</span>
+                            <div
+                              className="w-6 bg-amber-400 rounded-t-sm"
+                              style={{ height: `${Math.max(4, (group.totalSeconds / maxSeconds) * 80)}px` }}
+                            />
+                            <span className="text-[8px] font-semibold text-slate-400 whitespace-nowrap">{group.day.replace(/, \d{4}$/, '')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Detailed breakdown — grouped by day so Weekly/Monthly still
+                    show clearly "when" each stretch happened, not just a flat
+                    list. On the Daily view this collapses to a single group. */}
+                {mouseLogs.length === 0 ? (
+                  <p className="text-center text-slate-400 text-xs font-semibold italic py-10">
+                    No mouse inactivity of 3+ minutes recorded in this period.
+                  </p>
+                ) : (
+                  <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
+                    {mouseLogsByDay().map(group => (
+                      <div key={group.day} className="space-y-1.5">
+                        <div className="flex items-center justify-between border-b border-slate-200 pb-1">
+                          <p className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">{group.day}</p>
+                          <p className="text-[10px] font-bold text-amber-700">{formatDuration(group.totalSeconds)} total</p>
+                        </div>
+                        <table className="w-full text-xs text-left">
+                          <thead>
+                            <tr className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                              <th className="py-1 font-bold">Start</th>
+                              <th className="py-1 font-bold">End</th>
+                              <th className="py-1 font-bold text-right">Duration</th>
+                              <th className="py-1 font-bold text-right">Device</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {group.logs.map(log => (
+                              <tr key={log.id}>
+                                <td className="py-1.5 font-semibold text-slate-700">{new Date(log.startAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</td>
+                                <td className="py-1.5 font-semibold text-slate-700">{new Date(log.endAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</td>
+                                <td className="py-1.5 font-bold text-amber-700 text-right">{formatDuration(log.durationSeconds)}</td>
+                                <td className="py-1.5 text-slate-400 text-[10px] text-right">{log.deviceLabel || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* Screenshot Lightbox — opened by clicking a thumbnail above. A
+          separate fixed overlay (not the shared Modal component) since it
+          needs to render on top of the Screenshot Viewer modal itself and
+          have its own zoom controls. */}
+      {lightboxIndex !== null && viewerShots[lightboxIndex] && (
+        <div
+          className="fixed inset-0 z-[200] bg-slate-950/90 flex flex-col"
+          onClick={closeLightbox}
+        >
+          <div className="flex items-center justify-between px-4 py-3 text-white" onClick={e => e.stopPropagation()}>
+            <span className="text-xs font-semibold text-slate-200">
+              {new Date(viewerShots[lightboxIndex].timestamp).toLocaleString()} · {lightboxIndex + 1} / {viewerShots.length}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button onClick={zoomOut} disabled={zoom <= 1} className="p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 transition-colors">
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <span className="text-[10px] font-bold w-10 text-center">{Math.round(zoom * 100)}%</span>
+              <button onClick={zoomIn} disabled={zoom >= 4} className="p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 transition-colors">
+                <ZoomIn className="h-4 w-4" />
+              </button>
+              <button onClick={() => setZoom(1)} className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors" title="Reset zoom">
+                <RotateCcw className="h-4 w-4" />
+              </button>
+              <button onClick={closeLightbox} className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors ml-1">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 flex items-center justify-center overflow-auto relative" onClick={e => e.stopPropagation()}>
+            {lightboxIndex > 0 && (
+              <button
+                onClick={() => lightboxNav(-1)}
+                className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+            )}
+            <img
+              src={viewerShots[lightboxIndex].imageUrl}
+              alt="Screenshot full view"
+              style={{ transform: `scale(${zoom})`, transition: 'transform 0.15s ease-out' }}
+              className="max-h-[80vh] max-w-[90vw] object-contain select-none"
+              onWheel={e => { e.preventDefault(); if (e.deltaY < 0) zoomIn(); else zoomOut(); }}
+            />
+            {lightboxIndex < viewerShots.length - 1 && (
+              <button
+                onClick={() => lightboxNav(1)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

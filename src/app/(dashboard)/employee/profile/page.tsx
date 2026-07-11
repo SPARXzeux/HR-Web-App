@@ -1,17 +1,35 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useProfiles, hrActions, Profile, formatMoney } from '@/lib/hrData';
+import { compressImageToWebP, validatePdfSize, fileToDataUrl, MAX_DOCUMENT_IMAGE_BYTES } from '@/lib/imageCompressor';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
-import { db, Profile, formatMoney } from '@/lib/db';
 import { PasswordInput } from '@/components/ui/PasswordInput';
+import { AvatarCropperModal } from '@/components/ui/AvatarCropperModal';
 import {
   User, Mail, Briefcase, Calendar, Users, ShieldCheck,
-  KeyRound, CheckCircle2, AlertCircle, Star, Landmark, Pencil
+  KeyRound, CheckCircle2, AlertCircle, Star, Landmark, Pencil, Camera, FileText, Upload
 } from 'lucide-react';
 
 export default function EmployeeProfilePage() {
+  const { data: allProfiles, refetch: refetchProfiles } = useProfiles();
+
   const [profile, setProfile] = useState<Profile | null>(null);
+
+  // Profile picture upload
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingPhotoFile, setPendingPhotoFile] = useState<File | null>(null);
+  const [photoError, setPhotoError] = useState('');
+  const [photoSuccess, setPhotoSuccess] = useState('');
+
+  // Documents (CV, identity docs, passport)
+  const cvInputRef = useRef<HTMLInputElement>(null);
+  const idInputRef = useRef<HTMLInputElement>(null);
+  const passportInputRef = useRef<HTMLInputElement>(null);
+  const [docBusy, setDocBusy] = useState<string | null>(null);
+  const [docError, setDocError] = useState('');
+  const [docSuccess, setDocSuccess] = useState('');
 
   // Password reset
   const [isResetOpen, setIsResetOpen] = useState(false);
@@ -31,10 +49,125 @@ export default function EmployeeProfilePage() {
 
   useEffect(() => {
     const email = localStorage.getItem('user_email');
-    const employees = db.getEmployees();
-    const p = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
+    if (!email || !allProfiles) return;
+    const p = allProfiles.find(e => e.email && e.email.toLowerCase() === email.toLowerCase());
     if (p) setProfile(p);
-  }, []);
+  }, [allProfiles]);
+
+  const handlePhotoInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setPhotoError('Please choose an image file.');
+      setTimeout(() => setPhotoError(''), 3000);
+      return;
+    }
+    setPendingPhotoFile(file);
+  };
+
+  const handlePhotoSave = async (webpDataUrl: string) => {
+    if (!profile?.id) return;
+    try {
+      await hrActions.updateProfileDetails(profile.id, { profilePicture: webpDataUrl });
+      const { data: refreshed } = await refetchProfiles();
+      const updatedProfile = refreshed?.find(p => p.id === profile.id);
+      if (updatedProfile) setProfile(updatedProfile);
+      setPendingPhotoFile(null);
+      setPhotoSuccess('Profile picture updated!');
+      setTimeout(() => setPhotoSuccess(''), 2000);
+    } catch (err) {
+      console.error('[Profile] Photo update error:', err);
+      setPhotoError('Failed to save profile picture.');
+      setTimeout(() => setPhotoError(''), 3000);
+    }
+  };
+
+  // Converts an uploaded document File to a storable data URL: images are
+  // compressed to WebP (max 3 MB), PDFs are stored as-is after a size check
+  // (max 5 MB) — no lossy conversion for PDFs.
+  const fileToStoredData = async (file: File): Promise<{ data: string; error: string | null }> => {
+    if (file.type === 'application/pdf') {
+      const err = validatePdfSize(file);
+      if (err) return { data: '', error: err };
+      return { data: await fileToDataUrl(file), error: null };
+    }
+    if (file.type.startsWith('image/')) {
+      const data = await compressImageToWebP(file, 0.8, MAX_DOCUMENT_IMAGE_BYTES);
+      return { data, error: null };
+    }
+    return { data: '', error: 'Only image files or PDFs are supported.' };
+  };
+
+  const handleCvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !profile?.id) return;
+    setDocError(''); setDocSuccess('');
+    setDocBusy('cv');
+    try {
+      const { data, error } = await fileToStoredData(file);
+      if (error) { setDocError(error); return; }
+      await hrActions.updateProfileDetails(profile.id, { cvFileName: file.name, cvFileData: data });
+      const { data: refreshed } = await refetchProfiles();
+      const updated = refreshed?.find(p => p.id === profile.id);
+      if (updated) setProfile(updated);
+      setDocSuccess('CV / Resume uploaded successfully!');
+      setTimeout(() => setDocSuccess(''), 2500);
+    } catch (err) {
+      console.error('[Profile] CV upload error:', err);
+      setDocError('Failed to upload CV. Please try again.');
+    } finally {
+      setDocBusy(null);
+    }
+  };
+
+  const handleIdUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !profile?.id) return;
+    setDocError(''); setDocSuccess('');
+    setDocBusy('id');
+    try {
+      const { data, error } = await fileToStoredData(file);
+      if (error) { setDocError(error); return; }
+      const existing = profile.identityDocs || [];
+      await hrActions.updateProfileDetails(profile.id, { identityDocs: [...existing, { name: file.name, data }] });
+      const { data: refreshed } = await refetchProfiles();
+      const updated = refreshed?.find(p => p.id === profile.id);
+      if (updated) setProfile(updated);
+      setDocSuccess('Identity document uploaded successfully!');
+      setTimeout(() => setDocSuccess(''), 2500);
+    } catch (err) {
+      console.error('[Profile] ID doc upload error:', err);
+      setDocError('Failed to upload document. Please try again.');
+    } finally {
+      setDocBusy(null);
+    }
+  };
+
+  const handlePassportUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !profile?.id) return;
+    setDocError(''); setDocSuccess('');
+    setDocBusy('passport');
+    try {
+      const { data, error } = await fileToStoredData(file);
+      if (error) { setDocError(error); return; }
+      await hrActions.updateProfileDetails(profile.id, { passportFileName: file.name, passportFileData: data });
+      const { data: refreshed } = await refetchProfiles();
+      const updated = refreshed?.find(p => p.id === profile.id);
+      if (updated) setProfile(updated);
+      setDocSuccess('Passport uploaded successfully!');
+      setTimeout(() => setDocSuccess(''), 2500);
+    } catch (err) {
+      console.error('[Profile] Passport upload error:', err);
+      setDocError('Failed to upload passport. Please try again.');
+    } finally {
+      setDocBusy(null);
+    }
+  };
 
   const openBankEdit = () => {
     if (!profile) return;
@@ -57,18 +190,23 @@ export default function EmployeeProfilePage() {
     }
 
     const email = localStorage.getItem('user_email');
-    if (!email) return;
+    if (!email || !profile?.id) return;
 
-    await db.updateProfileDetails(email, {
-      bankName: bankNameInput.trim(),
-      accountNumber: accountNumberInput.trim(),
-      iban: ibanInput.trim()
-    });
-    const employees = db.getEmployees();
-    const updated = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
-    if (updated) setProfile(updated);
-    setBankSuccess('Bank details updated successfully!');
-    setTimeout(() => { setIsBankEditOpen(false); setBankSuccess(''); }, 1400);
+    try {
+      await hrActions.updateProfileDetails(profile.id, {
+        bankName: bankNameInput.trim(),
+        accountNumber: accountNumberInput.trim(),
+        iban: ibanInput.trim(),
+      });
+      const { data: refreshed } = await refetchProfiles();
+      const updatedProfile = refreshed?.find(p => p.id === profile.id);
+      if (updatedProfile) setProfile(updatedProfile);
+      setBankSuccess('Bank details updated successfully!');
+      setTimeout(() => { setIsBankEditOpen(false); setBankSuccess(''); }, 1000);
+    } catch (err) {
+      console.error(err);
+      setBankError('Failed to save bank details.');
+    }
   };
 
   const handleResetSubmit = (e: React.FormEvent) => {
@@ -88,20 +226,36 @@ export default function EmployeeProfilePage() {
       setResetError('New password must be at least 6 characters.');
       return;
     }
+    if (newPass === currentPass) {
+      setResetError('New password must be different from current password.');
+      return;
+    }
     if (newPass !== confirmPass) {
       setResetError('New passwords do not match.');
       return;
     }
 
-    const email = localStorage.getItem('user_email');
-    if (email) {
-      db.resetPassword(email, newPass);
-      const employees = db.getEmployees();
-      const updated = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
-      if (updated) setProfile(updated);
-      setResetSuccess('Password updated successfully!');
-      setCurrentPass(''); setNewPass(''); setConfirmPass('');
-      setTimeout(() => { setIsResetOpen(false); setResetSuccess(''); }, 1400);
+    if (profile?.id) {
+      // hr_profiles is a base (non-auth) collection. The password field is
+      // a plain text column, updated via hrActions.resetPassword.
+      hrActions.resetPassword(profile.id, newPass)
+        .then(async () => {
+          const { data: refreshed } = await refetchProfiles();
+          const updatedProfile = refreshed?.find(p => p.id === profile.id);
+          if (updatedProfile) setProfile(updatedProfile);
+          setResetSuccess('Password updated successfully!');
+          setTimeout(() => {
+            setIsResetOpen(false);
+            setCurrentPass('');
+            setNewPass('');
+            setConfirmPass('');
+            setResetSuccess('');
+          }, 1200);
+        })
+        .catch(err => {
+          console.error('[Profile] Password update error:', err);
+          setResetError('Failed to change password. Please try again.');
+        });
     }
   };
 
@@ -113,7 +267,10 @@ export default function EmployeeProfilePage() {
     );
   }
 
-  const salary = db.calculateCurrentSalary(profile);
+  // Profile.baseSalary already reflects every processed anniversary
+  // increment, so it IS the current effective salary (mirrors old
+  // db.calculateCurrentSalary()).
+  const salary = profile.baseSalary;
   const joined = new Date(profile.joinedDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
   const infoRows = [
@@ -139,17 +296,33 @@ export default function EmployeeProfilePage() {
         <div className="h-24 bg-gradient-to-r from-orange-500 to-orange-400" />
         <div className="px-6 pb-6">
           <div className="-mt-10 mb-4 flex items-end justify-between">
-            {profile.profilePicture ? (
-              <img 
-                src={profile.profilePicture} 
-                alt="Profile" 
-                className="h-20 w-20 rounded-full bg-white border-4 border-white shadow-md object-cover"
+            <div className="relative group">
+              {profile.profilePicture ? (
+                <img
+                  src={profile.profilePicture}
+                  alt="Profile"
+                  className="h-20 w-20 rounded-full bg-white border-4 border-white shadow-md object-cover"
+                />
+              ) : (
+                <div className="h-20 w-20 rounded-full bg-white border-4 border-white shadow-md flex items-center justify-center text-2xl font-bold text-orange-600 bg-orange-50">
+                  {profile.fullName.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)}
+                </div>
+              )}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                title="Change profile picture"
+                className="absolute bottom-0 right-0 h-7 w-7 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center shadow-md border-2 border-white transition-all active:scale-90"
+              >
+                <Camera className="h-3.5 w-3.5" />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoInputChange}
+                className="hidden"
               />
-            ) : (
-              <div className="h-20 w-20 rounded-full bg-white border-4 border-white shadow-md flex items-center justify-center text-2xl font-bold text-orange-600 bg-orange-50">
-                {profile.fullName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
-              </div>
-            )}
+            </div>
             <button
               onClick={() => setIsResetOpen(true)}
               className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2.5 md:py-1.5 rounded-lg transition-all border border-slate-200 active:scale-97"
@@ -157,6 +330,13 @@ export default function EmployeeProfilePage() {
               <KeyRound className="h-3.5 w-3.5" /> Reset Password
             </button>
           </div>
+
+          {(photoError || photoSuccess) && (
+            <div className={`mb-3 p-2.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 ${photoError ? 'bg-rose-50 text-rose-600 border border-rose-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
+              {photoError ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              {photoError || photoSuccess}
+            </div>
+          )}
 
           <h2 className="text-xl font-bold text-slate-900">{profile.fullName}</h2>
           <div className="flex flex-wrap items-center gap-2 mt-1">
@@ -246,6 +426,88 @@ export default function EmployeeProfilePage() {
             <p className="text-xs text-slate-400 italic font-semibold">No bank details on file yet. Add them so payroll can process your salary correctly.</p>
           </div>
         )}
+      </Card>
+
+      {/* Documents section */}
+      <Card className="border border-slate-200 p-0 overflow-hidden">
+        <div className="px-6 pt-5 pb-2 border-b border-slate-100">
+          <h3 className="font-bold text-slate-900 text-sm">My Documents</h3>
+          <p className="text-[10px] text-slate-400 mt-1">Images up to 3 MB (auto-converted to WebP), PDFs up to 5 MB. Visible to HR/Admin under Master Reports.</p>
+        </div>
+
+        {(docError || docSuccess) && (
+          <div className={`mx-6 mt-4 p-2.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 ${docError ? 'bg-rose-50 text-rose-600 border border-rose-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
+            {docError ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+            {docError || docSuccess}
+          </div>
+        )}
+
+        <div className="divide-y divide-slate-100">
+          {/* CV / Resume */}
+          <div className="flex items-center justify-between gap-3 px-6 py-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                <FileText className="h-4 w-4 text-slate-500" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CV / Resume</p>
+                <p className="text-sm font-semibold text-slate-900 mt-0.5 truncate">{profile.cvFileName || 'Not uploaded yet'}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => cvInputRef.current?.click()}
+              disabled={docBusy === 'cv'}
+              className="flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition-all border border-slate-200 active:scale-97 disabled:opacity-60"
+            >
+              <Upload className="h-3.5 w-3.5" /> {docBusy === 'cv' ? 'Uploading…' : profile.cvFileData ? 'Replace' : 'Upload'}
+            </button>
+            <input ref={cvInputRef} type="file" accept="image/*,application/pdf" onChange={handleCvUpload} className="hidden" />
+          </div>
+
+          {/* Identity documents */}
+          <div className="px-6 py-4 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{profile.region === 'USA' ? 'Driver License / Work Permit' : 'CNIC (Front/Back)'}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{(profile.identityDocs || []).length} document(s) on file</p>
+              </div>
+              <button
+                onClick={() => idInputRef.current?.click()}
+                disabled={docBusy === 'id'}
+                className="flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition-all border border-slate-200 active:scale-97 disabled:opacity-60"
+              >
+                <Upload className="h-3.5 w-3.5" /> {docBusy === 'id' ? 'Uploading…' : 'Add Document'}
+              </button>
+              <input ref={idInputRef} type="file" accept="image/*,application/pdf" onChange={handleIdUpload} className="hidden" />
+            </div>
+            {(profile.identityDocs || []).length > 0 && (
+              <ul className="text-xs text-slate-600 space-y-1 pl-1">
+                {(profile.identityDocs || []).map((d, i) => <li key={i} className="truncate">• {d.name}</li>)}
+              </ul>
+            )}
+          </div>
+
+          {/* Passport */}
+          <div className="flex items-center justify-between gap-3 px-6 py-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                <FileText className="h-4 w-4 text-slate-500" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Passport (Optional)</p>
+                <p className="text-sm font-semibold text-slate-900 mt-0.5 truncate">{profile.passportFileName || 'Not uploaded yet'}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => passportInputRef.current?.click()}
+              disabled={docBusy === 'passport'}
+              className="flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition-all border border-slate-200 active:scale-97 disabled:opacity-60"
+            >
+              <Upload className="h-3.5 w-3.5" /> {docBusy === 'passport' ? 'Uploading…' : profile.passportFileData ? 'Replace' : 'Upload'}
+            </button>
+            <input ref={passportInputRef} type="file" accept="image/*,application/pdf" onChange={handlePassportUpload} className="hidden" />
+          </div>
+        </div>
       </Card>
 
       {/* Security section */}
@@ -378,6 +640,13 @@ export default function EmployeeProfilePage() {
           </div>
         </form>
       </Modal>
+
+      {/* Avatar Cropper Modal */}
+      <AvatarCropperModal
+        file={pendingPhotoFile}
+        onClose={() => setPendingPhotoFile(null)}
+        onSave={handlePhotoSave}
+      />
     </div>
   );
 }

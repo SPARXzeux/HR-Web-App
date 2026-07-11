@@ -3,31 +3,60 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
-import { db, CareerPosition, CareerApplication } from '@/lib/db';
-import { MapPin, Plus, Trash2, CheckCircle2, ArrowRight, X, Briefcase, FileText, Users } from 'lucide-react';
+import {
+  CareerPosition,
+  CareerApplication,
+  CareerApplicationStatus,
+  useCareers,
+  useCareerApplications,
+  useWarehouses,
+  useTeams,
+  hrActions,
+} from '@/lib/hrData';
+import { MapPin, Plus, Trash2, CheckCircle2, ArrowRight, X, Briefcase, FileText, Users, AlertTriangle } from 'lucide-react';
+
+const STATUS_OPTIONS: { value: CareerApplicationStatus; label: string }[] = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'reviewed', label: 'Reviewed' },
+  { value: 'shortlisted', label: 'Shortlisted' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'hired', label: 'Hired' },
+];
+
+const STATUS_STYLES: Record<CareerApplicationStatus, string> = {
+  pending: 'bg-slate-100 text-slate-600 border-slate-200',
+  reviewed: 'bg-blue-50 text-blue-700 border-blue-100',
+  shortlisted: 'bg-amber-50 text-amber-700 border-amber-100',
+  rejected: 'bg-rose-50 text-rose-700 border-rose-100',
+  hired: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+};
 
 interface CareersViewProps {
   role: 'admin' | 'hr' | 'employee' | 'team_lead' | 'public';
 }
 
 export function CareersView({ role }: CareersViewProps) {
-  const [positions, setPositions] = useState<CareerPosition[]>([]);
+  const { data: allCareers, refetch: refetchCareers } = useCareers();
+  const { data: allApplications, refetch: refetchApplications } = useCareerApplications();
+  const { data: allWarehouses } = useWarehouses();
+  const { data: allTeams } = useTeams();
+
+  const positions = allCareers || [];
+  const warehouseCount = allWarehouses ? allWarehouses.length : 0;
+  const teamCount = allTeams ? allTeams.length : 0;
+  const applications = (role === 'hr' || role === 'admin') ? (allApplications || []) : [];
+
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isApplyOpen, setIsApplyOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<CareerPosition | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
 
-  // HR/Admin applicant review
-  const [applications, setApplications] = useState<CareerApplication[]>([]);
   const [isApplicationsOpen, setIsApplicationsOpen] = useState(false);
+  const [appPositionFilter, setAppPositionFilter] = useState<string>('All');
+  const [appStatusFilter, setAppStatusFilter] = useState<CareerApplicationStatus | 'All'>('All');
+  const [expandedAppId, setExpandedAppId] = useState<string | null>(null);
+  const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
 
-  // Real counts for the "Who We Are" stats strip — previously these were
-  // hardcoded marketing numbers ("34+ Transit Hubs", "1.2M+ Packages/Yr",
-  // "99.8% On-Time Rate") with no backing data.
-  const [warehouseCount, setWarehouseCount] = useState(0);
-  const [teamCount, setTeamCount] = useState(0);
-
-  // Form states
   const [title, setTitle] = useState('');
   const [dept, setDept] = useState('Engineering');
   const [loc, setLoc] = useState('');
@@ -35,33 +64,30 @@ export function CareersView({ role }: CareersViewProps) {
   const [reqsText, setReqsText] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Application form states
   const [applicantName, setApplicantName] = useState('');
   const [applicantEmail, setApplicantEmail] = useState('');
   const [coverLetter, setCoverLetter] = useState('');
   const [applySuccess, setApplySuccess] = useState('');
+  const [applyError, setApplyError] = useState('');
+  const [isSubmittingApp, setIsSubmittingApp] = useState(false);
 
-  useEffect(() => {
-    setPositions(db.getCareers());
-    setWarehouseCount(db.getWarehouses().length);
-    setTeamCount(db.getTeams().length);
-    if (role === 'hr' || role === 'admin') {
-      setApplications(db.getCareerApplications());
-    }
-  }, [role]);
+  // Careers page is for external candidates only — anyone already inside the
+  // org (employee, team_lead, hr, admin) should not be able to submit an
+  // application through this same form.
+  const canApply = role === 'public';
 
   const handleAddJob = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !loc || !desc) return;
     const requirements = reqsText.split('\n').map(r => r.trim()).filter(Boolean);
-    const newJob = await db.addCareer({
+    await hrActions.addCareer({
       title,
       department: dept,
       location: loc,
       description: desc,
       requirements,
     });
-    setPositions(prev => [...prev, newJob]);
+    refetchCareers();
     setSuccess('Position listed successfully!');
     setTimeout(() => {
       setIsAddOpen(false);
@@ -75,33 +101,60 @@ export function CareersView({ role }: CareersViewProps) {
 
   const handleDeleteJob = async (id: string) => {
     if (!window.confirm('Are you sure you want to delete this listing?')) return;
-    const updated = await db.deleteCareer(id);
-    setPositions(updated);
+    await hrActions.deleteCareer(id);
+    refetchCareers();
   };
 
   const handleApplySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setApplyError('');
+    if (!canApply) return; // internal users are blocked server-flow too, this is just defense in depth
     if (!applicantName || !applicantEmail || !selectedJob) return;
 
-    // Actually persist the application (name, email, cover letter) instead
-    // of just firing a notification and discarding the submitted data.
-    await db.submitCareerApplication({
-      positionId: selectedJob.id,
-      positionTitle: selectedJob.title,
-      applicantName,
-      applicantEmail,
-      coverLetter
-    });
-    await db.addNotification('all', 'hr', `New application for "${selectedJob?.title}" submitted by ${applicantName} (${applicantEmail})`);
-    setApplySuccess('Application submitted successfully! Our HR team will get back to you.');
-    setTimeout(() => {
-      setIsApplyOpen(false);
-      setApplicantName('');
-      setApplicantEmail('');
-      setCoverLetter('');
-      setApplySuccess('');
-      setSelectedJob(null);
-    }, 2000);
+    setIsSubmittingApp(true);
+    try {
+      // Anti-spam guard: block a second submission from the same email to
+      // the same posting instead of silently creating duplicate rows.
+      const alreadyApplied = await hrActions.hasAppliedForPosition(selectedJob.id, applicantEmail);
+      if (alreadyApplied) {
+        setApplyError('You have already submitted an application for this position with this email address. Our HR team already has it on file.');
+        return;
+      }
+
+      await hrActions.submitCareerApplication({
+        positionId: selectedJob.id,
+        positionTitle: selectedJob.title,
+        applicantName,
+        applicantEmail,
+        coverLetter,
+      });
+      // The Applications review panel is available to HR and Admin alike
+      // (see canEdit above) — notify both, not just HR.
+      await hrActions.addNotification('all', 'hr', `New application for "${selectedJob?.title}" submitted by ${applicantName} (${applicantEmail})`);
+      await hrActions.addNotification('all', 'admin', `New application for "${selectedJob?.title}" submitted by ${applicantName} (${applicantEmail})`);
+      refetchApplications();
+      setApplySuccess('Application submitted successfully! Our HR team will get back to you.');
+      setTimeout(() => {
+        setIsApplyOpen(false);
+        setApplicantName('');
+        setApplicantEmail('');
+        setCoverLetter('');
+        setApplySuccess('');
+        setSelectedJob(null);
+      }, 2000);
+    } finally {
+      setIsSubmittingApp(false);
+    }
+  };
+
+  const handleStatusChange = async (appId: string, status: CareerApplicationStatus) => {
+    setStatusUpdating(appId);
+    try {
+      await hrActions.updateApplicationStatus(appId, status);
+      refetchApplications();
+    } finally {
+      setStatusUpdating(null);
+    }
   };
 
   const canEdit = role === 'hr' || role === 'admin';
@@ -200,7 +253,7 @@ export function CareersView({ role }: CareersViewProps) {
                   <div className="space-y-2">
                     <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Requirements</p>
                     <ul className="space-y-1">
-                      {job.requirements.map((req, idx) => (
+                      {job.requirements.map((req: any, idx: number) => (
                         <li key={idx} className="text-xs text-slate-650 font-medium flex items-start gap-2">
                           <span className="h-1 w-1 rounded-full bg-orange-500 mt-1.5 shrink-0" />
                           {req}
@@ -212,12 +265,18 @@ export function CareersView({ role }: CareersViewProps) {
               </div>
 
               <div className="pt-6 border-t border-slate-100 mt-6 flex justify-end">
-                <button
-                  onClick={() => { setSelectedJob(job); setIsApplyOpen(true); }}
-                  className="flex items-center gap-1.5 text-xs font-bold text-orange-600 hover:text-orange-700 tracking-wider uppercase transition-colors"
-                >
-                  Apply now <ArrowRight className="h-3.5 w-3.5" />
-                </button>
+                {canApply ? (
+                  <button
+                    onClick={() => { setSelectedJob(job); setApplyError(''); setIsApplyOpen(true); }}
+                    className="flex items-center gap-1.5 text-xs font-bold text-orange-600 hover:text-orange-700 tracking-wider uppercase transition-colors"
+                  >
+                    Apply now <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                ) : (
+                  <span className="text-[10px] font-semibold text-slate-400 italic">
+                    External applicants only — see HR for internal transfers
+                  </span>
+                )}
               </div>
             </div>
           ))}
@@ -333,24 +392,90 @@ export function CareersView({ role }: CareersViewProps) {
 
       {/* Applications review Modal (HR/Admin only) */}
       <Modal isOpen={isApplicationsOpen} onClose={() => setIsApplicationsOpen(false)} title={`Job Applications (${applications.length})`}>
-        <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
-          {applications.length === 0 && (
-            <p className="text-center text-slate-400 font-semibold italic text-xs py-8">No applications submitted yet.</p>
-          )}
-          {applications.map(app => (
-            <div key={app.id} className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-bold text-slate-900">{app.applicantName}</p>
-                <span className="text-[9px] text-slate-400 font-semibold">{app.submittedAt}</span>
+        {(() => {
+          const positionTitles = Array.from(new Set(applications.map(a => a.positionTitle))).sort();
+          const filteredApps = applications.filter(app =>
+            (appPositionFilter === 'All' || app.positionTitle === appPositionFilter) &&
+            (appStatusFilter === 'All' || app.status === appStatusFilter)
+          );
+
+          return (
+            <div className="space-y-3">
+              {/* Filters */}
+              <div className="flex flex-wrap gap-2 pb-3 border-b border-slate-200">
+                <select
+                  value={appPositionFilter}
+                  onChange={e => setAppPositionFilter(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 outline-none focus:border-orange-500"
+                >
+                  <option value="All">All Positions</option>
+                  {positionTitles.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <select
+                  value={appStatusFilter}
+                  onChange={e => setAppStatusFilter(e.target.value as CareerApplicationStatus | 'All')}
+                  className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 outline-none focus:border-orange-500"
+                >
+                  <option value="All">All Statuses</option>
+                  {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
+                <span className="ml-auto self-center text-[10px] font-semibold text-slate-400">
+                  {filteredApps.length} of {applications.length} shown
+                </span>
               </div>
-              <p className="text-[10px] text-orange-600 font-bold uppercase tracking-wider">{app.positionTitle}</p>
-              <p className="text-xs text-slate-500 font-semibold">{app.applicantEmail}</p>
-              {app.coverLetter && (
-                <p className="text-xs text-slate-600 leading-relaxed border-t border-slate-200 pt-2 mt-2 whitespace-pre-wrap">{app.coverLetter}</p>
-              )}
+
+              <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
+                {filteredApps.length === 0 && (
+                  <p className="text-center text-slate-400 font-semibold italic text-xs py-8">
+                    {applications.length === 0 ? 'No applications submitted yet.' : 'No applications match the selected filters.'}
+                  </p>
+                )}
+                {filteredApps.map(app => {
+                  const expanded = expandedAppId === app.id;
+                  return (
+                    <div key={app.id} className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
+                      <button
+                        onClick={() => setExpandedAppId(expanded ? null : app.id)}
+                        className="w-full flex items-center justify-between text-left"
+                      >
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">{app.applicantName}</p>
+                          <p className="text-[10px] text-orange-600 font-bold uppercase tracking-wider">{app.positionTitle}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[9px] font-bold uppercase tracking-wider border rounded-full px-2 py-0.5 ${STATUS_STYLES[app.status]}`}>
+                            {STATUS_OPTIONS.find(s => s.value === app.status)?.label || app.status}
+                          </span>
+                          <span className="text-[9px] text-slate-400 font-semibold shrink-0">{app.submittedAt}</span>
+                        </div>
+                      </button>
+
+                      {expanded && (
+                        <div className="border-t border-slate-200 pt-3 mt-1 space-y-3">
+                          <p className="text-xs text-slate-500 font-semibold">{app.applicantEmail}</p>
+                          {app.coverLetter && (
+                            <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">{app.coverLetter}</p>
+                          )}
+                          <div className="flex items-center gap-2 pt-1">
+                            <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest shrink-0">Status</label>
+                            <select
+                              value={app.status}
+                              disabled={statusUpdating === app.id}
+                              onChange={e => handleStatusChange(app.id, e.target.value as CareerApplicationStatus)}
+                              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 outline-none focus:border-orange-500 disabled:opacity-50"
+                            >
+                              {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          ))}
-        </div>
+          );
+        })()}
       </Modal>
 
       {/* Add job listing Modal */}
@@ -448,6 +573,11 @@ export function CareersView({ role }: CareersViewProps) {
             </div>
           ) : (
             <>
+              {applyError && (
+                <div className="p-3 text-xs bg-rose-50 text-rose-700 border border-rose-100 rounded-xl font-semibold flex items-start gap-1.5">
+                  <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" /> {applyError}
+                </div>
+              )}
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-555 uppercase tracking-wider">Full Name *</label>
                 <input 
@@ -482,7 +612,9 @@ export function CareersView({ role }: CareersViewProps) {
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                 <button type="button" onClick={() => setIsApplyOpen(false)} className="bg-white hover:bg-slate-55 border border-slate-200 text-slate-650 hover:text-slate-800 font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all">Cancel</button>
-                <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all shadow-sm">Submit Application</button>
+                <button type="submit" disabled={isSubmittingApp} className="bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all shadow-sm">
+                  {isSubmittingApp ? 'Submitting…' : 'Submit Application'}
+                </button>
               </div>
             </>
           )}

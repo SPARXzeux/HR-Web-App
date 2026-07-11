@@ -3,25 +3,26 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { CheckCircle2, AlertCircle, Download } from 'lucide-react';
-import { db, PayrollRecord, LeaveApplication, formatMoney } from '@/lib/db';
+import { CheckCircle2, AlertCircle, Download, RefreshCw } from 'lucide-react';
+import { formatMoney, hrActions, useLeaves, useProfiles, usePayroll } from '@/lib/hrData';
 
 export default function HRPayrollPage() {
-  const [payrollData, setPayrollData] = useState<PayrollRecord[]>([]);
-  const [leavesList, setLeavesList] = useState<LeaveApplication[]>([]);
+  const { data: leavesList = [] } = useLeaves();
+  const { data: employees = [], isLoading: profilesLoading, refetch: refetchProfiles } = useProfiles();
+  const { data: payrollRecords = [], isLoading: payrollLoading, refetch: refetchPayroll } = usePayroll();
+
+  // Optimistic local overrides while a bonus/deductions edit is in flight,
+  // keyed by employeeId — merged over the server-computed view below.
+  const [localEdits, setLocalEdits] = useState<Record<string, { bonus?: number; deductions?: number }>>({});
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'processed'>('all');
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const fetchAllData = async () => {
+    await Promise.all([refetchProfiles(), refetchPayroll()]);
+  };
 
   useEffect(() => {
-    // db.getPayroll() already computes the urgent-leave deduction internally
-    // (using only approved urgent leaves — see db.ts). Previously this page
-    // recomputed the same figure a second time and added it on top of the
-    // already-deducted value, silently double-charging employees the moment
-    // "Complete Payout" was clicked. Do not recompute deductions here.
-    const rawPayroll = db.getPayroll();
-    const rawLeaves = db.getLeaves();
-    setLeavesList(rawLeaves);
-    setPayrollData(rawPayroll);
-
     const handleSearch = (e: Event) => {
       setSearchQuery((e as CustomEvent).detail || '');
     };
@@ -29,41 +30,33 @@ export default function HRPayrollPage() {
     return () => window.removeEventListener('globalSearch', handleSearch);
   }, []);
 
-  const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'processed'>('all');
-
-  const handleProcess = async (id: string) => {
-    const record = payrollData.find(emp => emp.id === id);
+  const handleProcess = async (employeeId: string) => {
+    const record = compiledPayrollData.find(r => r.employeeId === employeeId);
     if (!record) return;
-
-    // Permanently fold any pending anniversary increment into the
-    // employee's real base salary the moment their payroll is processed —
-    // from the next cycle onward getPayroll() will show 0 increment and the
-    // new, higher baseSalary.
-    if (record.incrementAmount > 0) {
-      await db.applyAnniversaryIncrement(record.employeeId, record.incrementAmount);
-    }
-
-    const updated = payrollData.map(emp =>
-      emp.id === id ? { ...emp, processed: true } : emp
-    );
-    setPayrollData(updated);
-    db.savePayroll(updated);
+    await hrActions.upsertPayrollRecord({ ...record, processed: true });
+    setLocalEdits(prev => { const next = { ...prev }; delete next[employeeId]; return next; });
+    refetchPayroll();
   };
 
-  const handleUpdateAmount = (id: string, field: 'bonus' | 'deductions', value: string) => {
+  const handleUpdateAmount = async (employeeId: string, field: 'bonus' | 'deductions', value: string) => {
     const numericValue = Number(value.replace(/[^0-9.-]/g, '')) || 0;
-    const updated = payrollData.map(emp => {
-      if (emp.id === id) {
-        return { ...emp, [field]: numericValue };
-      }
-      return emp;
-    });
-    setPayrollData(updated);
-    db.savePayroll(updated);
+    setLocalEdits(prev => ({ ...prev, [employeeId]: { ...prev[employeeId], [field]: numericValue } }));
+    const record = compiledPayrollData.find(r => r.employeeId === employeeId);
+    if (!record) return;
+    await hrActions.upsertPayrollRecord({ ...record, [field]: numericValue });
+    refetchPayroll();
   };
 
-  const filteredData = payrollData.filter(emp => {
-    // RBAC: HR search across name and role
+  // Server-computed payroll view (base salary, increments, onboarding
+  // penalties, urgent-leave deductions) with any in-flight local edits
+  // for bonus/deductions layered on top.
+  const compiledPayrollData = hrActions.computePayrollView(employees, payrollRecords, leavesList).map(r => ({
+    ...r,
+    bonus: localEdits[r.employeeId]?.bonus ?? r.bonus,
+    deductions: localEdits[r.employeeId]?.deductions ?? r.deductions,
+  }));
+
+  const filteredData = compiledPayrollData.filter(emp => {
     const matchesSearch = emp.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           emp.role.toLowerCase().includes(searchQuery.toLowerCase());
                           
@@ -74,26 +67,25 @@ export default function HRPayrollPage() {
     return true;
   });
 
-  // Base + increment + bonus - deductions must be summed separately per
-  // currency — USA (USD) and Pakistan (PKR) salaries are not interchangeable.
-  const totalPayrollUSD = payrollData
+  const totalPayrollUSD = compiledPayrollData
     .filter(emp => emp.region === 'USA')
-    .reduce((acc, emp) => acc + (emp.baseSalary + emp.incrementAmount + emp.bonus - emp.deductions), 0);
-  const totalPayrollPKR = payrollData
+    .reduce((acc, emp) => acc + (emp.baseSalary + emp.bonus - emp.deductions), 0);
+
+  const totalPayrollPKR = compiledPayrollData
     .filter(emp => emp.region !== 'USA')
-    .reduce((acc, emp) => acc + (emp.baseSalary + emp.incrementAmount + emp.bonus - emp.deductions), 0);
-  const totalPending = payrollData.filter(e => !e.processed).length;
+    .reduce((acc, emp) => acc + (emp.baseSalary + emp.bonus - emp.deductions), 0);
+
+  const totalPending = compiledPayrollData.filter(e => !e.processed).length;
 
   const exportPayrollCSV = () => {
-    const headers = ['Employee', 'Role', 'Region', 'Base Salary', 'Increment', 'Bonus', 'Deductions', 'Net Payable', 'Status'];
+    const headers = ['Employee', 'Role', 'Region', 'Base Salary', 'Bonus', 'Deductions', 'Net Payable', 'Status'];
     const rows = filteredData.map(emp => {
-      const net = emp.baseSalary + emp.incrementAmount + emp.bonus - emp.deductions;
+      const net = emp.baseSalary + emp.bonus - emp.deductions;
       return [
         emp.name,
         emp.role,
-        emp.region || 'Pakistan',
+        emp.region,
         formatMoney(emp.baseSalary, emp.region),
-        formatMoney(emp.incrementAmount, emp.region),
         formatMoney(emp.bonus, emp.region),
         formatMoney(emp.deductions, emp.region),
         formatMoney(net, emp.region),
@@ -117,46 +109,54 @@ export default function HRPayrollPage() {
           <h1 className="text-lg md:text-2xl font-bold text-slate-900">Monthly Payroll Ledger</h1>
           <p className="text-xs md:text-sm text-slate-500">Manage base salaries, bonuses, and calculate monthly net payouts.</p>
         </div>
-        <div className="flex items-center gap-2 self-start md:self-auto">
-        <button
-          onClick={exportPayrollCSV}
-          disabled={filteredData.length === 0}
-          className="bg-white hover:bg-slate-50 disabled:opacity-50 border border-slate-200 text-slate-700 font-semibold px-3 py-2.5 md:py-1.5 rounded-lg text-xs flex items-center gap-1.5 active:scale-97 transition-all"
-        >
-          <Download className="h-3.5 w-3.5" /> Export CSV
-        </button>
-        <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg self-start md:self-auto">
-          <button 
-            onClick={() => setActiveTab('all')}
-            className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
-              activeTab === 'all' 
-                ? 'bg-white text-slate-900 shadow-sm' 
-                : 'text-slate-600 hover:text-slate-950'
-            }`}
+        <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+          <button
+            onClick={async () => {
+              setIsSyncing(true);
+              await fetchAllData();
+              setIsSyncing(false);
+            }}
+            disabled={isSyncing}
+            className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-semibold px-3 py-2.5 md:py-1.5 rounded-lg text-xs flex items-center gap-1.5 active:scale-97 transition-all shadow-sm"
           >
-            All
+            <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin' : ''}`} /> 
+            Refresh Ledger
           </button>
-          <button 
-            onClick={() => setActiveTab('pending')}
-            className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
-              activeTab === 'pending' 
-                ? 'bg-white text-slate-900 shadow-sm' 
-                : 'text-slate-600 hover:text-slate-950'
-            }`}
+          
+          <button
+            onClick={exportPayrollCSV}
+            disabled={filteredData.length === 0}
+            className="bg-white hover:bg-slate-50 disabled:opacity-50 border border-slate-200 text-slate-700 font-semibold px-3 py-2.5 md:py-1.5 rounded-lg text-xs flex items-center gap-1.5 active:scale-97 transition-all"
           >
-            Pending ({totalPending})
+            <Download className="h-3.5 w-3.5" /> Export CSV
           </button>
-          <button 
-            onClick={() => setActiveTab('processed')}
-            className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
-              activeTab === 'processed' 
-                ? 'bg-white text-slate-900 shadow-sm' 
-                : 'text-slate-600 hover:text-slate-950'
-            }`}
-          >
-            Processed
-          </button>
-        </div>
+          
+          <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg">
+            <button 
+              onClick={() => setActiveTab('all')}
+              className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
+                activeTab === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-950'
+              }`}
+            >
+              All
+            </button>
+            <button 
+              onClick={() => setActiveTab('pending')}
+              className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
+                activeTab === 'pending' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-950'
+              }`}
+            >
+              Pending ({totalPending})
+            </button>
+            <button 
+              onClick={() => setActiveTab('processed')}
+              className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
+                activeTab === 'processed' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-950'
+              }`}
+            >
+              Processed
+            </button>
+          </div>
         </div>
       </div>
 
@@ -208,9 +208,9 @@ export default function HRPayrollPage() {
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {filteredData.map(emp => {
-                  const netPayable = emp.baseSalary + emp.incrementAmount + emp.bonus - emp.deductions;
+                  const netPayable = emp.baseSalary + emp.incrementAmount + (Number(emp.bonus) || 0) - (Number(emp.deductions) || 0);
                   return (
-                    <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
+                    <tr key={emp.employeeId} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="font-semibold text-slate-900">{emp.name}</div>
                         <div className="text-xs text-slate-500 mt-0.5">{emp.role}</div>
@@ -230,21 +230,19 @@ export default function HRPayrollPage() {
                       </td>
                       <td className="px-6 py-4 text-center">
                         <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                          emp.unpaidLeaves > 0 
-                            ? 'bg-amber-50 text-amber-800 border border-amber-200/60' 
-                            : 'bg-slate-100 text-slate-500'
+                          emp.unpaidLeaves > 0 ? 'bg-amber-50 text-amber-800 border border-amber-200/60' : 'bg-slate-100 text-slate-500'
                         }`}>
                           {emp.unpaidLeaves > 0 ? `${emp.unpaidLeaves} day(s)` : 'None'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
                         {emp.processed ? (
-                          <span className="text-slate-900 font-medium">{formatMoney(emp.bonus, emp.region)}</span>
+                          <span className="text-slate-900 font-medium">{formatMoney(emp.bonus || 0, emp.region)}</span>
                         ) : (
                           <input 
                             type="text" 
                             value={emp.bonus || ''} 
-                            onChange={(e) => handleUpdateAmount(emp.id, 'bonus', e.target.value)}
+                            onChange={(e) => handleUpdateAmount(emp.employeeId, 'bonus', e.target.value)}
                             className="w-20 bg-slate-50 border border-slate-200 rounded-md py-1 px-2 text-right text-xs focus:border-orange-500 outline-none"
                             placeholder="0"
                           />
@@ -252,22 +250,16 @@ export default function HRPayrollPage() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         {emp.processed ? (
-                          <span className="text-slate-900 font-medium">{formatMoney(emp.deductions, emp.region)}</span>
+                          <span className="text-slate-900 font-medium">{formatMoney(emp.deductions || 0, emp.region)}</span>
                         ) : (
-                          <input 
-                            type="text" 
-                            value={emp.deductions || ''} 
-                            onChange={(e) => handleUpdateAmount(emp.id, 'deductions', e.target.value)}
+                          <input
+                            type="text"
+                            value={emp.deductions || ''}
+                            onChange={(e) => handleUpdateAmount(emp.employeeId, 'deductions', e.target.value)}
                             className="w-20 bg-slate-50 border border-slate-200 rounded-md py-1 px-2 text-right text-xs focus:border-orange-500 outline-none"
                             placeholder="0"
                           />
                         )}
-                        {/* Informational only, by design: per policy, urgent
-                            leave deductions are taken monthly, but if an
-                            employee stays at 3 or fewer urgent leaves for the
-                            full year the deducted amount is reimbursed at
-                            year-end — not reversed here automatically. This
-                            flag just tells HR who's currently on track. */}
                         {(() => {
                           const count = leavesList.filter(l => l.employeeName === emp.name && l.type === 'Urgent' && l.status === 'approved').length;
                           if (count > 0 && count <= 3) {
@@ -282,18 +274,14 @@ export default function HRPayrollPage() {
                         <div className="font-semibold text-slate-900">{formatMoney(netPayable, emp.region)}</div>
                       </td>
                       <td className="px-6 py-4 text-center">
-                        {emp.processed ? (
-                          <Badge variant="success">Completed</Badge>
-                        ) : (
-                          <Badge variant="warning">Pending</Badge>
-                        )}
+                        {emp.processed ? <Badge variant="success">Completed</Badge> : <Badge variant="warning">Pending</Badge>}
                       </td>
                       <td className="px-6 py-4 text-center">
                         {emp.processed ? (
                           <span className="text-xs text-slate-400 font-semibold">Processed</span>
                         ) : (
-                          <button 
-                            onClick={() => handleProcess(emp.id)}
+                          <button
+                            onClick={() => handleProcess(emp.employeeId)}
                             className="text-xs font-semibold text-orange-650 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded transition-all active:scale-97"
                           >
                             Complete Payout
@@ -312,20 +300,16 @@ export default function HRPayrollPage() {
       {/* Mobile Card Stack */}
       <div className="md:hidden space-y-3">
         {filteredData.map(emp => {
-          const netPayable = emp.baseSalary + emp.incrementAmount + emp.bonus - emp.deductions;
+          const netPayable = emp.baseSalary + emp.incrementAmount + (Number(emp.bonus) || 0) - (Number(emp.deductions) || 0);
           const urgentCount = leavesList.filter(l => l.employeeName === emp.name && l.type === 'Urgent' && l.status === 'approved').length;
           return (
-            <div key={emp.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
+            <div key={emp.employeeId} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="text-sm font-bold text-slate-900">{emp.name}</p>
                   <p className="text-xs text-slate-500">{emp.role}</p>
                 </div>
-                {emp.processed ? (
-                  <Badge variant="success">Completed</Badge>
-                ) : (
-                  <Badge variant="warning">Pending</Badge>
-                )}
+                {emp.processed ? <Badge variant="success">Completed</Badge> : <Badge variant="warning">Pending</Badge>}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -348,7 +332,7 @@ export default function HRPayrollPage() {
                 </div>
                 <div>
                   <p className="text-[10px] text-slate-400 font-semibold uppercase">Bonus / Deductions</p>
-                  <p className="text-xs font-bold text-slate-800">{formatMoney(emp.bonus, emp.region)} / {formatMoney(emp.deductions, emp.region)}</p>
+                  <p className="text-xs font-bold text-slate-800">{formatMoney(emp.bonus || 0, emp.region)} / {formatMoney(emp.deductions || 0, emp.region)}</p>
                 </div>
               </div>
               {urgentCount > 0 && (
@@ -363,17 +347,17 @@ export default function HRPayrollPage() {
                     <input 
                       type="text" 
                       value={emp.bonus || ''} 
-                      onChange={(e) => handleUpdateAmount(emp.id, 'bonus', e.target.value)}
+                      onChange={(e) => handleUpdateAmount(emp.employeeId, 'bonus', e.target.value)}
                       className="w-full bg-slate-50 border border-slate-200 rounded-md py-1.5 px-2 text-xs focus:border-orange-500 outline-none"
                       placeholder="0"
                     />
                   </div>
                   <div>
                     <p className="text-[10px] text-slate-400 font-semibold uppercase mb-1">Deductions ($)</p>
-                    <input 
-                      type="text" 
-                      value={emp.deductions || ''} 
-                      onChange={(e) => handleUpdateAmount(emp.id, 'deductions', e.target.value)}
+                    <input
+                      type="text"
+                      value={emp.deductions || ''}
+                      onChange={(e) => handleUpdateAmount(emp.employeeId, 'deductions', e.target.value)}
                       className="w-full bg-slate-50 border border-slate-200 rounded-md py-1.5 px-2 text-xs focus:border-orange-500 outline-none"
                       placeholder="0"
                     />
@@ -381,8 +365,8 @@ export default function HRPayrollPage() {
                 </div>
               )}
               {!emp.processed && (
-                <button 
-                  onClick={() => handleProcess(emp.id)}
+                <button
+                  onClick={() => handleProcess(emp.employeeId)}
                   className="w-full text-xs font-semibold text-orange-650 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-2.5 rounded-lg transition-all active:scale-97 border border-orange-200"
                 >
                   Complete Payout

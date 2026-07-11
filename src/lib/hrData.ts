@@ -1,0 +1,1164 @@
+'use client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { pb } from './pocketbase';
+
+// ─────────────────────────────────────────────────────────────────────────
+// SINGLE SOURCE OF TRUTH for all PocketBase access in this app.
+//
+// Rules for anyone editing this file or the pages that use it:
+//   1. No page/component may call `pb.collection(...)` directly. Every read
+//      goes through the `use*()` hooks below (React Query — in-memory cache
+//      only, never localStorage). Every write goes through `hrActions.*`.
+//   2. Field names here are taken verbatim from the live PocketBase export
+//      (see SCHEMA_REFERENCE.md) — do not invent/guess field names.
+//   3. hr_delcargo_store (generic key/value collection) is still legitimate
+//      server storage for things with no dedicated table (tracking
+//      settings, screenshots, heartbeats, notification read/cleared maps,
+//      profile "extra" fields, deletion tombstones). It is fetched fresh
+//      every time, never cached to localStorage.
+// ─────────────────────────────────────────────────────────────────────────
+
+const WORKING_DAYS_PER_MONTH = 22;
+
+// ---------------------------------------------------------------------------
+// Low-level PocketBase primitives
+// ---------------------------------------------------------------------------
+
+function looksLikeRealId(id: any): boolean {
+  return typeof id === 'string' && /^[a-z0-9]{15}$/.test(id);
+}
+
+async function pbList(collection: string, opts: { sort?: string; filter?: string } = {}): Promise<any[]> {
+  try {
+    return await pb.collection(collection).getFullList({ requestKey: null, ...opts });
+  } catch (err) {
+    console.error(`[hrData] getFullList error in ${collection}:`, err);
+    return [];
+  }
+}
+
+async function pbCreate(collection: string, fields: any): Promise<any> {
+  return pb.collection(collection).create(fields);
+}
+
+async function pbUpdate(collection: string, id: string, fields: any): Promise<any> {
+  return pb.collection(collection).update(id, fields);
+}
+
+async function pbDelete(collection: string, id: string): Promise<void> {
+  if (!looksLikeRealId(id)) return;
+  await pb.collection(collection).delete(id);
+}
+
+// hr_delcargo_store (KV) helpers — still real server storage, just not a
+// per-entity table. Always fetched fresh; never written to localStorage.
+async function pbGetKV(key: string): Promise<any | null> {
+  try {
+    const rec = await pb.collection('hr_delcargo_store').getFirstListItem(`key = "${key}"`, { requestKey: null });
+    return rec.value;
+  } catch {
+    return null;
+  }
+}
+
+async function pbSetKV(key: string, value: any): Promise<void> {
+  try {
+    const existing = await pb.collection('hr_delcargo_store').getFirstListItem(`key = "${key}"`, { requestKey: null });
+    await pb.collection('hr_delcargo_store').update(existing.id, { value });
+  } catch {
+    await pb.collection('hr_delcargo_store').create({ key, value });
+  }
+}
+
+async function pbGetKVByPrefix(prefix: string): Promise<{ key: string; value: any; id: string }[]> {
+  try {
+    const records = await pb.collection('hr_delcargo_store').getFullList({
+      filter: `key ~ "${prefix}"`,
+      requestKey: null,
+    });
+    return records.map((r: any) => ({ key: r.key, value: r.value, id: r.id }));
+  } catch (err) {
+    console.error(`[hrData] KV prefix fetch error (${prefix}):`, err);
+    return [];
+  }
+}
+
+async function pbDeleteKVByKeys(keys: string[]): Promise<void> {
+  for (const key of keys) {
+    try {
+      const rec = await pb.collection('hr_delcargo_store').getFirstListItem(`key = "${key}"`, { requestKey: null });
+      await pb.collection('hr_delcargo_store').delete(rec.id);
+    } catch {
+      // already gone
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// TYPES (app-shape, camelCase — same shapes pages already expect)
+// ---------------------------------------------------------------------------
+
+export interface Profile {
+  id: string;
+  fullName: string;
+  email: string;
+  role: 'employee' | 'hr' | 'admin' | 'team_lead';
+  joinedDate: string;
+  onboardingCompleted: boolean;
+  baseSalary: number;
+  teams: string[];
+  password?: string;
+  isTeamLead?: boolean;
+  leadTeams?: string[];
+  isWarehouseLead?: boolean;
+  managedWarehouses?: string[];
+  jobTitle?: string;
+  gender?: 'male' | 'female';
+  bankName?: string;
+  accountNumber?: string;
+  iban?: string;
+  profilePicture?: string;
+  region?: 'USA' | 'Pakistan';
+  assignedWarehouses?: string[];
+  trackingEnabled?: boolean;
+  salaryStartDate?: string;
+  // Overlay-only fields, not real hr_profiles columns — see profile extras below.
+  // Date the employee's system/portal account was created. Falls back to
+  // joinedDate for employees onboarded before this field existed. PTO
+  // accrual is keyed off this instead of joinedDate (see getPTOAccrualDate).
+  accountCreationDate?: string;
+  offboarded?: boolean;
+  offboardDate?: string;
+  offboardingStatus?: {
+    itClearance: boolean;
+    financeClearance: boolean;
+    hrClearance: boolean;
+    notes?: string;
+    finalLeavePayout?: number;
+  };
+  lastIncrementProcessedYear?: number;
+  cvFileName?: string;
+  cvFileData?: string;
+  identityDocs?: { name: string; data: string }[];
+  passportFileName?: string;
+  passportFileData?: string;
+}
+
+export interface Warehouse { id: string; name: string; latitude: number; longitude: number; radius: number; }
+
+export interface Announcement {
+  id: string; title: string; content: string; timestamp: string; createdBy: string;
+  target: 'all' | 'usa' | 'pakistan' | string[];
+}
+
+export interface LeaveApplication {
+  id: string; employeeName: string; type: 'PTO' | 'Sick Leave' | 'Urgent' | 'Parental Leave';
+  duration: string; reason: string; status: 'pending' | 'hr_approved' | 'approved' | 'rejected';
+}
+
+export interface Task {
+  id: string; title: string; description: string; assignedTo: string; assignedEmail: string;
+  team: string; dueDate: string; priority: 'low' | 'medium' | 'high'; status: 'todo' | 'in_progress' | 'done';
+  createdBy: string;
+}
+
+// hr_timesheets: no in_progress/completed status in the real schema (fixed
+// enum pending|approved|rejected instead). We represent "open shift" as
+// clockOut being empty, and keep `approvalStatus` as a separate HR workflow
+// flag layered on top — see SCHEMA_REFERENCE.md.
+export interface TimesheetEntry {
+  id: string; employeeEmail: string; date: string; clockIn: string; clockOut?: string;
+  duration?: string; status: 'in_progress' | 'completed'; approvalStatus: 'pending' | 'approved' | 'rejected';
+}
+
+export interface PayrollRecord {
+  id: string; employeeId: string; name: string; role: string; region?: 'USA' | 'Pakistan';
+  baseSalary: number; unpaidLeaves: number; bonus: number; deductions: number; processed: boolean;
+  incrementAmount: number;
+}
+
+export interface TrackingSettings {
+  employeeEmail: string; enabled: boolean; intervalMinutes: number; excludeFromAutoDelete: boolean; agentToken: string;
+}
+
+export interface TrackerHeartbeat {
+  employeeEmail: string; deviceId: string; deviceLabel?: string; connectedAt: string; lastSeenAt: string;
+}
+export const TRACKER_HEARTBEAT_STALE_MS = 3 * 60 * 1000;
+
+// `imageUrl` points at either a real PocketBase file URL (hr_screenshots
+// records — the current format, set by the tracker agents) or a data: URL
+// (legacy screenshot_<id> rows still sitting in hr_delcargo_store from
+// before the hr_screenshots collection existed — see MIGRATING_OLD_SCREENSHOTS
+// in migration_data/create_screenshots_collection.py). Either way, `<img
+// src={imageUrl}>` just works — callers don't need to know which source a
+// given screenshot came from.
+export interface Screenshot { id: string; employeeEmail: string; timestamp: string; imageUrl: string; deviceLabel?: string; legacy?: boolean; }
+interface ScreenshotRetentionState { warnedAt?: string; pendingDeleteIds?: string[]; }
+
+// One contiguous stretch of mouse inactivity (no cursor movement) lasting at
+// least 3 minutes, reported by the desktop tracker agent (see
+// tracker-agent/agent_gui.py's _inactivity_loop). Only recorded while
+// tracking is enabled AND the employee's shift is active — matches the same
+// gating screenshots use, so this never counts idle time outside a shift.
+export interface InactivityLog {
+  id: string; employeeEmail: string; startAt: string; endAt: string; durationSeconds: number; deviceLabel?: string;
+}
+
+export interface Notification {
+  id: string; recipientEmail: string; recipientRole: string; message: string; read: boolean; timestamp: string;
+}
+type NotificationReadMap = Record<string, string[]>;
+type NotificationClearedMap = Record<string, string[]>;
+
+export interface CareerPosition {
+  id: string; title: string; department: string; location: string; description: string; requirements: string[];
+}
+export type CareerApplicationStatus = 'pending' | 'reviewed' | 'shortlisted' | 'rejected' | 'hired';
+export interface CareerApplication {
+  id: string; positionId: string; positionTitle: string; applicantName: string; applicantEmail: string;
+  coverLetter: string; submittedAt: string; status: CareerApplicationStatus;
+}
+
+export interface TicketReply {
+  id: string; senderName: string; senderRole: 'employee' | 'hr' | 'admin' | 'team_lead'; message: string; timestamp: string;
+}
+export interface Ticket {
+  id: string; employeeName: string; employeeEmail: string; title: string; description: string;
+  status: 'open' | 'closed'; createdAt: string; replies: TicketReply[];
+}
+
+// Real hr_teams row — adopted structure (lead + members + warehouse).
+export interface Team {
+  id: string; name: string; leadEmail?: string; members: string[]; warehouseId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Mappers (PocketBase snake_case record -> app camelCase shape)
+// ---------------------------------------------------------------------------
+
+const profileExtraKey = (profileId: string) => `hr_profile_extra_${profileId}`;
+
+export async function getProfileExtras(profileId: string): Promise<Partial<Profile>> {
+  if (!profileId) return {};
+  return ((await pbGetKV(profileExtraKey(profileId))) as Partial<Profile>) || {};
+}
+
+export async function saveProfileExtras(profileId: string, extras: Partial<Profile>): Promise<void> {
+  if (!profileId) return;
+  const existing = (await pbGetKV(profileExtraKey(profileId))) || {};
+  await pbSetKV(profileExtraKey(profileId), { ...existing, ...extras });
+}
+
+function toProfile(p: any, extras: Partial<Profile> = {}): Profile {
+  return {
+    id: p.id,
+    fullName: p.full_name,
+    email: p.email,
+    role: p.role,
+    joinedDate: p.joined_date,
+    onboardingCompleted: !!p.onboarding_completed,
+    baseSalary: Number(p.base_salary) || 0,
+    teams: p.teams || [],
+    password: p.password,
+    isTeamLead: p.is_team_lead === true || p.is_team_lead === 'true',
+    leadTeams: p.lead_teams || [],
+    isWarehouseLead: !!p.is_warehouse_lead,
+    managedWarehouses: p.managed_warehouses || [],
+    jobTitle: p.job_title,
+    gender: p.gender,
+    bankName: p.bank_name,
+    accountNumber: p.account_number,
+    iban: p.iban,
+    profilePicture: p.profile_picture,
+    region: p.region,
+    assignedWarehouses: p.assigned_warehouses || [],
+    trackingEnabled: !!p.tracking_enabled,
+    salaryStartDate: p.salary_start_date || p.joined_date || '',
+    ...extras,
+  };
+}
+
+function fromProfileFields(p: Partial<Profile>): any {
+  const fields: any = {};
+  if (p.fullName !== undefined) fields.full_name = p.fullName;
+  if (p.email !== undefined) fields.email = p.email;
+  if (p.role !== undefined) fields.role = p.role;
+  if (p.joinedDate !== undefined) fields.joined_date = p.joinedDate;
+  if (p.onboardingCompleted !== undefined) fields.onboarding_completed = p.onboardingCompleted;
+  if (p.baseSalary !== undefined) fields.base_salary = p.baseSalary;
+  if (p.teams !== undefined) fields.teams = p.teams;
+  if (p.password !== undefined) fields.password = p.password;
+  if (p.isTeamLead !== undefined) fields.is_team_lead = String(!!p.isTeamLead);
+  if (p.leadTeams !== undefined) fields.lead_teams = p.leadTeams;
+  if (p.isWarehouseLead !== undefined) fields.is_warehouse_lead = p.isWarehouseLead;
+  if (p.managedWarehouses !== undefined) fields.managed_warehouses = p.managedWarehouses;
+  if (p.jobTitle !== undefined) fields.job_title = p.jobTitle;
+  if (p.gender !== undefined) fields.gender = p.gender;
+  if (p.bankName !== undefined) fields.bank_name = p.bankName;
+  if (p.accountNumber !== undefined) fields.account_number = p.accountNumber;
+  if (p.iban !== undefined) fields.iban = p.iban;
+  if (p.profilePicture !== undefined) fields.profile_picture = p.profilePicture;
+  if (p.region !== undefined) fields.region = p.region;
+  if (p.assignedWarehouses !== undefined) fields.assigned_warehouses = p.assignedWarehouses;
+  if (p.trackingEnabled !== undefined) fields.tracking_enabled = p.trackingEnabled;
+  if (p.salaryStartDate !== undefined) fields.salary_start_date = p.salaryStartDate;
+  return fields;
+}
+
+const OVERLAY_KEYS: (keyof Profile)[] = [
+  'offboarded', 'offboardDate', 'offboardingStatus', 'lastIncrementProcessedYear',
+  'cvFileName', 'cvFileData', 'identityDocs', 'passportFileName', 'passportFileData',
+  'accountCreationDate',
+];
+
+function toWarehouse(w: any): Warehouse {
+  return { id: w.id, name: w.name, latitude: Number(w.latitude), longitude: Number(w.longitude), radius: Number(w.radius) };
+}
+function toLeave(l: any): LeaveApplication {
+  return { id: l.id, employeeName: l.employee_name, type: l.type, duration: l.duration, reason: l.reason, status: l.status };
+}
+function toNotification(n: any): Notification {
+  return { id: n.id, recipientEmail: n.recipient_email, recipientRole: n.recipient_role, message: n.message, timestamp: n.timestamp, read: !!n.read };
+}
+function toTask(t: any): Task {
+  return { id: t.id, title: t.title, description: t.description, assignedTo: t.assigned_to, assignedEmail: t.assigned_email, team: t.team, dueDate: t.due_date, priority: t.priority, status: t.status, createdBy: t.created_by };
+}
+function toAnnouncement(a: any): Announcement {
+  return { id: a.id, title: a.title, content: a.content, timestamp: a.timestamp, createdBy: a.created_by, target: a.target || a.target_role || 'all' };
+}
+function toCareer(c: any): CareerPosition {
+  return { id: c.id, title: c.title, department: c.department, location: c.location, description: c.description, requirements: c.requirements || [] };
+}
+function toCareerApplication(a: any): CareerApplication {
+  return {
+    id: a.id, positionId: a.position_id, positionTitle: a.position_title, applicantName: a.applicant_name,
+    applicantEmail: a.applicant_email, coverLetter: a.cover_letter, submittedAt: a.submitted_at,
+    status: (a.status || 'pending') as CareerApplicationStatus,
+  };
+}
+function toTicket(t: any): Ticket {
+  return { id: t.id, employeeName: t.employee_name, employeeEmail: t.employee_email, title: t.subject, description: t.description, status: t.status, createdAt: t.created, replies: t.replies || [] };
+}
+function toPayroll(p: any): PayrollRecord {
+  return {
+    id: p.id, employeeId: p.employee_id, name: p.employee_name, role: p.role, region: p.region,
+    baseSalary: Number(p.base_salary) || 0, unpaidLeaves: Number(p.unpaid_leaves) || 0, bonus: Number(p.bonus) || 0,
+    deductions: Number(p.deductions) || 0, incrementAmount: Number(p.increment_amount) || 0, processed: !!p.processed,
+  };
+}
+function toTeam(t: any): Team {
+  return { id: t.id, name: t.name, leadEmail: t.lead_email || undefined, members: t.members || [], warehouseId: t.warehouse_id || undefined };
+}
+function toTimesheet(t: any): TimesheetEntry {
+  const clockOut = t.clock_out || undefined;
+  return {
+    id: t.id, employeeEmail: t.employee_id, date: t.date, clockIn: t.clock_in, clockOut,
+    duration: t.duration || undefined,
+    status: clockOut ? 'completed' : 'in_progress',
+    approvalStatus: t.status || 'pending',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// QUERY HOOKS — the only supported way to read data. In-memory cache only.
+// ---------------------------------------------------------------------------
+
+export function useProfiles() {
+  return useQuery({
+    queryKey: ['hr_profiles'],
+    queryFn: async () => {
+      const [records, extraRows] = await Promise.all([
+        pbList('hr_profiles', { sort: 'full_name' }),
+        pbGetKVByPrefix('hr_profile_extra_'),
+      ]);
+      const extrasById: Record<string, Partial<Profile>> = {};
+      extraRows.forEach(row => { extrasById[row.key.replace('hr_profile_extra_', '')] = row.value || {}; });
+      return records.map((r: any) => toProfile(r, extrasById[r.id] || {}));
+    },
+  });
+}
+export function useLeaves() {
+  return useQuery({ queryKey: ['hr_leaves'], queryFn: async () => (await pbList('hr_leaves')).map(toLeave) });
+}
+export function useNotifications() {
+  return useQuery({
+    queryKey: ['hr_notifications'],
+    queryFn: async () => (await pbList('hr_notifications', { sort: '-created' })).map(toNotification),
+    // The bell lives in the persistent dashboard layout (TopNav), which
+    // never remounts on client-side navigation — without polling it only
+    // ever fetched once per session, so new notifications (e.g. a leave
+    // request) silently never appeared until a hard page reload. The
+    // realtime subscription in ToastNotification.tsx invalidates this query
+    // immediately when a new row comes in; this interval is just a backstop
+    // in case that subscription drops.
+    refetchInterval: 15000,
+  });
+}
+export function useWarehouses() {
+  return useQuery({ queryKey: ['hr_warehouses'], queryFn: async () => (await pbList('hr_warehouses')).map(toWarehouse) });
+}
+export function useTasks() {
+  return useQuery({ queryKey: ['hr_tasks'], queryFn: async () => (await pbList('hr_tasks', { sort: '-created' })).map(toTask) });
+}
+export function useAnnouncements() {
+  return useQuery({
+    queryKey: ['hr_announcements'],
+    queryFn: async () => (await pbList('hr_announcements', { sort: '-created' })).map(toAnnouncement),
+    // Same staleness issue as notifications — dashboard Overview pages only
+    // fetched this once; poll so a newly-posted announcement shows up
+    // without requiring a hard reload.
+    refetchInterval: 30000,
+  });
+}
+export function useCareers() {
+  return useQuery({ queryKey: ['hr_careers'], queryFn: async () => (await pbList('hr_careers')).map(toCareer) });
+}
+export function useCareerApplications() {
+  return useQuery({ queryKey: ['hr_career_applications'], queryFn: async () => (await pbList('hr_career_applications', { sort: '-created' })).map(toCareerApplication) });
+}
+export function useTickets() {
+  return useQuery({
+    queryKey: ['hr_tickets'],
+    queryFn: async () => (await pbList('hr_tickets', { sort: '-created' })).map(toTicket),
+    refetchInterval: 15000, // near-real-time polling, matches old refreshTickets() intent
+  });
+}
+export function usePayroll() {
+  return useQuery({ queryKey: ['hr_payroll'], queryFn: async () => (await pbList('hr_payroll')).map(toPayroll) });
+}
+export function useTeams() {
+  return useQuery({ queryKey: ['hr_teams'], queryFn: async () => (await pbList('hr_teams', { sort: 'name' })).map(toTeam) });
+}
+export function useTimesheets() {
+  return useQuery({ queryKey: ['hr_timesheets'], queryFn: async () => (await pbList('hr_timesheets', { sort: '-created' })).map(toTimesheet) });
+}
+
+// Fetches every KV row whose key matches a prefix - used for tracking
+// settings / heartbeats / screenshots, which don't have dedicated tables.
+export function useKVByPrefix(prefix: string) {
+  return useQuery({ queryKey: ['hr_kv', prefix], queryFn: () => pbGetKVByPrefix(prefix) });
+}
+
+// Convenience: call inside a component to get a function that invalidates
+// (and thus refetches) one or more query keys after a mutation.
+export function useInvalidate() {
+  const qc = useQueryClient();
+  return (keys: string[]) => keys.forEach(k => qc.invalidateQueries({ queryKey: [k] }));
+}
+
+// ---------------------------------------------------------------------------
+// PURE BUSINESS LOGIC (unchanged formulas, ported from src/lib/db.ts)
+// ---------------------------------------------------------------------------
+
+export function parseLeaveDates(duration: string): { start: Date; end: Date } | null {
+  try {
+    const parts = duration.split(' - ');
+    if (parts.length < 2) { const d = new Date(parts[0]); return { start: d, end: d }; }
+    return { start: new Date(parts[0]), end: new Date(parts[1]) };
+  } catch { return null; }
+}
+
+export function calculateTenure(joinedDate: string): { years: number; totalMonths: number } {
+  const start = new Date(joinedDate);
+  const today = new Date();
+  let years = today.getFullYear() - start.getFullYear();
+  let months = today.getMonth() - start.getMonth();
+  if (months < 0 || (months === 0 && today.getDate() < start.getDate())) { years--; months += 12; }
+  const totalMonths = (today.getFullYear() - start.getFullYear()) * 12 + (today.getMonth() - start.getMonth());
+  return { years: Math.max(0, years), totalMonths: Math.max(0, totalMonths) };
+}
+
+export function calculatePTOAccrued(joinedDate: string): number {
+  const { totalMonths } = calculateTenure(joinedDate);
+  let totalAccrued = 0;
+  for (let m = 0; m < totalMonths; m++) {
+    const yearOfService = Math.floor(m / 12) + 1;
+    let monthlyRate = 0.83;
+    if (yearOfService === 2) monthlyRate = 1.0;
+    else if (yearOfService === 3) monthlyRate = 1.17;
+    else if (yearOfService === 4) monthlyRate = 1.33;
+    else if (yearOfService === 5) monthlyRate = 1.5;
+    else if (yearOfService === 6) monthlyRate = 1.67;
+    else if (yearOfService === 7) monthlyRate = 1.83;
+    else if (yearOfService === 8) monthlyRate = 2.08;
+    else if (yearOfService === 9) monthlyRate = 2.25;
+    else if (yearOfService >= 10) monthlyRate = 2.5;
+    totalAccrued += monthlyRate;
+  }
+  return Math.min(30, Math.round(totalAccrued * 100) / 100);
+}
+
+export function getApprovedLeaveDays(leaves: LeaveApplication[], fullName: string, types: Array<'PTO' | 'Sick Leave'>): number {
+  return leaves
+    .filter(l => l.employeeName === fullName && l.status === 'approved' && types.includes(l.type as any))
+    .reduce((acc, l) => {
+      const dates = parseLeaveDates(l.duration);
+      if (!dates) return acc + 1;
+      const diff = Math.abs(dates.end.getTime() - dates.start.getTime());
+      return acc + Math.ceil(diff / (1000 * 3600 * 24)) + 1;
+    }, 0);
+}
+
+export function getRemainingPTO(leaves: LeaveApplication[], fullName: string, joinedDate: string): number {
+  const accrued = calculatePTOAccrued(joinedDate);
+  const taken = getApprovedLeaveDays(leaves, fullName, ['PTO', 'Sick Leave']);
+  return Math.max(0, Math.round((accrued - taken) * 100) / 100);
+}
+
+// PTO accrual runs off the employee's account-creation date, not their
+// joining date — the two can differ (e.g. account created before/after
+// the actual start date). Falls back to joinedDate for anyone onboarded
+// before accountCreationDate existed, so nothing changes for them.
+export function getPTOAccrualDate(profile: Pick<Profile, 'joinedDate' | 'accountCreationDate'>): string {
+  return profile.accountCreationDate || profile.joinedDate;
+}
+
+export function getPendingIncrement(profile: Profile): number {
+  const anniversarySource = profile.salaryStartDate || profile.joinedDate;
+  if (!anniversarySource) return 0;
+  const anniversaryDate = new Date(anniversarySource);
+  const now = new Date();
+  const isAnniversaryMonth = now.getMonth() === anniversaryDate.getMonth();
+  const { years } = calculateTenure(anniversarySource);
+  const alreadyProcessedThisYear = profile.lastIncrementProcessedYear === now.getFullYear();
+  if (isAnniversaryMonth && years >= 1 && !alreadyProcessedThisYear) {
+    return profile.region === 'USA' ? 100 : 10000;
+  }
+  return 0;
+}
+
+export function getFinalLeavePayout(profile: Profile, leaves: LeaveApplication[]): number {
+  const remainingDays = getRemainingPTO(leaves, profile.fullName, getPTOAccrualDate(profile));
+  const dailyRate = profile.baseSalary / WORKING_DAYS_PER_MONTH;
+  return Math.round(remainingDays * dailyRate);
+}
+
+export const formatMoney = (amount: number, region?: 'USA' | 'Pakistan') =>
+  region === 'USA' ? `$${amount.toLocaleString()}` : `PKR ${amount.toLocaleString()}`;
+
+function formatDurationBetween(startISO: string, endISO: string): string {
+  const ms = new Date(endISO).getTime() - new Date(startISO).getTime();
+  const totalMinutes = Math.max(0, Math.round(ms / 60000));
+  return `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`;
+}
+
+// ---------------------------------------------------------------------------
+// Ticket activity "seen" tracking (client-side only, per role+email) — used
+// to light up a small dot on the Support Tickets nav item when there's a
+// new ticket or reply the viewer hasn't looked at yet.
+// ---------------------------------------------------------------------------
+
+// A single number that changes whenever there's new activity relevant to
+// this viewer: for HR/Admin that's every ticket + every reply on every
+// ticket (they see all of it); for employees/team leads it's just replies
+// from HR/Admin on their own tickets (their own messages don't count).
+export function computeTicketActivitySignature(
+  tickets: Ticket[],
+  role: 'admin' | 'hr' | 'employee' | 'team_lead',
+  email: string,
+): number {
+  if (role === 'admin' || role === 'hr') {
+    return tickets.reduce((sum, t) => sum + 1 + t.replies.length, 0);
+  }
+  const mine = tickets.filter(t => t.employeeEmail.toLowerCase() === email.toLowerCase());
+  return mine.reduce((sum, t) => sum + t.replies.filter(r => r.senderRole === 'hr' || r.senderRole === 'admin').length, 0);
+}
+
+function ticketSeenStorageKey(role: string, email: string): string {
+  return `hr_tickets_seen_v1_${role}_${email.toLowerCase()}`;
+}
+
+export function hasUnseenTicketActivity(
+  tickets: Ticket[],
+  role: 'admin' | 'hr' | 'employee' | 'team_lead',
+  email: string,
+): boolean {
+  if (typeof window === 'undefined' || !email) return false;
+  const current = computeTicketActivitySignature(tickets, role, email);
+  const stored = Number(window.localStorage.getItem(ticketSeenStorageKey(role, email)) || '0');
+  return current > stored;
+}
+
+export function markTicketActivitySeen(
+  tickets: Ticket[],
+  role: 'admin' | 'hr' | 'employee' | 'team_lead',
+  email: string,
+): void {
+  if (typeof window === 'undefined' || !email) return;
+  const current = computeTicketActivitySignature(tickets, role, email);
+  window.localStorage.setItem(ticketSeenStorageKey(role, email), String(current));
+}
+
+// ---------------------------------------------------------------------------
+// hrActions — every write in the app goes through here.
+// ---------------------------------------------------------------------------
+
+export const hrActions = {
+  // ── Profiles ──────────────────────────────────────────────────────────
+  addEmployee: async (emp: Omit<Profile, 'id' | 'onboardingCompleted'>): Promise<Profile> => {
+    const fields = fromProfileFields({ ...emp, onboardingCompleted: false });
+    const created = await pbCreate('hr_profiles', fields);
+    // accountCreationDate is an overlay-only field (no hr_profiles column),
+    // so fromProfileFields drops it — persist it separately or it's lost.
+    if (emp.accountCreationDate) {
+      await saveProfileExtras(created.id, { accountCreationDate: emp.accountCreationDate });
+    }
+    // clear tombstone if this email was previously deleted
+    if (emp.email) {
+      const existing = ((await pbGetKV('hr_deleted_profile_emails_v1')) as string[]) || [];
+      const lower = emp.email.toLowerCase();
+      if (existing.map(e => e.toLowerCase()).includes(lower)) {
+        await pbSetKV('hr_deleted_profile_emails_v1', existing.filter(e => e.toLowerCase() !== lower));
+      }
+    }
+    return toProfile(created, emp.accountCreationDate ? { accountCreationDate: emp.accountCreationDate } : {});
+  },
+
+  updateProfileDetails: async (profileId: string, updates: Partial<Profile>): Promise<void> => {
+    const overlay: Partial<Profile> = {};
+    const real: Partial<Profile> = {};
+    (Object.keys(updates) as (keyof Profile)[]).forEach(k => {
+      if (OVERLAY_KEYS.includes(k)) (overlay as any)[k] = (updates as any)[k];
+      else (real as any)[k] = (updates as any)[k];
+    });
+    if (Object.keys(real).length > 0) await pbUpdate('hr_profiles', profileId, fromProfileFields(real));
+    if (Object.keys(overlay).length > 0) await saveProfileExtras(profileId, overlay);
+  },
+
+  // Purges every trace of this employee across the database, not just the
+  // hr_profiles row. Previously "Delete Permanently" only removed the
+  // profile row and left everything else (documents, payroll, leaves,
+  // tasks, tickets, timesheets, screenshots, notifications, tracking
+  // token) orphaned in place indefinitely — this now actually deletes it.
+  // Callers should prompt HR/Admin to download an export first (see
+  // exportEmployeeArchive below) since this is irreversible.
+  deleteEmployee: async (id: string, email: string, fullName?: string): Promise<void> => {
+    const lower = (email || '').toLowerCase();
+
+    // Profile-extras overlay — this is where CV/passport/identity document
+    // data actually lives (hr_profiles itself has no document columns).
+    await pbDeleteKVByKeys([profileExtraKey(id)]);
+
+    // Revoke tracking: remove their row from the tracking-settings list so
+    // an already-installed desktop tracker can't keep polling with a
+    // still-valid token and silently uploading screenshots after they're
+    // gone. Also drop their heartbeat row.
+    if (email) {
+      const allSettings = ((await pbGetKV('hr_tracking_settings_prod_v1')) as TrackingSettings[]) || [];
+      const remaining = allSettings.filter(s => (s.employeeEmail || '').toLowerCase() !== lower);
+      if (remaining.length !== allSettings.length) {
+        await pbSetKV('hr_tracking_settings_prod_v1', remaining);
+      }
+      await pbDeleteKVByKeys([`tracker_heartbeat_${lower.replace(/[^a-z0-9]/g, '_')}`]);
+    }
+
+    // Screenshots — both the real hr_screenshots collection and any
+    // legacy base64 rows still in hr_delcargo_store.
+    if (email) {
+      const shots = await hrActions.getScreenshots({ employeeEmail: email });
+      if (shots.length) await hrActions.deleteScreenshots(shots.map(s => s.id));
+    }
+
+    // Everything else, deleted in parallel — each resource type is
+    // independent, so one failing shouldn't block the others.
+    const deletions: Promise<any>[] = [];
+    if (email) {
+      deletions.push(
+        pbList('hr_payroll', { filter: `employee_id = "${id}"` })
+          .then(rows => Promise.allSettled(rows.map((r: any) => pbDelete('hr_payroll', r.id)))),
+        pbList('hr_timesheets', { filter: `employee_id = "${email.replace(/"/g, '\\"')}"` })
+          .then(rows => Promise.allSettled(rows.map((r: any) => pbDelete('hr_timesheets', r.id)))),
+        pbList('hr_tasks', { filter: `assigned_email = "${email.replace(/"/g, '\\"')}"` })
+          .then(rows => Promise.allSettled(rows.map((r: any) => pbDelete('hr_tasks', r.id)))),
+        pbList('hr_tickets', { filter: `employee_email = "${email.replace(/"/g, '\\"')}"` })
+          .then(rows => Promise.allSettled(rows.map((r: any) => pbDelete('hr_tickets', r.id)))),
+        pbList('hr_career_applications', { filter: `applicant_email = "${email.replace(/"/g, '\\"')}"` })
+          .then(rows => Promise.allSettled(rows.map((r: any) => pbDelete('hr_career_applications', r.id)))),
+        pbList('hr_notifications', { filter: `recipient_email = "${email.replace(/"/g, '\\"')}"` })
+          .then(rows => Promise.allSettled(rows.map((r: any) => pbDelete('hr_notifications', r.id)))),
+      );
+    }
+    if (fullName) {
+      // hr_leaves has no email field — matched by name everywhere else in
+      // this app (see getApprovedLeaveDays/getRemainingPTO), so do the same here.
+      deletions.push(
+        pbList('hr_leaves', { filter: `employee_name = "${fullName.replace(/"/g, '\\"')}"` })
+          .then(rows => Promise.allSettled(rows.map((r: any) => pbDelete('hr_leaves', r.id))))
+      );
+    }
+    if (email) {
+      // Remove them from any team member lists so they don't linger as a
+      // dangling member reference.
+      deletions.push(
+        pbList('hr_teams').then(teams => Promise.allSettled(
+          teams
+            .filter((t: any) => (t.members || []).some((m: string) => (m || '').toLowerCase() === lower))
+            .map((t: any) => pbUpdate('hr_teams', t.id, { members: (t.members || []).filter((m: string) => (m || '').toLowerCase() !== lower) }))
+        ))
+      );
+      // Per-user notification read/cleared map entries.
+      deletions.push((async () => {
+        const readMap = ((await pbGetKV('hr_notification_reads_prod_v1')) as Record<string, string[]>) || {};
+        const clearedMap = ((await pbGetKV('hr_notification_cleared_prod_v1')) as Record<string, string[]>) || {};
+        let readChanged = false, clearedChanged = false;
+        for (const key of Object.keys(readMap)) if (key.toLowerCase() === lower) { delete readMap[key]; readChanged = true; }
+        for (const key of Object.keys(clearedMap)) if (key.toLowerCase() === lower) { delete clearedMap[key]; clearedChanged = true; }
+        if (readChanged) await pbSetKV('hr_notification_reads_prod_v1', readMap);
+        if (clearedChanged) await pbSetKV('hr_notification_cleared_prod_v1', clearedMap);
+      })());
+    }
+    await Promise.allSettled(deletions);
+
+    // Finally the profile row itself, plus the tombstone (so a future
+    // re-add with this same email starts clean rather than tripping over
+    // stale overlay-key assumptions).
+    await pbDelete('hr_profiles', id);
+    if (email) {
+      const existing = ((await pbGetKV('hr_deleted_profile_emails_v1')) as string[]) || [];
+      if (!existing.map(e => e.toLowerCase()).includes(lower)) {
+        await pbSetKV('hr_deleted_profile_emails_v1', [...existing, lower]);
+      }
+    }
+  },
+
+  // Bundles everything the app knows about one employee into a downloadable
+  // ZIP — profile + decoded documents (CV/passport/identity docs, using
+  // their original filenames), payroll/leaves/tasks/tickets/timesheets/
+  // career-application/notification records as JSON, and actual screenshot
+  // image files. Meant to be offered right before "Delete Permanently"
+  // (which is irreversible and, as of the fix above, actually purges all
+  // of this).
+  exportEmployeeArchive: async (profile: Profile): Promise<{ filename: string; blob: Blob }> => {
+    const JSZip = (await import('jszip')).default;
+    const zip = new JSZip();
+    const email = profile.email;
+
+    const { cvFileData, passportFileData, identityDocs, password, ...profileMeta } = profile as any;
+    zip.file('profile.json', JSON.stringify(profileMeta, null, 2));
+
+    const addDataUrlFile = (filename: string | undefined, dataUrl: string | undefined) => {
+      if (!dataUrl || !filename) return;
+      const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+      zip.file(`documents/${filename}`, base64, { base64: true });
+    };
+    addDataUrlFile(profile.cvFileName, cvFileData);
+    addDataUrlFile(profile.passportFileName, passportFileData);
+    (identityDocs || []).forEach((doc: { name?: string; data?: string }, i: number) => {
+      if (!doc?.data) return;
+      const base64 = doc.data.includes(',') ? doc.data.split(',')[1] : doc.data;
+      zip.file(`documents/${doc.name || `identity_${i}`}`, base64, { base64: true });
+    });
+
+    const [payrollRows, timesheetRows, taskRows, ticketRows, appRows, notifRows, leaveRows, shots] = await Promise.all([
+      pbList('hr_payroll', { filter: `employee_id = "${profile.id}"` }),
+      email ? pbList('hr_timesheets', { filter: `employee_id = "${email.replace(/"/g, '\\"')}"` }) : Promise.resolve([]),
+      email ? pbList('hr_tasks', { filter: `assigned_email = "${email.replace(/"/g, '\\"')}"` }) : Promise.resolve([]),
+      email ? pbList('hr_tickets', { filter: `employee_email = "${email.replace(/"/g, '\\"')}"` }) : Promise.resolve([]),
+      email ? pbList('hr_career_applications', { filter: `applicant_email = "${email.replace(/"/g, '\\"')}"` }) : Promise.resolve([]),
+      email ? pbList('hr_notifications', { filter: `recipient_email = "${email.replace(/"/g, '\\"')}"` }) : Promise.resolve([]),
+      pbList('hr_leaves', { filter: `employee_name = "${profile.fullName.replace(/"/g, '\\"')}"` }),
+      email ? hrActions.getScreenshots({ employeeEmail: email }) : Promise.resolve([]),
+    ]);
+    zip.file('payroll.json', JSON.stringify(payrollRows, null, 2));
+    zip.file('timesheets.json', JSON.stringify(timesheetRows, null, 2));
+    zip.file('tasks.json', JSON.stringify(taskRows, null, 2));
+    zip.file('tickets.json', JSON.stringify(ticketRows, null, 2));
+    zip.file('career_applications.json', JSON.stringify(appRows, null, 2));
+    zip.file('notifications.json', JSON.stringify(notifRows, null, 2));
+    zip.file('leaves.json', JSON.stringify(leaveRows, null, 2));
+
+    await Promise.all(shots.map(async (s, i) => {
+      try {
+        const res = await fetch(s.imageUrl);
+        const blob = await res.blob();
+        const ext = blob.type === 'image/webp' ? 'webp' : blob.type === 'image/png' ? 'png' : 'jpg';
+        zip.file(`screenshots/${new Date(s.timestamp).toISOString().replace(/[:.]/g, '-')}_${i}.${ext}`, blob);
+      } catch {
+        // Best-effort — one broken/expired image URL shouldn't abort the whole export.
+      }
+    }));
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const filename = `${profile.fullName.replace(/\s+/g, '_')}_data_export_${new Date().toISOString().split('T')[0]}.zip`;
+    return { filename, blob };
+  },
+
+  updateOnboardingStatus: (profileId: string, completed: boolean) =>
+    pbUpdate('hr_profiles', profileId, { onboarding_completed: completed }),
+
+  updateEmployeeTeams: (profileId: string, newTeams: string[]) =>
+    pbUpdate('hr_profiles', profileId, { teams: newTeams }),
+
+  setTeamLead: (profileId: string, leadTeams: string[]) =>
+    pbUpdate('hr_profiles', profileId, { is_team_lead: String(leadTeams.length > 0), lead_teams: leadTeams }),
+
+  resetPassword: (profileId: string, newPass: string) =>
+    pbUpdate('hr_profiles', profileId, { password: newPass }),
+
+  applyAnniversaryIncrement: async (profileId: string, currentBaseSalary: number, incrementAmount: number): Promise<void> => {
+    if (incrementAmount <= 0) return;
+    await pbUpdate('hr_profiles', profileId, { base_salary: currentBaseSalary + incrementAmount });
+    await saveProfileExtras(profileId, { lastIncrementProcessedYear: new Date().getFullYear() });
+  },
+
+  // ── Leaves ────────────────────────────────────────────────────────────
+  addLeave: (leave: Omit<LeaveApplication, 'id'>) =>
+    pbCreate('hr_leaves', { employee_name: leave.employeeName, type: leave.type, duration: leave.duration, reason: leave.reason, status: leave.status || 'pending' }),
+  updateLeaveStatus: (id: string, status: LeaveApplication['status']) =>
+    pbUpdate('hr_leaves', id, { status }),
+
+  // ── Notifications ─────────────────────────────────────────────────────
+  addNotification: async (email: string, role: string, message: string): Promise<void> => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('newPushNotification', { detail: { recipientEmail: email, recipientRole: role, message } }));
+    }
+    await pbCreate('hr_notifications', {
+      recipient_email: email, recipient_role: role, message, read: false,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    });
+  },
+  getNotificationReadMap: (): Promise<NotificationReadMap> => pbGetKV('hr_notification_reads_prod_v1').then(v => v || {}),
+  getNotificationClearedMap: (): Promise<NotificationClearedMap> => pbGetKV('hr_notification_cleared_prod_v1').then(v => v || {}),
+  markNotificationsAsRead: async (notifications: Notification[], email: string, role: string): Promise<void> => {
+    const emailLower = email.toLowerCase();
+    const personal = notifications.filter(n => n.recipientEmail === email && !n.read);
+    await Promise.all(personal.map(n => pbUpdate('hr_notifications', n.id, { read: true })));
+
+    const broadcasts = notifications.filter(n => n.recipientRole === role && n.recipientEmail === 'all');
+    if (broadcasts.length === 0) return;
+    const readMap = ((await pbGetKV('hr_notification_reads_prod_v1')) as NotificationReadMap) || {};
+    let changed = false;
+    broadcasts.forEach(n => {
+      const readers = readMap[n.id] || [];
+      if (!readers.map(e => e.toLowerCase()).includes(emailLower)) { readMap[n.id] = [...readers, email]; changed = true; }
+    });
+    if (changed) await pbSetKV('hr_notification_reads_prod_v1', readMap);
+  },
+  isNotificationRead: (n: Notification, email: string, readMap: NotificationReadMap): boolean => {
+    if (n.recipientEmail === email) return n.read;
+    if (n.recipientEmail === 'all') return (readMap[n.id] || []).map(e => e.toLowerCase()).includes(email.toLowerCase());
+    return n.read;
+  },
+  isNotificationCleared: (n: Notification, email: string, clearedMap: NotificationClearedMap): boolean =>
+    (clearedMap[n.id] || []).map(e => e.toLowerCase()).includes(email.toLowerCase()),
+  clearAllNotificationsFor: async (notifications: Notification[], email: string, role: string): Promise<void> => {
+    await hrActions.markNotificationsAsRead(notifications, email, role);
+    const visible = notifications.filter(n => n.recipientEmail.toLowerCase() === email.toLowerCase() || (n.recipientEmail === 'all' && n.recipientRole === role));
+    if (visible.length === 0) return;
+    const clearedMap = ((await pbGetKV('hr_notification_cleared_prod_v1')) as NotificationClearedMap) || {};
+    const emailLower = email.toLowerCase();
+    let changed = false;
+    visible.forEach(n => {
+      const clearers = clearedMap[n.id] || [];
+      if (!clearers.map(e => e.toLowerCase()).includes(emailLower)) { clearedMap[n.id] = [...clearers, email]; changed = true; }
+    });
+    if (changed) await pbSetKV('hr_notification_cleared_prod_v1', clearedMap);
+  },
+
+  // ── Warehouses ────────────────────────────────────────────────────────
+  addWarehouse: (wh: Omit<Warehouse, 'id'>) => pbCreate('hr_warehouses', wh),
+  updateWarehouse: (id: string, updates: Partial<Warehouse>) => pbUpdate('hr_warehouses', id, updates),
+  deleteWarehouse: async (id: string, allProfiles: Profile[]): Promise<void> => {
+    await pbDelete('hr_warehouses', id);
+    await Promise.all(
+      allProfiles
+        .filter(p => p.assignedWarehouses?.includes(id))
+        .map(p => pbUpdate('hr_profiles', p.id, { assigned_warehouses: (p.assignedWarehouses || []).filter(w => w !== id) }))
+    );
+  },
+
+  // ── Announcements ─────────────────────────────────────────────────────
+  addAnnouncement: (title: string, content: string, target: Announcement['target'], createdBy: string) =>
+    pbCreate('hr_announcements', {
+      title, content, created_by: createdBy, target: typeof target === 'string' ? target : 'all',
+      target_role: typeof target === 'string' ? target : 'all', author: createdBy, author_role: '', pinned: false,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' ' + new Date().toLocaleDateString(),
+    }),
+
+  // ── Tasks ─────────────────────────────────────────────────────────────
+  addTask: async (task: Omit<Task, 'id'>): Promise<void> => {
+    await pbCreate('hr_tasks', {
+      title: task.title, description: task.description, assigned_to: task.assignedTo, assigned_email: task.assignedEmail,
+      team: task.team, due_date: task.dueDate, priority: task.priority, status: task.status, created_by: task.createdBy,
+    });
+    await hrActions.addNotification(task.assignedEmail, 'employee', `New task assigned: "${task.title}" due ${task.dueDate}.`);
+  },
+  updateTaskStatus: (id: string, status: Task['status']) => pbUpdate('hr_tasks', id, { status }),
+  deleteTask: (id: string) => pbDelete('hr_tasks', id),
+
+  // ── Careers ───────────────────────────────────────────────────────────
+  addCareer: (position: Omit<CareerPosition, 'id'>) =>
+    pbCreate('hr_careers', { title: position.title, department: position.department, location: position.location, type: '', description: position.description, requirements: position.requirements, status: 'open', created_by: '' }),
+  deleteCareer: (id: string) => pbDelete('hr_careers', id),
+  // Anti-spam guard: one submission per (position, email) pair. Returns true
+  // if this email has already applied to this specific posting.
+  hasAppliedForPosition: async (positionId: string, email: string): Promise<boolean> => {
+    const safePos = positionId.replace(/"/g, '\\"');
+    const safeEmail = email.trim().toLowerCase().replace(/"/g, '\\"');
+    try {
+      const matches = await pb.collection('hr_career_applications').getFullList({
+        filter: `position_id = "${safePos}" && applicant_email = "${safeEmail}"`,
+        requestKey: null,
+      });
+      return matches.length > 0;
+    } catch (err) {
+      console.error('[hrData] hasAppliedForPosition error:', err);
+      return false;
+    }
+  },
+  submitCareerApplication: (app: Omit<CareerApplication, 'id' | 'submittedAt' | 'status'>) =>
+    pbCreate('hr_career_applications', {
+      position_id: app.positionId, position_title: app.positionTitle, applicant_name: app.applicantName,
+      applicant_email: app.applicantEmail.trim().toLowerCase(), phone: '', cover_letter: app.coverLetter, resume_url: '', status: 'pending',
+      submitted_at: new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    }),
+  updateApplicationStatus: (id: string, status: CareerApplicationStatus) =>
+    pbUpdate('hr_career_applications', id, { status }),
+
+  // ── Tickets ───────────────────────────────────────────────────────────
+  createTicket: async (ticket: { employeeName: string; employeeEmail: string; title: string; description: string }): Promise<void> => {
+    await pbCreate('hr_tickets', {
+      employee_email: ticket.employeeEmail, employee_name: ticket.employeeName, subject: ticket.title,
+      description: ticket.description, status: 'open', priority: 'medium', category: 'general', assigned_to: '', resolution: '', replies: [],
+    });
+    // Admin also has a Tickets queue (admin/tickets) — this previously only
+    // notified 'hr', same gap as leave requests.
+    await hrActions.addNotification('all', 'hr', `New support ticket opened: "${ticket.title}" by ${ticket.employeeName}.`);
+    await hrActions.addNotification('all', 'admin', `New support ticket opened: "${ticket.title}" by ${ticket.employeeName}.`);
+  },
+  addTicketReply: async (ticket: Ticket, reply: Omit<TicketReply, 'id' | 'timestamp'>): Promise<void> => {
+    const newReply: TicketReply = { ...reply, id: `rep_${Date.now()}`, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+    await pbUpdate('hr_tickets', ticket.id, { replies: [...ticket.replies, newReply] });
+    if (reply.senderRole === 'hr' || reply.senderRole === 'admin') {
+      await hrActions.addNotification(ticket.employeeEmail, 'employee', `Support response received from HR regarding ticket "${ticket.title}".`);
+    } else {
+      await hrActions.addNotification('all', 'hr', `New support message from ${ticket.employeeName} on ticket "${ticket.title}".`);
+      await hrActions.addNotification('all', 'admin', `New support message from ${ticket.employeeName} on ticket "${ticket.title}".`);
+    }
+  },
+  updateTicketStatus: async (ticket: Ticket, status: 'open' | 'closed'): Promise<void> => {
+    await pbUpdate('hr_tickets', ticket.id, { status });
+    await hrActions.addNotification(ticket.employeeEmail, 'employee', `Support ticket "${ticket.title}" was marked as ${status}.`);
+    await hrActions.addNotification('all', 'hr', `Support ticket "${ticket.title}" is now ${status}.`);
+    await hrActions.addNotification('all', 'admin', `Support ticket "${ticket.title}" is now ${status}.`);
+  },
+
+  // ── Teams (real hr_teams: name + leadEmail + members + warehouseId) ────
+  addTeam: (name: string, warehouseId?: string) => pbCreate('hr_teams', { name, lead_email: '', members: [], warehouse_id: warehouseId || '' }),
+  deleteTeam: (id: string) => pbDelete('hr_teams', id),
+  updateTeamMembers: (id: string, members: string[]) => pbUpdate('hr_teams', id, { members }),
+  updateTeamLead: (id: string, leadEmail: string) => pbUpdate('hr_teams', id, { lead_email: leadEmail }),
+  updateTeamWarehouse: (id: string, warehouseId: string) => pbUpdate('hr_teams', id, { warehouse_id: warehouseId }),
+
+  // ── Payroll ───────────────────────────────────────────────────────────
+  // Computes the current payroll view for a set of employees (pure, no
+  // writes) — mirrors old db.getPayroll()'s calculation. Callers decide
+  // whether/when to persist via upsertPayrollRecord (e.g. only on "Process").
+  computePayrollView: (employees: Profile[], existingPayroll: PayrollRecord[], leaves: LeaveApplication[]): PayrollRecord[] => {
+    return employees
+      .filter(emp => emp.role === 'employee' || emp.role === 'team_lead')
+      .map(emp => {
+        const existing = existingPayroll.find(p => p.employeeId === emp.id);
+        const pendingIncrement = getPendingIncrement(emp);
+        const urgentDays = leaves
+          .filter(l => l.employeeName === emp.fullName && l.type === 'Urgent' && l.status === 'approved')
+          .reduce((acc, l) => {
+            const dates = parseLeaveDates(l.duration);
+            if (!dates) return acc + 1;
+            const diff = Math.abs(dates.end.getTime() - dates.start.getTime());
+            return acc + Math.ceil(diff / (1000 * 3600 * 24)) + 1;
+          }, 0);
+        const dailyRate = emp.baseSalary / WORKING_DAYS_PER_MONTH;
+        const urgentDeduction = Math.round(urgentDays * 2 * dailyRate);
+        const onboardingPenalty = emp.onboardingCompleted ? 0 : (emp.region === 'USA' ? 10 : 200);
+
+        if (existing) {
+          return {
+            ...existing, region: emp.region, baseSalary: emp.baseSalary,
+            deductions: existing.processed ? existing.deductions : urgentDeduction,
+            incrementAmount: existing.processed ? existing.incrementAmount : pendingIncrement,
+          };
+        }
+        return {
+          id: '', employeeId: emp.id, name: emp.fullName, role: emp.jobTitle || 'Staff', region: emp.region,
+          baseSalary: emp.baseSalary, unpaidLeaves: emp.onboardingCompleted ? 0 : 2, bonus: 0,
+          deductions: urgentDeduction + onboardingPenalty, incrementAmount: pendingIncrement, processed: false,
+        };
+      });
+  },
+  upsertPayrollRecord: async (record: PayrollRecord): Promise<void> => {
+    const fields = {
+      employee_id: record.employeeId, employee_name: record.name, role: record.role, region: record.region || 'Pakistan',
+      base_salary: record.baseSalary, unpaid_leaves: record.unpaidLeaves, bonus: record.bonus, deductions: record.deductions,
+      net_pay: record.baseSalary + record.bonus - record.deductions + record.incrementAmount,
+      increment_amount: record.incrementAmount, processed: record.processed,
+      status: record.processed ? 'paid' : 'pending', paid_date: record.processed ? new Date().toISOString().split('T')[0] : '',
+    };
+    if (looksLikeRealId(record.id)) await pbUpdate('hr_payroll', record.id, fields);
+    else await pbCreate('hr_payroll', fields);
+  },
+
+  // ── Tracking settings / heartbeats / screenshots (KV) ───────────────────
+  getTrackingSettingsFor: async (email: string): Promise<TrackingSettings> => {
+    const all = ((await pbGetKV('hr_tracking_settings_prod_v1')) as TrackingSettings[]) || [];
+    return all.find(t => t.employeeEmail.toLowerCase() === email.toLowerCase())
+      || { employeeEmail: email, enabled: false, intervalMinutes: 15, excludeFromAutoDelete: false, agentToken: '' };
+  },
+  updateTrackingSettings: async (email: string, updates: Partial<TrackingSettings>): Promise<TrackingSettings[]> => {
+    const all = ((await pbGetKV('hr_tracking_settings_prod_v1')) as TrackingSettings[]) || [];
+    const idx = all.findIndex(t => t.employeeEmail.toLowerCase() === email.toLowerCase());
+    let updated: TrackingSettings[];
+    if (idx >= 0) updated = all.map((t, i) => i === idx ? { ...t, ...updates } : t);
+    else updated = [...all, { employeeEmail: email, enabled: false, intervalMinutes: 15, excludeFromAutoDelete: false, agentToken: `agt_${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 10)}`, ...updates }];
+    await pbSetKV('hr_tracking_settings_prod_v1', updated);
+    return updated;
+  },
+  regenerateAgentToken: async (email: string): Promise<string> => {
+    const token = `agt_${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 10)}`;
+    await hrActions.updateTrackingSettings(email, { agentToken: token });
+    return token;
+  },
+  getTrackerHeartbeat: (email: string): Promise<TrackerHeartbeat | null> =>
+    pbGetKV(`tracker_heartbeat_${email.toLowerCase().replace(/[^a-z0-9]/g, '_')}`),
+  getAllTrackerHeartbeats: async (): Promise<TrackerHeartbeat[]> =>
+    (await pbGetKVByPrefix('tracker_heartbeat_')).map(row => row.value as TrackerHeartbeat),
+  isHeartbeatLive: (hb: TrackerHeartbeat | null): boolean =>
+    !!hb?.lastSeenAt && (Date.now() - new Date(hb.lastSeenAt).getTime()) < TRACKER_HEARTBEAT_STALE_MS,
+  getScreenshots: async (filters?: { employeeEmail?: string; sinceISO?: string; untilISO?: string }): Promise<Screenshot[]> => {
+    // Current source: real hr_screenshots collection (PocketBase file field).
+    // PocketBase's `=` filter operator is case-sensitive (SQLite BINARY
+    // collation) — everywhere else in this app compares emails
+    // case-insensitively, so an exact `=` here could silently omit an
+    // employee's own screenshots if their stored casing ever drifts (e.g.
+    // profile email re-saved with different casing after tracking was set
+    // up). `~` (PocketBase's case-insensitive "like") narrows the query
+    // server-side for efficiency, and the exact case-insensitive check
+    // below guards against `~` accidentally substring-matching a different
+    // employee's email (e.g. "bob@x.com" inside "bob@x.company.com").
+    const filterParts: string[] = [];
+    if (filters?.employeeEmail) filterParts.push(`employee_email ~ "${filters.employeeEmail.replace(/"/g, '\\"')}"`);
+    if (filters?.sinceISO) filterParts.push(`captured_at >= "${filters.sinceISO}"`);
+    if (filters?.untilISO) filterParts.push(`captured_at <= "${filters.untilISO}"`);
+    const records = await pbList('hr_screenshots', {
+      sort: '-captured_at',
+      ...(filterParts.length ? { filter: filterParts.join(' && ') } : {}),
+    });
+    let fresh: Screenshot[] = records.map((r: any) => ({
+      id: r.id,
+      employeeEmail: r.employee_email,
+      timestamp: r.captured_at,
+      imageUrl: r.image ? pb.files.getUrl(r, r.image) : '',
+      deviceLabel: r.device_label || undefined,
+    }));
+    if (filters?.employeeEmail) {
+      const wanted = filters.employeeEmail.toLowerCase();
+      fresh = fresh.filter(s => (s.employeeEmail || '').toLowerCase() === wanted);
+    }
+
+    // Legacy source: base64 rows from before hr_screenshots existed. Kept
+    // readable so old captures aren't silently lost; new agents no longer
+    // write here (see tracker-agent/agent_gui.py).
+    let legacyShots = (await pbGetKVByPrefix('screenshot_')).map(row => ({
+      id: row.value.id,
+      employeeEmail: row.value.employeeEmail,
+      timestamp: row.value.timestamp,
+      imageUrl: row.value.imageData,
+      legacy: true,
+    } as Screenshot));
+    if (filters?.employeeEmail) legacyShots = legacyShots.filter(s => s.employeeEmail.toLowerCase() === filters.employeeEmail!.toLowerCase());
+    if (filters?.sinceISO) legacyShots = legacyShots.filter(s => s.timestamp >= filters.sinceISO!);
+    if (filters?.untilISO) legacyShots = legacyShots.filter(s => s.timestamp <= filters.untilISO!);
+
+    return [...fresh, ...legacyShots].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  },
+  deleteScreenshots: async (ids: string[]): Promise<void> => {
+    const realIds = ids.filter(id => looksLikeRealId(id));
+    const legacyIds = ids.filter(id => !looksLikeRealId(id));
+    await Promise.all([
+      ...realIds.map(id => pbDelete('hr_screenshots', id)),
+      legacyIds.length ? pbDeleteKVByKeys(legacyIds.map(id => `screenshot_${id}`)) : Promise.resolve(),
+    ]);
+  },
+
+  // ── Mouse inactivity logs (hr_inactivity_logs — see
+  // migration_data/create_inactivity_logs_collection.py) ──────────────────
+  getInactivityLogs: async (filters?: { employeeEmail?: string; sinceISO?: string; untilISO?: string }): Promise<InactivityLog[]> => {
+    // Same case-insensitive-email pattern as getScreenshots — `~` narrows
+    // server-side, exact check below guards against substring false-matches.
+    const filterParts: string[] = [];
+    if (filters?.employeeEmail) filterParts.push(`employee_email ~ "${filters.employeeEmail.replace(/"/g, '\\"')}"`);
+    if (filters?.sinceISO) filterParts.push(`start_at >= "${filters.sinceISO}"`);
+    if (filters?.untilISO) filterParts.push(`start_at <= "${filters.untilISO}"`);
+    const records = await pbList('hr_inactivity_logs', {
+      sort: '-start_at',
+      ...(filterParts.length ? { filter: filterParts.join(' && ') } : {}),
+    });
+    let logs: InactivityLog[] = records.map((r: any) => ({
+      id: r.id,
+      employeeEmail: r.employee_email,
+      startAt: r.start_at,
+      endAt: r.end_at,
+      durationSeconds: Number(r.duration_seconds) || 0,
+      deviceLabel: r.device_label || undefined,
+    }));
+    if (filters?.employeeEmail) {
+      const wanted = filters.employeeEmail.toLowerCase();
+      logs = logs.filter(l => (l.employeeEmail || '').toLowerCase() === wanted);
+    }
+    return logs;
+  },
+  checkScreenshotRetention: async (): Promise<void> => {
+    const RETENTION_DAYS = 30, WARNING_GRACE_DAYS = 3;
+    const state = ((await pbGetKV('hr_screenshot_retention_state_v1')) as ScreenshotRetentionState) || {};
+    const now = new Date();
+    if (state.warnedAt && state.pendingDeleteIds?.length) {
+      const graceElapsed = (now.getTime() - new Date(state.warnedAt).getTime()) >= WARNING_GRACE_DAYS * 24 * 3600 * 1000;
+      if (!graceElapsed) return;
+      const settings = ((await pbGetKV('hr_tracking_settings_prod_v1')) as TrackingSettings[]) || [];
+      const excluded = new Set(settings.filter(s => s.excludeFromAutoDelete).map(s => s.employeeEmail.toLowerCase()));
+      const allShots = await hrActions.getScreenshots();
+      const stillDue = allShots.filter(s => state.pendingDeleteIds!.includes(s.id) && !excluded.has(s.employeeEmail.toLowerCase()));
+      if (stillDue.length > 0) {
+        await hrActions.deleteScreenshots(stillDue.map(s => s.id));
+        await hrActions.addNotification('all', 'hr', `${stillDue.length} screenshot(s) older than ${RETENTION_DAYS} days were automatically deleted per the monthly retention policy.`);
+        await hrActions.addNotification('all', 'admin', `${stillDue.length} screenshot(s) older than ${RETENTION_DAYS} days were automatically deleted per the monthly retention policy.`);
+      }
+      await pbSetKV('hr_screenshot_retention_state_v1', {});
+      return;
+    }
+    const allShots = await hrActions.getScreenshots();
+    if (allShots.length === 0) return;
+    const settings = ((await pbGetKV('hr_tracking_settings_prod_v1')) as TrackingSettings[]) || [];
+    const excluded = new Set(settings.filter(s => s.excludeFromAutoDelete).map(s => s.employeeEmail.toLowerCase()));
+    const cutoff = new Date(now.getTime() - RETENTION_DAYS * 24 * 3600 * 1000);
+    const toDelete = allShots.filter(s => new Date(s.timestamp) < cutoff && !excluded.has(s.employeeEmail.toLowerCase()));
+    if (toDelete.length === 0) return;
+    await hrActions.addNotification('all', 'hr', `${toDelete.length} screenshot(s) older than ${RETENTION_DAYS} days are scheduled for automatic deletion in ${WARNING_GRACE_DAYS} days. Export or mark specific employees as excluded before then.`);
+    await hrActions.addNotification('all', 'admin', `${toDelete.length} screenshot(s) older than ${RETENTION_DAYS} days are scheduled for automatic deletion in ${WARNING_GRACE_DAYS} days. Export or mark specific employees as excluded before then.`);
+    await pbSetKV('hr_screenshot_retention_state_v1', { warnedAt: now.toISOString(), pendingDeleteIds: toDelete.map(s => s.id) });
+  },
+
+  // ── Timesheets ────────────────────────────────────────────────────────
+  getOpenShift: async (employeeEmail: string): Promise<TimesheetEntry | null> => {
+    const all = (await pbList('hr_timesheets', { filter: `employee_id = "${employeeEmail}" && clock_out = ""` })).map(toTimesheet);
+    return all[0] || null;
+  },
+  clockIn: async (employeeEmail: string): Promise<TimesheetEntry> => {
+    const existingOpen = await hrActions.getOpenShift(employeeEmail);
+    if (existingOpen) return existingOpen;
+    const now = new Date();
+    const created = await pbCreate('hr_timesheets', {
+      employee_id: employeeEmail, date: now.toISOString().split('T')[0], clock_in: now.toISOString(),
+      clock_out: '', status: 'pending',
+    });
+    return toTimesheet(created);
+  },
+  clockOut: async (employeeEmail: string): Promise<TimesheetEntry | null> => {
+    const open = await hrActions.getOpenShift(employeeEmail);
+    if (!open) return null;
+    const nowIso = new Date().toISOString();
+    const updated = await pbUpdate('hr_timesheets', open.id, { clock_out: nowIso, duration: formatDurationBetween(open.clockIn, nowIso) });
+    return toTimesheet(updated);
+  },
+};

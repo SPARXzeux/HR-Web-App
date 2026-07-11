@@ -1,25 +1,26 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useProfiles, useTasks, Task, Profile } from '@/lib/hrData';
 import { TaskBoard } from '@/components/ui/TaskBoard';
-import { db, Task, Profile } from '@/lib/db';
 import { Badge } from '@/components/ui/Badge';
 import { Users } from 'lucide-react';
 
 export default function TeamLeadTasksPage() {
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const { data: allProfiles = [] } = useProfiles();
+  const { data: allTasks = [], refetch: refetchTasks } = useTasks();
+
   const [userProfile, setUserProfile] = useState<Profile | null>(null);
   const [teamFilter, setTeamFilter] = useState<'all' | 'my' | string>('all');
 
   useEffect(() => {
     const email = localStorage.getItem('user_email');
-    const employees = db.getEmployees();
+    const employees = allProfiles;
     const profile = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (profile) {
       setUserProfile(profile);
     }
-    setTasks(db.getTasks());
-  }, []);
+  }, [allProfiles]);
 
   if (!userProfile?.isTeamLead) {
     return (
@@ -34,7 +35,7 @@ export default function TeamLeadTasksPage() {
   const leadTeams = userProfile.leadTeams || [];
 
   // Filter logic based on tab
-  const visibleTasks = tasks.filter(t => {
+  const visibleTasks = allTasks.filter(t => {
     if (teamFilter === 'my') return t.assignedEmail === userProfile.email;
     if (teamFilter === 'all') return leadTeams.includes(t.team);
     return t.team === teamFilter; // specific team tab
@@ -85,7 +86,7 @@ export default function TeamLeadTasksPage() {
 
       <TaskBoard
         tasks={visibleTasks}
-        onUpdate={updated => setTasks(updated)}
+        onUpdate={() => refetchTasks()}
         canDelete={false}
         readOnly={false}
       />

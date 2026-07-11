@@ -4,23 +4,34 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { db, Profile } from '@/lib/db';
-import { Users, Trash2, Plus, AlertTriangle, CheckCircle2, UserCog, Star, Edit, Trash } from 'lucide-react';
+import { hrActions, Profile, Team, useProfiles, useTeams, useWarehouses } from '@/lib/hrData';
+import { Users, Trash2, Plus, AlertTriangle, CheckCircle2, UserCog, Star, Edit, Trash, Sparkles } from 'lucide-react';
 import { UserProfileModal } from '@/components/ui/UserProfileModal';
 
 export default function HRTeamsPage() {
-  const [employees, setEmployees] = useState<Profile[]>([]);
-  const [teams, setTeams] = useState<string[]>([]);
+  const { data: allProfiles = [], refetch: refetchProfiles } = useProfiles();
+  const { data: allTeams = [], refetch: refetchTeams } = useTeams();
+  const { data: allWarehouses = [], refetch: refetchWarehouses } = useWarehouses();
+  
+  const employees = allProfiles;
+  // hr_teams.members (array of employee emails) is the authoritative
+  // membership list now — `teamNames` is just a display/selection helper.
+  const teamNames = allTeams.map((t: Team) => t.name);
+  const warehouses = allWarehouses;
+  const findTeamByName = (name: string) => allTeams.find((t: Team) => t.name === name);
+  const teamNamesForEmployee = (email: string) => allTeams.filter((t: Team) => t.members.includes(email)).map((t: Team) => t.name);
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [newTeamName, setNewTeamName] = useState('');
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [teamError, setTeamError] = useState<string | null>(null);
+  const [creatingTeam, setCreatingTeam] = useState(false);
 
   // Profile modal states
   const [selectedProfileEmail, setSelectedProfileEmail] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
 
   // Warehouse states
-  const [warehouses, setWarehouses] = useState<any[]>([]);
   const [whName, setWhName] = useState('');
   const [whLat, setWhLat] = useState('');
   const [whLon, setWhLon] = useState('');
@@ -50,11 +61,9 @@ export default function HRTeamsPage() {
   const [whLeadEmployeeId, setWhLeadEmployeeId] = useState('');
   const [whLeadSelections, setWhLeadSelections] = useState<string[]>([]);
   const [whLeadSuccess, setWhLeadSuccess] = useState('');
+  const [cleaningWarehouses, setCleaningWarehouses] = useState(false);
 
   useEffect(() => {
-    setEmployees(db.getEmployees());
-    setTeams(db.getTeams());
-    setWarehouses(db.getWarehouses());
     const email = localStorage.getItem('user_email');
     if (email) setCurrentUserEmail(email);
 
@@ -67,23 +76,50 @@ export default function HRTeamsPage() {
 
   const handleCreateTeam = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTeamName.trim()) return;
+    setTeamError(null);
+    const trimmedName = newTeamName.trim();
+    if (!trimmedName) return;
 
-    const updated = await db.addTeam(newTeamName.trim());
-    setTeams(updated);
-    setNewTeamName('');
-    setSaveSuccess(`Team "${newTeamName.trim()}" created successfully!`);
-    setTimeout(() => setSaveSuccess(null), 1500);
+    if (teamNames.some(t => t.toLowerCase() === trimmedName.toLowerCase())) {
+      setTeamError(`A team named "${trimmedName}" already exists.`);
+      setTimeout(() => setTeamError(null), 3000);
+      return;
+    }
+
+    setCreatingTeam(true);
+    try {
+      await hrActions.addTeam(trimmedName);
+      await refetchTeams();
+      setNewTeamName('');
+      setSaveSuccess(`Team "${trimmedName}" created successfully!`);
+      setTimeout(() => setSaveSuccess(null), 1500);
+    } catch (err) {
+      console.error('[Teams] Create team failed:', err);
+      setTeamError('Failed to create team. Please try again.');
+      setTimeout(() => setTeamError(null), 3000);
+    } finally {
+      setCreatingTeam(false);
+    }
   };
 
   const handleDeleteTeam = async (teamName: string) => {
     const confirmDelete = window.confirm(`Are you sure you want to delete the "${teamName}" team? Members will be removed from this team.`);
     if (!confirmDelete) return;
 
-    const updatedTeams = await db.deleteTeam(teamName);
-    setTeams(updatedTeams);
-    setEmployees(db.getEmployees()); // Reload employee states since they got updated
-    setSaveSuccess(`Deleted team "${teamName}"`);
+    const team = findTeamByName(teamName);
+    if (team) {
+      await hrActions.deleteTeam(team.id);
+      // Mirror the removal onto each member's profile.teams[] (still used
+      // elsewhere in the app, e.g. Tasks page filters by team name).
+      await Promise.all(
+        employees
+          .filter((e: Profile) => e.teams.includes(teamName))
+          .map((e: Profile) => hrActions.updateEmployeeTeams(e.id, e.teams.filter(t => t !== teamName)))
+      );
+    }
+    refetchTeams();
+    refetchProfiles();
+    setSaveSuccess(`Deleted team`);
     setTimeout(() => setSaveSuccess(null), 1500);
   };
 
@@ -98,22 +134,39 @@ export default function HRTeamsPage() {
   const handleDropOnTeam = (teamName: string) => {
     if (!draggedEmployee) return;
 
-    if (draggedEmployee.teams.includes(teamName)) {
+    const team = findTeamByName(teamName);
+    if (team && team.members.includes(draggedEmployee.email)) {
       return;
     }
 
     setTargetTeam(teamName);
 
-    if (draggedEmployee.teams.length > 0) {
+    const currentTeamNames = teamNamesForEmployee(draggedEmployee.email);
+    if (currentTeamNames.length > 0) {
       setIsPromptOpen(true);
     } else {
-      performAllocation(draggedEmployee.id, [teamName]);
+      performAllocation(draggedEmployee, [teamName]);
     }
   };
 
-  const performAllocation = async (employeeId: string, finalTeams: string[]) => {
-    const updated = await db.updateEmployeeTeams(employeeId, finalTeams);
-    setEmployees(updated);
+  // Writes membership to the authoritative hr_teams.members arrays, then
+  // mirrors the resulting team-name list onto profile.teams[] for parts of
+  // the app (e.g. Tasks page) that still filter employees by team name.
+  const performAllocation = async (employee: Profile, finalTeamNames: string[]) => {
+    await Promise.all(
+      allTeams.map(async (team: Team) => {
+        const isMember = team.members.includes(employee.email);
+        const shouldBeMember = finalTeamNames.includes(team.name);
+        if (isMember && !shouldBeMember) {
+          await hrActions.updateTeamMembers(team.id, team.members.filter(m => m !== employee.email));
+        } else if (!isMember && shouldBeMember) {
+          await hrActions.updateTeamMembers(team.id, [...team.members, employee.email]);
+        }
+      })
+    );
+    await hrActions.updateEmployeeTeams(employee.id, finalTeamNames);
+    refetchTeams();
+    refetchProfiles();
     setDraggedEmployee(null);
     setTargetTeam(null);
     setIsPromptOpen(false);
@@ -125,25 +178,26 @@ export default function HRTeamsPage() {
   const handleConfirmMultiTeam = (mode: 'both' | 'reassign') => {
     if (!draggedEmployee || !targetTeam) return;
 
+    const currentTeamNames = teamNamesForEmployee(draggedEmployee.email);
     if (mode === 'both') {
-      const mergedTeams = [...draggedEmployee.teams, targetTeam];
-      performAllocation(draggedEmployee.id, mergedTeams);
+      const mergedTeams = [...new Set([...currentTeamNames, targetTeam])];
+      performAllocation(draggedEmployee, mergedTeams);
     } else {
-      performAllocation(draggedEmployee.id, [targetTeam]);
+      performAllocation(draggedEmployee, [targetTeam]);
     }
   };
 
-  const handleToggleTeamLead = (emp: Profile) => {
+  const handleToggleTeamLead = async (emp: Profile) => {
     const alreadyLead = emp.isTeamLead && (emp.leadTeams?.length ?? 0) > 0;
     if (alreadyLead) {
-      db.setTeamLead(emp.id, []);
+      await hrActions.setTeamLead(emp.id, []);
       setSaveSuccess(`${emp.fullName} is no longer a team lead.`);
     } else {
       const leadTeams = emp.teams.length > 0 ? emp.teams : [];
-      db.setTeamLead(emp.id, leadTeams);
+      await hrActions.setTeamLead(emp.id, leadTeams);
       setSaveSuccess(`${emp.fullName} is now Team Lead of: ${leadTeams.join(', ') || '(no teams yet)'}`);
     }
-    setEmployees(db.getEmployees());
+    refetchProfiles();
     setTimeout(() => setSaveSuccess(null), 2000);
   };
 
@@ -153,11 +207,27 @@ export default function HRTeamsPage() {
     );
   };
 
-  const handleSaveTeamLead = () => {
+  const handleSaveTeamLead = async () => {
     if (!leadEmployeeId) return;
-    db.setTeamLead(leadEmployeeId, leadTeamSelections);
-    setEmployees(db.getEmployees());
-    const emp = employees.find(e => e.id === leadEmployeeId);
+    const emp = allProfiles.find(e => e.id === leadEmployeeId);
+    await hrActions.setTeamLead(leadEmployeeId, leadTeamSelections);
+    // Best-effort mirror onto hr_teams.leadEmail (one lead per team in the
+    // real schema): set it for newly-selected teams, clear it for teams
+    // this employee previously led but is no longer selected for.
+    if (emp) {
+      await Promise.all(
+        allTeams.map(async (team: Team) => {
+          const shouldLead = leadTeamSelections.includes(team.name);
+          if (shouldLead && team.leadEmail !== emp.email) {
+            await hrActions.updateTeamLead(team.id, emp.email);
+          } else if (!shouldLead && team.leadEmail === emp.email) {
+            await hrActions.updateTeamLead(team.id, '');
+          }
+        })
+      );
+    }
+    refetchProfiles();
+    refetchTeams();
     setLeadSuccess(`${emp?.fullName} is now team lead of: ${leadTeamSelections.join(', ') || '(none)'}`);
     setTimeout(() => { setIsTeamLeadOpen(false); setLeadSuccess(''); setLeadEmployeeId(''); setLeadTeamSelections([]); }, 1400);
   };
@@ -168,21 +238,21 @@ export default function HRTeamsPage() {
     );
   };
 
-  const handleSaveWhLead = () => {
+  const handleSaveWhLead = async () => {
     if (!whLeadEmployeeId) return;
-    const emp = employees.find(e => e.id === whLeadEmployeeId);
+    const emp = allProfiles.find(e => e.id === whLeadEmployeeId);
     if (!emp) return;
 
     const isNowLead = whLeadSelections.length > 0;
-    db.updateProfileDetails(emp.email, {
+    await hrActions.updateProfileDetails(emp.id, {
       isWarehouseLead: isNowLead,
       managedWarehouses: whLeadSelections,
       jobTitle: isNowLead ? 'Warehouse Manager' : emp.jobTitle
     });
 
-    setEmployees(db.getEmployees());
+    refetchProfiles();
     setWhLeadSuccess(`${emp.fullName} is now Warehouse Manager for: ${
-      whLeadSelections.map(id => warehouses.find(w => w.id === id)?.name || id).join(', ') || '(none)'
+      whLeadSelections.map(id => allWarehouses.find(w => w.id === id)?.name || id).join(', ') || '(none)'
     }`);
     setTimeout(() => { 
       setIsWhLeadOpen(false); 
@@ -196,13 +266,13 @@ export default function HRTeamsPage() {
     e.preventDefault();
     if (!whName.trim() || !whLat || !whLon) return;
 
-    await db.addWarehouse({
+    await hrActions.addWarehouse({
       name: whName.trim(),
       latitude: Number(whLat),
       longitude: Number(whLon),
       radius: Number(whRadius)
     });
-    setWarehouses(db.getWarehouses());
+    refetchWarehouses();
     setWhName('');
     setWhLat('');
     setWhLon('');
@@ -211,13 +281,13 @@ export default function HRTeamsPage() {
     setTimeout(() => setWhSuccess(''), 1500);
   };
 
-  const handleDeleteWarehouse = (id: string) => {
+  const handleDeleteWarehouse = async (id: string) => {
     const confirmDelete = window.confirm('Are you sure you want to delete this warehouse? Assignments will be updated.');
     if (!confirmDelete) return;
 
-    db.deleteWarehouse(id);
-    setWarehouses(db.getWarehouses());
-    setEmployees(db.getEmployees());
+    await hrActions.deleteWarehouse(id, allProfiles);
+    refetchWarehouses();
+    refetchProfiles();
     setWhSuccess('Warehouse deleted successfully.');
     setTimeout(() => setWhSuccess(''), 1500);
   };
@@ -234,19 +304,19 @@ export default function HRTeamsPage() {
     e.preventDefault();
     if (!editingWhId) return;
 
-    await db.updateWarehouse(editingWhId, {
+    await hrActions.updateWarehouse(editingWhId, {
       name: editingWhName.trim(),
       latitude: Number(editingWhLat),
       longitude: Number(editingWhLon),
       radius: Number(editingWhRadius)
     });
-    setWarehouses(db.getWarehouses());
+    refetchWarehouses();
     setEditingWhId(null);
     setWhSuccess('Warehouse updated successfully.');
     setTimeout(() => setWhSuccess(''), 1500);
   };
 
-  const handleAssignWarehouse = (empId: string, whId: string, checked: boolean) => {
+  const handleAssignWarehouse = async (empId: string, whId: string, checked: boolean) => {
     const emp = employees.find(e => e.id === empId);
     if (!emp) return;
 
@@ -257,24 +327,73 @@ export default function HRTeamsPage() {
       current = current.filter(id => id !== whId);
     }
 
-    db.updateProfileDetails(emp.email, { assignedWarehouses: current });
-    setEmployees(db.getEmployees());
+    await hrActions.updateProfileDetails(emp.id, { assignedWarehouses: current });
+    refetchProfiles();
     setWhSuccess(`Warehouse assignment updated for ${emp.fullName}`);
     setTimeout(() => setWhSuccess(''), 1500);
   };
 
-  const handleAssignWarehouseToTeam = (teamName: string, whId: string) => {
-    const updatedEmployees = employees.map(emp => {
-      if (emp.teams.includes(teamName)) {
-        const current = emp.assignedWarehouses || [];
-        if (!current.includes(whId)) {
-          const newWhs = [...current, whId];
-          db.updateProfileDetails(emp.email, { assignedWarehouses: newWhs });
-        }
+  // Strips any warehouse ID on any employee/team that doesn't resolve to a
+  // current hr_warehouses record — leftovers from the old KV->collection
+  // migration (see fix_warehouse_id_mismatch.py) that couldn't be
+  // auto-remapped because no matching warehouse name was found.
+  const handleCleanupStaleWarehouses = async () => {
+    const liveIds = new Set(warehouses.map(w => w.id));
+    const staleProfiles = employees.filter(emp =>
+      (emp.assignedWarehouses || []).some(id => !liveIds.has(id)) ||
+      (emp.managedWarehouses || []).some(id => !liveIds.has(id))
+    );
+    const staleTeams = allTeams.filter((t: Team) => t.warehouseId && !liveIds.has(t.warehouseId));
+
+    if (staleProfiles.length === 0 && staleTeams.length === 0) {
+      setWhSuccess('No unrecognized warehouse links found — nothing to clean up.');
+      setTimeout(() => setWhSuccess(''), 2000);
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `This will remove unrecognized warehouse links from ${staleProfiles.length} employee(s)` +
+      (staleTeams.length > 0 ? ` and ${staleTeams.length} team(s)` : '') +
+      `. Valid warehouse assignments are left untouched. Continue?`
+    );
+    if (!confirmed) return;
+
+    setCleaningWarehouses(true);
+    try {
+      await Promise.all(staleProfiles.map(emp =>
+        hrActions.updateProfileDetails(emp.id, {
+          assignedWarehouses: (emp.assignedWarehouses || []).filter(id => liveIds.has(id)),
+          managedWarehouses: (emp.managedWarehouses || []).filter(id => liveIds.has(id)),
+        })
+      ));
+      await Promise.all(staleTeams.map((t: Team) => hrActions.updateTeamWarehouse(t.id, '')));
+      refetchProfiles();
+      refetchTeams();
+      setWhSuccess(`Cleaned up stale warehouse links on ${staleProfiles.length} employee(s)${staleTeams.length > 0 ? ` and ${staleTeams.length} team(s)` : ''}.`);
+      setTimeout(() => setWhSuccess(''), 3000);
+    } catch (err) {
+      console.error('[Teams] Warehouse cleanup failed:', err);
+      setWhSuccess('Cleanup failed. Please try again.');
+      setTimeout(() => setWhSuccess(''), 3000);
+    } finally {
+      setCleaningWarehouses(false);
+    }
+  };
+
+  const handleAssignWarehouseToTeam = async (teamName: string, whId: string) => {
+    const team = findTeamByName(teamName);
+    const membersOfTeam = employees.filter((emp: Profile) =>
+      team ? team.members.includes(emp.email) : emp.teams.includes(teamName)
+    );
+    await Promise.all(membersOfTeam.map(async (emp: Profile) => {
+      const current = emp.assignedWarehouses || [];
+      if (!current.includes(whId)) {
+        await hrActions.updateProfileDetails(emp.id, { assignedWarehouses: [...current, whId] });
       }
-      return emp;
-    });
-    setEmployees(db.getEmployees());
+    }));
+    if (team) await hrActions.updateTeamWarehouse(team.id, whId);
+    refetchProfiles();
+    refetchTeams();
     setWhSuccess(`Warehouse assigned to all members of team: ${teamName}`);
     setTimeout(() => setWhSuccess(''), 1500);
   };
@@ -314,22 +433,28 @@ export default function HRTeamsPage() {
       </div>
 
       {/* Inline Team Builder Form */}
-      <Card className="p-4 bg-slate-50/50 border border-slate-200">
+      <Card className="p-4 bg-slate-50/50 border border-slate-200 space-y-3">
+        {teamError && (
+          <div className="p-2.5 text-xs bg-rose-50 text-rose-600 border border-rose-100 rounded-lg font-semibold flex items-center gap-1.5">
+            <AlertTriangle className="h-4 w-4 shrink-0" />{teamError}
+          </div>
+        )}
         <form onSubmit={handleCreateTeam} className="flex flex-col sm:flex-row gap-3 items-center">
           <div className="flex-1 w-full space-y-1">
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={newTeamName}
               onChange={(e) => setNewTeamName(e.target.value)}
               placeholder="Enter team/department name (e.g. Quality Assurance)"
               className="w-full bg-white border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900"
             />
           </div>
-          <button 
-            type="submit" 
-            className="w-full sm:w-auto bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center justify-center gap-1"
+          <button
+            type="submit"
+            disabled={creatingTeam || !newTeamName.trim()}
+            className="w-full sm:w-auto bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center justify-center gap-1 disabled:opacity-50"
           >
-            <Plus className="h-4 w-4" /> Create Team
+            <Plus className="h-4 w-4" /> {creatingTeam ? 'Creating…' : 'Create Team'}
           </button>
         </form>
       </Card>
@@ -401,11 +526,12 @@ export default function HRTeamsPage() {
             Departments / Dropzones
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {teams.map(teamName => {
-              const members = employees.filter(e => e.teams.includes(teamName));
+            {allTeams.map((team: Team) => {
+              const teamName = team.name;
+              const members = employees.filter((e: Profile) => team.members.includes(e.email));
               return (
-                <div 
-                  key={teamName}
+                <div
+                  key={team.id}
                   onDragOver={handleDragOver}
                   onDrop={() => handleDropOnTeam(teamName)}
                   className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-4 min-h-[160px] flex flex-col transition-all hover:bg-slate-100/50"
@@ -451,10 +577,10 @@ export default function HRTeamsPage() {
                               ⭐ Lead
                             </span>
                           )}
-                          <button 
+                          <button
                             onClick={() => {
-                              const remain = member.teams.filter(t => t !== teamName);
-                              performAllocation(member.id, remain);
+                              const remain = teamNamesForEmployee(member.email).filter(t => t !== teamName);
+                              performAllocation(member, remain);
                             }}
                             className="text-slate-350 hover:text-rose-600 text-[10px] font-bold"
                           >
@@ -509,7 +635,7 @@ export default function HRTeamsPage() {
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Assign as Lead of Teams</label>
               <div className="space-y-2 mt-1">
-                {teams.map(t => (
+                {teamNames.map(t => (
                   <label key={t} className="flex items-center gap-2.5 cursor-pointer group">
                     <input
                       type="checkbox"
@@ -660,9 +786,19 @@ export default function HRTeamsPage() {
 
       {/* Warehouse Geofence configuration and Employee Assignment section */}
       <div className="border-t border-slate-200 pt-8 mt-8 space-y-6">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900">USA Warehouse Geofencing & Assignments</h2>
-          <p className="text-sm text-slate-500">Configure logistics warehouses and assign them to USA employees for auto check-in geofencing.</p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">USA Warehouse Geofencing & Assignments</h2>
+            <p className="text-sm text-slate-500">Configure logistics warehouses and assign them to USA employees for auto check-in geofencing.</p>
+          </div>
+          <button
+            onClick={handleCleanupStaleWarehouses}
+            disabled={cleaningWarehouses}
+            title="Remove leftover warehouse IDs from a past migration that no longer match any current warehouse"
+            className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-xs active:scale-97 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 shrink-0"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-orange-600" /> {cleaningWarehouses ? 'Cleaning up…' : 'Clean Up Stale Warehouse Links'}
+          </button>
         </div>
 
         {whSuccess && (
@@ -826,7 +962,7 @@ export default function HRTeamsPage() {
           currentUserRole="hr"
           currentUserEmail={currentUserEmail}
           onUpdate={() => {
-            setEmployees(db.getEmployees());
+            refetchProfiles();
           }}
         />
       )}

@@ -1,17 +1,27 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, Search, X, User, CheckCircle2, Settings, LogOut, UserCircle, KeyRound, ClipboardList, HelpCircle, Users, BadgeHelp, Trash2 } from 'lucide-react';
-import { db, Notification, Profile, Task, Ticket } from '@/lib/db';
+import { Bell, Search, X, User, CheckCircle2, Settings, LogOut, UserCircle, KeyRound, ClipboardList, HelpCircle, Users, BadgeHelp, Trash2, MapPin, Wallet, Clock, Briefcase, Megaphone } from 'lucide-react';
+import {
+  Notification, Profile, Task, Ticket, Team, Warehouse, PayrollRecord, LeaveApplication, CareerPosition, Announcement,
+  hrActions, useProfiles, useTasks, useTickets, useNotifications, useTeams, useWarehouses, usePayroll, useLeaves, useCareers, useAnnouncements,
+} from '@/lib/hrData';
+import { Avatar } from '@/components/ui/Avatar';
 import { useRouter } from 'next/navigation';
 
 export function TopNav() {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  // Per-user read/cleared maps live in the hr_delcargo_store KV overlay
+  // (see hrActions.getNotificationReadMap / getNotificationClearedMap) —
+  // fetched into local state so isNotificationRead/isNotificationCleared can
+  // be computed synchronously during render.
+  const [readMap, setReadMap] = useState<Record<string, string[]>>({});
+  const [clearedMap, setClearedMap] = useState<Record<string, string[]>>({});
   // Bumped after marking notifications read to force a re-render of
-  // read/unread state computed via db.isNotificationRead (which reads the
-  // per-user read map, not component state).
+  // read/unread state computed via hrActions.isNotificationRead (which reads
+  // the per-user read map, not component state).
   const [readVersion, setReadVersion] = useState(0);
   const [isBellOpen, setIsBellOpen] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
@@ -27,12 +37,47 @@ export function TopNav() {
   const profileRef = useRef<HTMLDivElement>(null);
   const mobileSearchRef = useRef<HTMLDivElement>(null);
 
-  // Search Results States (filtered by RBAC)
+  // Search Results States (filtered by RBAC — see performSearch below for
+  // exactly which roles can see which entity types; this mirrors what each
+  // role's Sidebar actually gives them a page for, so search never surfaces
+  // a result someone couldn't otherwise navigate to).
   const [matchedEmployees, setMatchedEmployees] = useState<Profile[]>([]);
   const [matchedTasks, setMatchedTasks] = useState<Task[]>([]);
   const [matchedTickets, setMatchedTickets] = useState<Ticket[]>([]);
-  const [matchedTeams, setMatchedTeams] = useState<string[]>([]);
+  const [matchedTeams, setMatchedTeams] = useState<Team[]>([]);
+  const [matchedWarehouses, setMatchedWarehouses] = useState<Warehouse[]>([]);
+  const [matchedPayroll, setMatchedPayroll] = useState<PayrollRecord[]>([]);
+  const [matchedLeaves, setMatchedLeaves] = useState<LeaveApplication[]>([]);
+  const [matchedCareers, setMatchedCareers] = useState<CareerPosition[]>([]);
+  const [matchedAnnouncements, setMatchedAnnouncements] = useState<Announcement[]>([]);
   const [showResults, setShowResults] = useState(false);
+
+  const { data: allProfiles } = useProfiles();
+  const { data: allTasks } = useTasks();
+  const { data: allTickets } = useTickets();
+  const { data: allNotifications, refetch: refetchNotifications } = useNotifications();
+  const { data: allTeams } = useTeams();
+  const { data: allWarehouses } = useWarehouses();
+  const { data: allPayroll } = usePayroll();
+  const { data: allLeaves } = useLeaves();
+  const { data: allCareers } = useCareers();
+  const { data: allAnnouncements } = useAnnouncements();
+  // Needed to scope an employee's own payroll record (PayrollRecord.employeeId
+  // matches Profile.id, not email — see src/app/(dashboard)/employee/salary/page.tsx).
+  const [profileId, setProfileId] = useState<string | null>(null);
+
+  // Load the per-user read/cleared maps once on mount (KV overlay, not
+  // localStorage — see hrData.ts).
+  useEffect(() => {
+    (async () => {
+      const [rm, cm] = await Promise.all([
+        hrActions.getNotificationReadMap(),
+        hrActions.getNotificationClearedMap(),
+      ]);
+      setReadMap(rm);
+      setClearedMap(cm);
+    })();
+  }, []);
 
   useEffect(() => {
     const savedRole = localStorage.getItem('user_role');
@@ -40,36 +85,26 @@ export function TopNav() {
     setRole(savedRole);
     setEmail(savedEmail);
 
-    if (savedEmail) {
-      const employees = db.getEmployees();
-      const profile = employees.find(e => e.email && savedEmail && e.email.toLowerCase() === savedEmail.toLowerCase());
+    if (savedEmail && allProfiles) {
+      const profile = allProfiles.find(e => e.email && savedEmail && e.email.toLowerCase() === savedEmail.toLowerCase());
       if (profile) {
         setDisplayName(profile.fullName);
         setProfilePicture(profile.profilePicture || null);
+        setProfileId(profile.id);
       } else {
         setDisplayName(savedEmail?.split('@')[0] || '');
       }
     }
 
-    const loadNotifications = () => {
-      if (!savedRole || !savedEmail) return;
-      const allNotifs = db.getNotifications();
-      const filtered = allNotifs.filter(n =>
+    if (savedRole && savedEmail && allNotifications) {
+      const filtered = allNotifications.filter(n =>
         (n.recipientEmail === savedEmail ||
           (n.recipientRole === savedRole && n.recipientEmail === 'all')) &&
-        !db.isNotificationCleared(n, savedEmail)
+        !hrActions.isNotificationCleared(n, savedEmail, clearedMap)
       );
       setNotifications(filtered);
-    };
-
-    loadNotifications();
-    const interval = setInterval(loadNotifications, 5000);
-    window.addEventListener('focus', loadNotifications);
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', loadNotifications);
-    };
-  }, []);
+    }
+  }, [allProfiles, allNotifications, clearedMap]);
 
   // Close elements when clicking outside
   useEffect(() => {
@@ -81,13 +116,23 @@ export function TopNav() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  // Dynamic Search Engine with RBAC
+  // Dynamic Search Engine with RBAC — every entity below is scoped to
+  // exactly what that role has a Sidebar page for (see Sidebar.tsx's
+  // adminItems/hrItems/employeeItems), so results never link somewhere the
+  // signed-in role couldn't otherwise reach.
+  const isPrivileged = role === 'hr' || role === 'admin';
+
   const performSearch = (query: string) => {
     if (!query.trim() || !role) {
       setMatchedEmployees([]);
       setMatchedTasks([]);
       setMatchedTickets([]);
       setMatchedTeams([]);
+      setMatchedWarehouses([]);
+      setMatchedPayroll([]);
+      setMatchedLeaves([]);
+      setMatchedCareers([]);
+      setMatchedAnnouncements([]);
       setShowResults(false);
       return;
     }
@@ -95,47 +140,64 @@ export function TopNav() {
     const q = query.toLowerCase();
     setShowResults(true);
 
-    if (role === 'hr' || role === 'admin') {
-      const allEmps = db.getEmployees();
-      setMatchedEmployees(allEmps.filter(e =>
-        e.fullName.toLowerCase().includes(q) ||
-        e.email.toLowerCase().includes(q) ||
-        (e.jobTitle || '').toLowerCase().includes(q)
-      ));
-    } else {
-      setMatchedEmployees([]);
-    }
+    // Employees — HR/Admin only (staff directory access).
+    setMatchedEmployees(isPrivileged ? (allProfiles || []).filter(e =>
+      e.fullName.toLowerCase().includes(q) ||
+      e.email.toLowerCase().includes(q) ||
+      (e.jobTitle || '').toLowerCase().includes(q)
+    ) : []);
 
-    const allTasks = db.getTasks();
-    let tasksScope: Task[] = [];
-    if (role === 'hr' || role === 'admin') {
-      tasksScope = allTasks;
-    } else if (email) {
-      tasksScope = allTasks.filter(t => t.assignedEmail === email);
-    }
+    // Tasks — full board for HR/Admin, only tasks assigned to me otherwise.
+    const tasksScope = isPrivileged ? (allTasks || []) : (allTasks || []).filter(t => t.assignedEmail === email);
     setMatchedTasks(tasksScope.filter(t =>
       t.title.toLowerCase().includes(q) ||
       t.description.toLowerCase().includes(q)
     ));
 
-    const allTickets = db.getTickets();
-    let ticketsScope: Ticket[] = [];
-    if (role === 'hr' || role === 'admin') {
-      ticketsScope = allTickets;
-    } else if (email) {
-      ticketsScope = allTickets.filter(t => t.employeeEmail.toLowerCase() === email.toLowerCase());
-    }
+    // Tickets — full queue for HR/Admin, only my own tickets otherwise.
+    const ticketsScope = isPrivileged ? (allTickets || []) : (allTickets || []).filter(t => t.employeeEmail.toLowerCase() === (email || '').toLowerCase());
     setMatchedTickets(ticketsScope.filter(t =>
       t.title.toLowerCase().includes(q) ||
       t.description.toLowerCase().includes(q)
     ));
 
-    if (role === 'hr' || role === 'admin') {
-      const allTeams = ['Engineering', 'Design', 'Marketing', 'Operations', 'HR', 'Support'];
-      setMatchedTeams(allTeams.filter(t => t.toLowerCase().includes(q)));
-    } else {
-      setMatchedTeams([]);
-    }
+    // Teams — HR only (Team Management page lives under /hr, not /admin —
+    // see Sidebar.tsx hrItems vs adminItems).
+    setMatchedTeams(role === 'hr' ? (allTeams || []).filter(t => t.name.toLowerCase().includes(q)) : []);
+
+    // Warehouses — Admin only (Warehouses page lives under /admin, not /hr).
+    setMatchedWarehouses(role === 'admin' ? (allWarehouses || []).filter(w => w.name.toLowerCase().includes(q)) : []);
+
+    // Payroll — full ledger for HR/Admin, only my own record otherwise
+    // (PayrollRecord.employeeId matches Profile.id, not email).
+    let payrollScope: PayrollRecord[] = [];
+    if (isPrivileged) payrollScope = allPayroll || [];
+    else if (profileId) payrollScope = (allPayroll || []).filter(p => p.employeeId === profileId);
+    setMatchedPayroll(payrollScope.filter(p =>
+      p.name.toLowerCase().includes(q) || (p.role || '').toLowerCase().includes(q)
+    ));
+
+    // Leaves — full queue for HR/Admin, only my own applications otherwise
+    // (LeaveApplication has no employeeEmail field — the app matches leaves
+    // to a person by employeeName === Profile.fullName everywhere else too).
+    let leavesScope: LeaveApplication[] = [];
+    if (isPrivileged) leavesScope = allLeaves || [];
+    else if (displayName) leavesScope = (allLeaves || []).filter(l => l.employeeName === displayName);
+    setMatchedLeaves(leavesScope.filter(l =>
+      l.type.toLowerCase().includes(q) || l.reason.toLowerCase().includes(q) || l.status.toLowerCase().includes(q)
+    ));
+
+    // Career postings — the Career Board page exists for every role, so
+    // open positions are searchable by everyone.
+    setMatchedCareers((allCareers || []).filter(c =>
+      c.title.toLowerCase().includes(q) || c.department.toLowerCase().includes(q)
+    ));
+
+    // Announcements — shown on every role's dashboard Overview, so
+    // searchable by everyone too.
+    setMatchedAnnouncements((allAnnouncements || []).filter(a =>
+      a.title.toLowerCase().includes(q) || a.content.toLowerCase().includes(q)
+    ));
   };
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -145,14 +207,17 @@ export function TopNav() {
     window.dispatchEvent(new CustomEvent('globalSearch', { detail: val }));
   };
 
-  const handleToggleBell = () => {
+  const handleToggleBell = async () => {
     setIsBellOpen(prev => !prev);
     setIsProfileOpen(false);
     if (!isBellOpen && email && role) {
-      db.markNotificationsAsRead(email, role);
-      // Re-render read/unread state locally without waiting on the next
-      // poll — the actual read tracking (per-user for broadcasts) already
-      // lives in Supabase via markNotificationsAsRead.
+      await hrActions.markNotificationsAsRead(notifications, email, role);
+      // Refresh the read map + the notifications list itself (personal
+      // notifications get `read: true` written directly on the record) so
+      // the bell re-renders without waiting on the next poll.
+      const rm = await hrActions.getNotificationReadMap();
+      setReadMap(rm);
+      refetchNotifications();
       setReadVersion(v => v + 1);
     }
   };
@@ -161,10 +226,16 @@ export function TopNav() {
     if (!email || !role || notifications.length === 0 || isClearing) return;
     setIsClearing(true);
     try {
-      await db.clearAllNotificationsFor(email, role);
-      // Dismissal is per-user (see clearAllNotificationsFor in db.ts) — this
-      // only empties this user's own bell, not the underlying notifications
-      // other recipients of a broadcast still have.
+      await hrActions.clearAllNotificationsFor(notifications, email, role);
+      // Dismissal is per-user (see clearAllNotificationsFor in hrData.ts) —
+      // this only empties this user's own bell, not the underlying
+      // notifications other recipients of a broadcast still have.
+      const [rm, cm] = await Promise.all([
+        hrActions.getNotificationReadMap(),
+        hrActions.getNotificationClearedMap(),
+      ]);
+      setReadMap(rm);
+      setClearedMap(cm);
       setNotifications([]);
       setReadVersion(v => v + 1);
     } finally {
@@ -172,7 +243,10 @@ export function TopNav() {
     }
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    // This app authenticates against hr_profiles directly (see auth/page.tsx)
+    // rather than PocketBase's built-in auth collection, so there is no
+    // pb.authStore session to clear here — just drop the local session markers.
     localStorage.removeItem('user_role');
     localStorage.removeItem('user_email');
     router.push('/auth');
@@ -192,24 +266,33 @@ export function TopNav() {
   };
 
   const unreadCount = email
-    ? notifications.filter(n => !db.isNotificationRead(n, email)).length
+    ? notifications.filter(n => !hrActions.isNotificationRead(n, email, readMap)).length
     : 0;
   // Referenced only to satisfy the dependency-tracking eslint rule; the
   // actual re-computation is triggered by readVersion bumping this render.
   void readVersion;
   const initials = displayName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'U';
-  const hasAnyResults = matchedEmployees.length > 0 || matchedTasks.length > 0 || matchedTickets.length > 0 || matchedTeams.length > 0;
+  const hasAnyResults = matchedEmployees.length > 0 || matchedTasks.length > 0 || matchedTickets.length > 0 || matchedTeams.length > 0
+    || matchedWarehouses.length > 0 || matchedPayroll.length > 0 || matchedLeaves.length > 0 || matchedCareers.length > 0 || matchedAnnouncements.length > 0;
 
-  // Shared search results dropdown content
-  const SearchResults = () => (
-    <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 max-h-[60vh] overflow-y-auto divide-y divide-slate-100 animate-in fade-in slide-in-from-top-2 duration-150">
+  const payrollHref = role === 'admin' ? '/admin/payroll' : role === 'hr' ? '/hr/payroll' : '/employee/salary';
+  const leavesHref = role === 'admin' ? '/admin/leaves' : role === 'hr' ? '/hr/leaves' : '/employee/leaves';
+  const careersHref = role === 'admin' ? '/admin/careers' : role === 'hr' ? '/hr/careers' : '/employee/careers';
+  const dashboardHomeHref = role === 'admin' ? '/admin' : role === 'hr' ? '/hr' : '/employee';
+
+  // Shared list of result category blocks — rendered identically inside the
+  // desktop dropdown and the mobile full-screen overlay so every searchable
+  // entity type is available consistently on both, capped to 4 rows on
+  // desktop (compact dropdown) and uncapped on mobile (full-screen list).
+  const renderResultGroups = (limit?: number) => (
+    <>
       {matchedEmployees.length > 0 && (
         <div className="p-3">
           <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
             <User className="h-3 w-3" /> Employees ({matchedEmployees.length})
           </div>
           <div className="space-y-1">
-            {matchedEmployees.slice(0, 4).map(emp => (
+            {(limit ? matchedEmployees.slice(0, limit) : matchedEmployees).map(emp => (
               <button key={emp.email} onClick={() => navigateToResult(role === 'hr' ? `/hr/teams` : `/admin/payroll`)}
                 className="w-full text-left p-2.5 hover:bg-slate-50 rounded-xl text-xs flex justify-between items-center transition-colors min-h-[44px]">
                 <div>
@@ -228,7 +311,7 @@ export function TopNav() {
             <ClipboardList className="h-3 w-3" /> Tasks ({matchedTasks.length})
           </div>
           <div className="space-y-1">
-            {matchedTasks.slice(0, 4).map(task => (
+            {(limit ? matchedTasks.slice(0, limit) : matchedTasks).map(task => (
               <button key={task.id} onClick={() => navigateToResult(role === 'hr' ? `/hr/tasks` : role === 'admin' ? `/admin/tasks` : `/employee/tasks`)}
                 className="w-full text-left p-2.5 hover:bg-slate-50 rounded-xl text-xs flex justify-between items-center transition-colors min-h-[44px]">
                 <div className="min-w-0 flex-1">
@@ -247,7 +330,7 @@ export function TopNav() {
             <HelpCircle className="h-3 w-3" /> Tickets ({matchedTickets.length})
           </div>
           <div className="space-y-1">
-            {matchedTickets.slice(0, 4).map(ticket => (
+            {(limit ? matchedTickets.slice(0, limit) : matchedTickets).map(ticket => (
               <button key={ticket.id} onClick={() => navigateToResult(role === 'hr' ? `/hr/tickets` : role === 'admin' ? `/admin/tickets` : `/employee/tickets`)}
                 className="w-full text-left p-2.5 hover:bg-slate-50 rounded-xl text-xs flex justify-between items-center transition-colors min-h-[44px]">
                 <div className="min-w-0 flex-1">
@@ -266,11 +349,99 @@ export function TopNav() {
             <Users className="h-3 w-3" /> Teams ({matchedTeams.length})
           </div>
           <div className="space-y-1">
-            {matchedTeams.map(t => (
-              <button key={t} onClick={() => navigateToResult(role === 'hr' ? `/hr/teams` : `/admin`)}
+            {(limit ? matchedTeams.slice(0, limit) : matchedTeams).map(t => (
+              <button key={t.id} onClick={() => navigateToResult('/hr/teams')}
                 className="w-full text-left p-2.5 hover:bg-slate-50 rounded-xl text-xs font-semibold text-slate-700 flex justify-between items-center transition-colors min-h-[44px]">
-                <span>👥 {t} Division</span>
+                <span>👥 {t.name}</span>
                 <span className="text-[9px] uppercase font-bold text-orange-600">View</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {matchedWarehouses.length > 0 && (
+        <div className="p-3">
+          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+            <MapPin className="h-3 w-3" /> Warehouses ({matchedWarehouses.length})
+          </div>
+          <div className="space-y-1">
+            {(limit ? matchedWarehouses.slice(0, limit) : matchedWarehouses).map(w => (
+              <button key={w.id} onClick={() => navigateToResult('/admin/warehouses')}
+                className="w-full text-left p-2.5 hover:bg-slate-50 rounded-xl text-xs font-semibold text-slate-700 flex justify-between items-center transition-colors min-h-[44px]">
+                <span>{w.name}</span>
+                <span className="text-[9px] uppercase font-bold text-orange-600">View</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {matchedPayroll.length > 0 && (
+        <div className="p-3">
+          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+            <Wallet className="h-3 w-3" /> Payroll ({matchedPayroll.length})
+          </div>
+          <div className="space-y-1">
+            {(limit ? matchedPayroll.slice(0, limit) : matchedPayroll).map(p => (
+              <button key={p.id} onClick={() => navigateToResult(payrollHref)}
+                className="w-full text-left p-2.5 hover:bg-slate-50 rounded-xl text-xs flex justify-between items-center transition-colors min-h-[44px]">
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-slate-800 truncate">{p.name}</p>
+                  <p className="text-[10px] text-slate-400 truncate">{p.role}</p>
+                </div>
+                <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded border ml-2 ${p.processed ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>{p.processed ? 'paid' : 'pending'}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {matchedLeaves.length > 0 && (
+        <div className="p-3">
+          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+            <Clock className="h-3 w-3" /> Leaves ({matchedLeaves.length})
+          </div>
+          <div className="space-y-1">
+            {(limit ? matchedLeaves.slice(0, limit) : matchedLeaves).map(l => (
+              <button key={l.id} onClick={() => navigateToResult(leavesHref)}
+                className="w-full text-left p-2.5 hover:bg-slate-50 rounded-xl text-xs flex justify-between items-center transition-colors min-h-[44px]">
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-slate-800 truncate">{l.employeeName}</p>
+                  <p className="text-[10px] text-slate-400 truncate">{l.type} · {l.duration}</p>
+                </div>
+                <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded border ml-2 ${l.status === 'approved' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : l.status === 'rejected' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>{l.status}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {matchedCareers.length > 0 && (
+        <div className="p-3">
+          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+            <Briefcase className="h-3 w-3" /> Career Board ({matchedCareers.length})
+          </div>
+          <div className="space-y-1">
+            {(limit ? matchedCareers.slice(0, limit) : matchedCareers).map(c => (
+              <button key={c.id} onClick={() => navigateToResult(careersHref)}
+                className="w-full text-left p-2.5 hover:bg-slate-50 rounded-xl text-xs flex justify-between items-center transition-colors min-h-[44px]">
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-slate-800 truncate">{c.title}</p>
+                  <p className="text-[10px] text-slate-400 truncate">{c.department}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {matchedAnnouncements.length > 0 && (
+        <div className="p-3">
+          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+            <Megaphone className="h-3 w-3" /> Announcements ({matchedAnnouncements.length})
+          </div>
+          <div className="space-y-1">
+            {(limit ? matchedAnnouncements.slice(0, limit) : matchedAnnouncements).map(a => (
+              <button key={a.id} onClick={() => navigateToResult(dashboardHomeHref)}
+                className="w-full text-left p-2.5 hover:bg-slate-50 rounded-xl text-xs flex flex-col gap-0.5 transition-colors min-h-[44px]">
+                <p className="font-bold text-slate-800 truncate">{a.title}</p>
+                <p className="text-[10px] text-slate-400 truncate">{a.content}</p>
               </button>
             ))}
           </div>
@@ -279,6 +450,13 @@ export function TopNav() {
       {!hasAnyResults && (
         <div className="p-8 text-center text-slate-400 font-semibold italic text-xs">No matching results found.</div>
       )}
+    </>
+  );
+
+  // Shared search results dropdown content (desktop)
+  const SearchResults = () => (
+    <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 max-h-[60vh] overflow-y-auto divide-y divide-slate-100 animate-in fade-in slide-in-from-top-2 duration-150">
+      {renderResultGroups(4)}
     </div>
   );
 
@@ -295,7 +473,7 @@ export function TopNav() {
             value={search}
             onChange={handleSearchChange}
             onFocus={() => search.trim() && setShowResults(true)}
-            placeholder="Search employees, tasks, tickets..."
+            placeholder="Search employees, tasks, payroll, leaves..."
             className="w-full bg-slate-50 border border-slate-200 rounded-full py-1.5 pl-10 pr-4 text-sm focus:border-orange-500 outline-none text-slate-900 focus:bg-white transition-all font-semibold"
           />
           {showResults && search.trim().length > 0 && <SearchResults />}
@@ -350,7 +528,7 @@ export function TopNav() {
                 </div>
                 <div className="max-h-[300px] overflow-y-auto divide-y divide-slate-100">
                   {notifications.map(n => (
-                    <div key={n.id} className={`p-3.5 text-xs flex flex-col gap-1 ${email && !db.isNotificationRead(n, email) ? 'bg-orange-50/40' : ''}`}>
+                    <div key={n.id} className={`p-3.5 text-xs flex flex-col gap-1 ${email && !hrActions.isNotificationRead(n, email, readMap) ? 'bg-orange-50/40' : ''}`}>
                       <div className="text-slate-700 leading-relaxed font-medium">{n.message}</div>
                       <div className="text-[9px] text-slate-400 font-medium text-right">{n.timestamp}</div>
                     </div>
@@ -367,13 +545,9 @@ export function TopNav() {
           <div ref={profileRef} className="relative">
             <button
               onClick={() => { setIsProfileOpen(prev => !prev); setIsBellOpen(false); }}
-              className="h-9 w-9 rounded-full border-2 border-orange-200 flex items-center justify-center font-bold text-xs hover:border-orange-400 transition-colors shadow-sm overflow-hidden"
+              className="hover:opacity-80 transition-opacity shadow-sm rounded-full"
             >
-              {profilePicture ? (
-                <img src={profilePicture} alt={displayName} className="h-full w-full object-cover" />
-              ) : (
-                <span className="bg-orange-100 text-orange-700 w-full h-full flex items-center justify-center">{initials}</span>
-              )}
+              <Avatar src={profilePicture} name={displayName || 'User'} size={36} />
             </button>
 
             {isProfileOpen && (
@@ -422,70 +596,13 @@ export function TopNav() {
             </button>
           </div>
 
-          {/* Search results in overlay */}
+          {/* Search results in overlay — same categories/RBAC scoping as
+              the desktop dropdown (renderResultGroups), just uncapped and
+              laid out full-width for a phone screen. */}
           <div className="flex-1 overflow-y-auto">
             {search.trim().length > 0 && showResults && (
               <div className="divide-y divide-slate-100">
-                {matchedEmployees.length > 0 && (
-                  <div className="p-4">
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1">
-                      <User className="h-3 w-3" /> Employees
-                    </div>
-                    <div className="space-y-1">
-                      {matchedEmployees.map(emp => (
-                        <button key={emp.email} onClick={() => navigateToResult(role === 'hr' ? `/hr/teams` : `/admin/payroll`)}
-                          className="w-full text-left p-3 hover:bg-slate-50 rounded-xl text-sm flex justify-between items-center transition-colors min-h-[52px]">
-                          <div>
-                            <p className="font-bold text-slate-800">{emp.fullName}</p>
-                            <p className="text-xs text-slate-400">{emp.email}</p>
-                          </div>
-                          <span className="text-[9px] uppercase tracking-wider font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded border border-slate-200">{emp.role}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {matchedTasks.length > 0 && (
-                  <div className="p-4">
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1">
-                      <ClipboardList className="h-3 w-3" /> Tasks
-                    </div>
-                    <div className="space-y-1">
-                      {matchedTasks.map(task => (
-                        <button key={task.id} onClick={() => navigateToResult(role === 'hr' ? `/hr/tasks` : role === 'admin' ? `/admin/tasks` : `/employee/tasks`)}
-                          className="w-full text-left p-3 hover:bg-slate-50 rounded-xl text-sm flex justify-between items-center transition-colors min-h-[52px]">
-                          <div className="min-w-0 flex-1">
-                            <p className="font-bold text-slate-800 truncate">{task.title}</p>
-                            <p className="text-xs text-slate-400 truncate">{task.assignedTo}</p>
-                          </div>
-                          <span className={`text-[9px] uppercase font-bold px-2 py-1 rounded border ml-2 ${task.status === 'done' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>{task.status}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {matchedTickets.length > 0 && (
-                  <div className="p-4">
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1">
-                      <HelpCircle className="h-3 w-3" /> Tickets
-                    </div>
-                    <div className="space-y-1">
-                      {matchedTickets.map(ticket => (
-                        <button key={ticket.id} onClick={() => navigateToResult(role === 'hr' ? `/hr/tickets` : role === 'admin' ? `/admin/tickets` : `/employee/tickets`)}
-                          className="w-full text-left p-3 hover:bg-slate-50 rounded-xl text-sm flex justify-between items-center transition-colors min-h-[52px]">
-                          <div className="min-w-0 flex-1">
-                            <p className="font-bold text-slate-800 truncate">{ticket.title}</p>
-                            <p className="text-xs text-slate-400 truncate">{ticket.employeeName}</p>
-                          </div>
-                          <span className={`text-[9px] uppercase font-bold px-2 py-1 rounded border ml-2 ${ticket.status === 'open' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>{ticket.status}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {!hasAnyResults && (
-                  <div className="p-12 text-center text-slate-400 font-semibold text-sm">No results for "{search}"</div>
-                )}
+                {renderResultGroups()}
               </div>
             )}
             {!search.trim() && (

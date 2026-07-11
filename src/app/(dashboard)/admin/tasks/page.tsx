@@ -1,16 +1,16 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { TaskBoard } from '@/components/ui/TaskBoard';
 import { TaskModal } from '@/components/ui/TaskModal';
 import { Modal } from '@/components/ui/Modal';
-import { db, Task, Profile } from '@/lib/db';
 import { ClipboardList, Star, CheckCircle2, UserCog } from 'lucide-react';
+import { useTasks, useProfiles, useTeams, hrActions } from '@/lib/hrData';
 
 export default function AdminTasksPage() {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [employees, setEmployees] = useState<Profile[]>([]);
-  const [teams, setTeams] = useState<string[]>([]);
+  const { data: tasks = [], refetch: refetchTasks } = useTasks();
+  const { data: employees = [], refetch: refetchProfiles } = useProfiles();
+  const { data: teams = [] } = useTeams();
   const [isTaskOpen, setIsTaskOpen] = useState(false);
   const [isLeadOpen, setIsLeadOpen] = useState(false);
 
@@ -19,18 +19,11 @@ export default function AdminTasksPage() {
   const [leadTeams, setLeadTeams] = useState<string[]>([]);
   const [leadSuccess, setLeadSuccess] = useState('');
 
-  useEffect(() => {
-    setTasks(db.getTasks());
-    setEmployees(db.getEmployees());
-    setTeams(db.getTeams());
-  }, []);
-
-  const handleSaveLead = () => {
+  const handleSaveLead = async () => {
     if (!leadEmpId) return;
-    db.setTeamLead(leadEmpId, leadTeams);
-    const updated = db.getEmployees();
-    setEmployees(updated);
-    const emp = updated.find(e => e.id === leadEmpId);
+    await hrActions.setTeamLead(leadEmpId, leadTeams);
+    refetchProfiles();
+    const emp = employees.find(e => e.id === leadEmpId);
     setLeadSuccess(`${emp?.fullName} — team lead updated!`);
     setTimeout(() => { setIsLeadOpen(false); setLeadSuccess(''); setLeadEmpId(''); setLeadTeams([]); }, 1300);
   };
@@ -60,7 +53,7 @@ export default function AdminTasksPage() {
 
       <TaskBoard
         tasks={tasks}
-        onUpdate={updated => setTasks(updated)}
+        onUpdate={() => refetchTasks()}
         canDelete={true}
         readOnly={false}
       />
@@ -70,7 +63,7 @@ export default function AdminTasksPage() {
         onClose={() => setIsTaskOpen(false)}
         employees={employees.filter(e => e.role === 'employee' || e.isTeamLead)}
         createdBy="admin"
-        onTaskAdded={task => setTasks(prev => [task, ...prev])}
+        onTaskAdded={() => refetchTasks()}
       />
 
       {/* Team Lead Management Modal */}
@@ -106,14 +99,14 @@ export default function AdminTasksPage() {
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Lead of Teams</label>
               {teams.map(t => (
-                <label key={t} className="flex items-center gap-2.5 cursor-pointer group">
+                <label key={t.id} className="flex items-center gap-2.5 cursor-pointer group">
                   <input
                     type="checkbox"
-                    checked={leadTeams.includes(t)}
-                    onChange={() => setLeadTeams(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])}
+                    checked={leadTeams.includes(t.name)}
+                    onChange={() => setLeadTeams(prev => prev.includes(t.name) ? prev.filter(x => x !== t.name) : [...prev, t.name])}
                     className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
                   />
-                  <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900">{t}</span>
+                  <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900">{t.name}</span>
                 </label>
               ))}
             </div>

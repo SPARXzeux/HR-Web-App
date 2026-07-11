@@ -4,13 +4,17 @@
 // the encoding logic only lives in one place.
 //
 // Format must stay in sync with decode_setup_code() in
-// tracker-agent/agent_gui.py: base64url of JSON {"u": supabaseUrl,
-// "k": anonKey, "t": agentToken}.
+// tracker-agent/agent_gui.py: base64url of JSON {"u": pocketbaseUrl,
+// "t": agentToken}. The old "k" (Supabase anon key) field has been removed;
+// PocketBase's public collections require no API key for reads/writes.
 
 export const TRACKER_RELEASES_URL = 'https://github.com/SPARXzeux/HR-Web-App/releases';
 
-export function encodeSetupCode(url: string, key: string, token: string): string {
-  const json = JSON.stringify({ u: url, k: key, t: token });
+/** The PocketBase server URL used by both the web app and tracker agents. */
+export const POCKETBASE_URL = 'http://157.230.7.89';
+
+export function encodeSetupCode(url: string, token: string): string {
+  const json = JSON.stringify({ u: url, t: token });
   if (typeof window === 'undefined') return '';
   // Use TextEncoder to handle UTF-8 safely instead of deprecated unescape()
   const utf8Bytes = new TextEncoder().encode(json);
@@ -19,9 +23,9 @@ export function encodeSetupCode(url: string, key: string, token: string): string
   return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-export function getSupabasePublicConfig(): { url: string; key: string } {
+/** Returns the PocketBase server URL for tracker agent setup. No anon key needed. */
+export function getPocketBaseConfig(): { url: string } {
   return {
-    url: process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://pftbzajbfelexyyhqmef.supabase.co',
-    key: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_fqs9oSIYNtzkhqOa-xzAjg_9DxUGbAI',
+    url: POCKETBASE_URL,
   };
 }

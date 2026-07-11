@@ -3,7 +3,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, Menu, X, FileText, MapPin, Monitor } from 'lucide-react';
-import { db } from '@/lib/db';
+import { useProfiles, useTickets, hasUnseenTicketActivity } from '@/lib/hrData';
 
 interface SidebarProps {
   role: 'admin' | 'hr' | 'employee' | 'team_lead';
@@ -16,13 +16,20 @@ export function Sidebar({ role }: SidebarProps) {
   const [trackingEnabled, setTrackingEnabled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [platform, setPlatform] = useState<'ios' | 'android'>('ios');
+  const [userEmail, setUserEmail] = useState('');
   const drawerRef = useRef<HTMLDivElement>(null);
+  const { data: profiles } = useProfiles();
+  // Polls every 15s via useTickets' own refetchInterval, so the dot can
+  // light up without the user needing to be on the tickets page.
+  const { data: allTickets } = useTickets();
+
+  const hasUnseenTickets = hasUnseenTicketActivity(allTickets || [], role, userEmail);
 
   useEffect(() => {
     const email = localStorage.getItem('user_email');
-    if (email) {
-      const employees = db.getEmployees();
-      const profile = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
+    if (email) setUserEmail(email);
+    if (email && profiles) {
+      const profile = profiles.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
       setIsTeamLead(!!(profile?.isTeamLead && (profile.leadTeams?.length ?? 0) > 0));
       setTrackingEnabled(!!profile?.trackingEnabled);
     }
@@ -45,7 +52,7 @@ export function Sidebar({ role }: SidebarProps) {
         setPlatform('ios'); // default fallback
       }
     }
-  }, []);
+  }, [profiles]);
 
   // Click outside listener for mobile drawer
   useEffect(() => {
@@ -157,17 +164,21 @@ export function Sidebar({ role }: SidebarProps) {
           {links.map((item) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
+            const showDot = item.href.endsWith('/tickets') && hasUnseenTickets;
             return (
               <Link
                 key={item.name}
                 href={item.href}
-                className={`flex items-center px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 ${
+                className={`flex items-center px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 relative ${
                   isActive
                     ? 'bg-orange-50 text-orange-700'
                     : 'text-slate-650 hover:bg-slate-100 hover:text-slate-900'
                 }`}
               >
-                <Icon className={`mr-3 h-5 w-5 ${isActive ? 'text-orange-700' : 'text-slate-400'}`} />
+                <span className="relative mr-3">
+                  <Icon className={`h-5 w-5 ${isActive ? 'text-orange-700' : 'text-slate-400'}`} />
+                  {showDot && <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-rose-500 border border-white" />}
+                </span>
                 {item.name}
               </Link>
             );
@@ -207,6 +218,7 @@ export function Sidebar({ role }: SidebarProps) {
           {mobileQuickLinks.map(item => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
+            const showDot = item.href.endsWith('/tickets') && hasUnseenTickets;
             return (
               <Link
                 key={item.name}
@@ -215,7 +227,10 @@ export function Sidebar({ role }: SidebarProps) {
                   isActive ? 'text-orange-600' : 'text-slate-400'
                 }`}
               >
-                <Icon className="h-5.5 w-5.5 shrink-0" strokeWidth={isActive ? 2.5 : 2} />
+                <span className="relative">
+                  <Icon className="h-5.5 w-5.5 shrink-0" strokeWidth={isActive ? 2.5 : 2} />
+                  {showDot && <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-rose-500 border border-white" />}
+                </span>
                 <span className="text-[9px] font-medium tracking-tight">{item.name}</span>
               </Link>
             );
@@ -239,16 +254,18 @@ export function Sidebar({ role }: SidebarProps) {
           {mobileQuickLinks.map(item => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
+            const showDot = item.href.endsWith('/tickets') && hasUnseenTickets;
             return (
               <Link
                 key={item.name}
                 href={item.href}
                 className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform duration-100 relative"
               >
-                <div className={`px-5 py-1 rounded-full flex items-center justify-center transition-all ${
+                <div className={`relative px-5 py-1 rounded-full flex items-center justify-center transition-all ${
                   isActive ? 'bg-orange-50 text-orange-700 shadow-sm' : 'bg-transparent text-slate-400'
                 }`}>
                   <Icon className="h-5 w-5 shrink-0" />
+                  {showDot && <span className="absolute top-0 right-3 h-2 w-2 rounded-full bg-rose-500 border border-white" />}
                 </div>
                 <span className={`text-[10px] tracking-wide font-medium ${isActive ? 'text-orange-700 font-bold' : 'text-slate-500'}`}>
                   {item.name}
@@ -308,20 +325,24 @@ export function Sidebar({ role }: SidebarProps) {
                 {mobileSideLinks.map(item => {
                   const isActive = pathname === item.href;
                   const Icon = item.icon;
+                  const showDot = item.href.endsWith('/tickets') && hasUnseenTickets;
                   return (
                     <Link
                       key={item.name}
                       href={item.href}
                       onClick={() => setIsMobileMenuOpen(false)}
                       className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                        isActive 
+                        isActive
                           ? 'bg-orange-50 text-orange-700'
                           : 'text-slate-650 hover:bg-slate-50'
                       }`}
                     >
-                      <Icon className={`h-4.5 w-4.5 shrink-0 ${
-                        isActive ? 'text-orange-700' : 'text-slate-450'
-                      }`} />
+                      <span className="relative">
+                        <Icon className={`h-4.5 w-4.5 shrink-0 ${
+                          isActive ? 'text-orange-700' : 'text-slate-450'
+                        }`} />
+                        {showDot && <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-rose-500 border border-white" />}
+                      </span>
                       {item.name}
                     </Link>
                   );

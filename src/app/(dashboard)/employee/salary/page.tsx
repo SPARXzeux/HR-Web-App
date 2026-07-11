@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useProfiles, usePayroll, Profile, PayrollRecord, formatMoney } from '@/lib/hrData';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
-import { db, Profile, PayrollRecord, formatMoney } from '@/lib/db';
 import { FileText, Download, CheckCircle2, ShieldCheck, Printer } from 'lucide-react';
 
 interface Payslip {
@@ -18,23 +18,25 @@ interface Payslip {
 }
 
 export default function EmployeeSalaryPage() {
+  const { data: allProfiles } = useProfiles();
+  const { data: allPayroll } = usePayroll();
+
   const [userProfile, setUserProfile] = useState<Profile | null>(null);
   const [payrollRecord, setPayrollRecord] = useState<PayrollRecord | null>(null);
   const [selectedSlip, setSelectedSlip] = useState<Payslip | null>(null);
 
   useEffect(() => {
     const email = localStorage.getItem('user_email');
-    const employees = db.getEmployees();
-    const profile = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
+    if (!email || !allProfiles || !allPayroll) return;
+    const profile = allProfiles.find(e => e.email && e.email.toLowerCase() === email.toLowerCase());
     if (profile) {
       setUserProfile(profile);
-      const payroll = db.getPayroll();
-      const record = payroll.find(p => p.employeeId === profile.id);
+      const record = allPayroll.find(p => p.employeeId === profile.id);
       if (record) {
         setPayrollRecord(record);
       }
     }
-  }, []);
+  }, [allProfiles, allPayroll]);
 
   // Real, currently-effective base salary — this already reflects every
   // anniversary increment that's actually been processed in the past.
