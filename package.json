@@ -7,8 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "cap:sync": "next build && npx cap sync android",
-    "cap:android": "next build && npx cap sync android && npx cap open android"
+    "cap:sync": "set CAPACITOR_BUILD=true && next build && npx cap sync android",
+    "cap:android": "set CAPACITOR_BUILD=true && next build && npx cap sync android && npx cap open android"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
