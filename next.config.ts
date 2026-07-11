@@ -4,12 +4,6 @@ const isCapacitor = process.env.CAPACITOR_BUILD === 'true';
 
 const nextConfig: NextConfig = {
   output: isCapacitor ? 'export' : undefined,
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   async rewrites() {
     if (isCapacitor) return [];
     return [
