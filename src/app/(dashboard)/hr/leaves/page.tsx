@@ -254,7 +254,11 @@ export default function HRLeavesPage() {
                 <div className={`px-4 py-3 rounded-t-xl border-b ${col.headerBg} flex items-center justify-between`}>
                   <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                     {col.label}
-                    {col.locked && <Lock className="h-3 w-3 text-slate-400" title="CEO/Admin decides this — see the Admin dashboard's CEO Approval Queue" />}
+                    {col.locked && (
+                      <span title="CEO/Admin decides this — see the Admin dashboard's CEO Approval Queue">
+                        <Lock className="h-3 w-3 text-slate-400" />
+                      </span>
+                    )}
                   </span>
                   <span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 rounded-full h-5 w-5 flex items-center justify-center">
                     {cards.length}
