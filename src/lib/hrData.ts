@@ -636,10 +636,6 @@ export const hrActions = {
   deleteEmployee: async (id: string, email: string, fullName?: string): Promise<void> => {
     const lower = (email || '').toLowerCase();
 
-    // Profile-extras overlay — this is where CV/passport/identity document
-    // data actually lives (hr_profiles itself has no document columns).
-    await pbDeleteKVByKeys([profileExtraKey(id)]);
-
     // Revoke tracking: remove their row from the tracking-settings list so
     // an already-installed desktop tracker can't keep polling with a
     // still-valid token and silently uploading screenshots after they're
@@ -654,10 +650,17 @@ export const hrActions = {
     }
 
     // Screenshots — both the real hr_screenshots collection and any
-    // legacy base64 rows still in hr_delcargo_store.
+    // legacy base64 rows still in hr_delcargo_store. Best-effort: a single
+    // stale/already-gone screenshot row must not abort the whole deletion
+    // (deleteScreenshots itself now uses allSettled, but guard here too in
+    // case getScreenshots/the call itself throws for an unrelated reason).
     if (email) {
-      const shots = await hrActions.getScreenshots({ employeeEmail: email });
-      if (shots.length) await hrActions.deleteScreenshots(shots.map(s => s.id));
+      try {
+        const shots = await hrActions.getScreenshots({ employeeEmail: email });
+        if (shots.length) await hrActions.deleteScreenshots(shots.map(s => s.id));
+      } catch (err) {
+        console.error('[hrData] deleteEmployee: screenshot cleanup failed, continuing:', err);
+      }
     }
 
     // Everything else, deleted in parallel — each resource type is
@@ -720,6 +723,14 @@ export const hrActions = {
         await pbSetKV('hr_deleted_profile_emails_v1', [...existing, lower]);
       }
     }
+
+    // Profile-extras overlay — this is where CV/passport/identity document
+    // data and the offboarded/offboardDate/offboardingStatus flags actually
+    // live (hr_profiles itself has no document/offboarding columns). This
+    // runs LAST, deliberately: if anything above throws, the overlay (and
+    // therefore the "Offboarded" status) must stay intact so a failed,
+    // partial delete doesn't silently revert the employee to "active".
+    await pbDeleteKVByKeys([profileExtraKey(id)]);
   },
 
   // Bundles everything the app knows about one employee into a downloadable
@@ -1075,7 +1086,10 @@ export const hrActions = {
   deleteScreenshots: async (ids: string[]): Promise<void> => {
     const realIds = ids.filter(id => looksLikeRealId(id));
     const legacyIds = ids.filter(id => !looksLikeRealId(id));
-    await Promise.all([
+    // allSettled, not all: a single already-gone/stale screenshot row must
+    // not abort deletion of the rest of the batch (this used to bubble up
+    // and kill the whole employee-delete flow on one bad row).
+    await Promise.allSettled([
       ...realIds.map(id => pbDelete('hr_screenshots', id)),
       legacyIds.length ? pbDeleteKVByKeys(legacyIds.map(id => `screenshot_${id}`)) : Promise.resolve(),
     ]);

@@ -228,15 +228,23 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
 
   const confirmDeletePermanently = async () => {
     setIsDeleting(true);
-    // Purges everything tied to this employee — profile, documents,
-    // payroll, leaves, tasks, tickets, timesheets, screenshots, tracking
-    // token, notifications — not just the profile listing. See
-    // hrActions.deleteEmployee in hrData.ts.
-    await hrActions.deleteEmployee(profile.id, profile.email, profile.fullName);
-    setIsDeleting(false);
-    setShowDeleteConfirm(false);
-    onUpdate?.();
-    onClose();
+    try {
+      // Purges everything tied to this employee — profile, documents,
+      // payroll, leaves, tasks, tickets, timesheets, screenshots, tracking
+      // token, notifications — not just the profile listing. See
+      // hrActions.deleteEmployee in hrData.ts.
+      await hrActions.deleteEmployee(profile.id, profile.email, profile.fullName);
+      setShowDeleteConfirm(false);
+      onUpdate?.();
+      onClose();
+    } catch (err) {
+      // Without this, a thrown error here left the button stuck on
+      // "Deleting…" forever with setIsDeleting(false) never reached.
+      console.error('Employee deletion failed:', err);
+      alert('Could not fully delete this employee. Some of their data may have already been removed — check the console, refresh, and try again. If it keeps failing, their profile is still intact.');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleReactivate = async () => {
