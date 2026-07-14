@@ -2,8 +2,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, Menu, X, FileText, MapPin, Monitor } from 'lucide-react';
-import { useProfiles, useTickets, hasUnseenTicketActivity } from '@/lib/hrData';
+import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, Menu, X, FileText, MapPin, Monitor, MessageSquare } from 'lucide-react';
+import { useProfiles, useTeams, useTickets, useAllMessages, hasUnseenTicketActivity, hasUnseenMessageActivity } from '@/lib/hrData';
 
 interface SidebarProps {
   role: 'admin' | 'hr' | 'employee' | 'team_lead';
@@ -17,13 +17,18 @@ export function Sidebar({ role }: SidebarProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [platform, setPlatform] = useState<'ios' | 'android'>('ios');
   const [userEmail, setUserEmail] = useState('');
+  const [myTeamIds, setMyTeamIds] = useState<string[] | 'all'>([]);
   const drawerRef = useRef<HTMLDivElement>(null);
   const { data: profiles } = useProfiles();
+  const { data: allTeams } = useTeams();
   // Polls every 15s via useTickets' own refetchInterval, so the dot can
   // light up without the user needing to be on the tickets page.
   const { data: allTickets } = useTickets();
+  // Same idea for Team Chat — see useAllMessages' comment in hrData.ts.
+  const { data: allMessages } = useAllMessages();
 
   const hasUnseenTickets = hasUnseenTicketActivity(allTickets || [], role, userEmail);
+  const hasUnseenChat = hasUnseenMessageActivity(allMessages || [], myTeamIds, role, userEmail);
 
   useEffect(() => {
     const email = localStorage.getItem('user_email');
@@ -32,6 +37,17 @@ export function Sidebar({ role }: SidebarProps) {
       const profile = profiles.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
       setIsTeamLead(!!(profile?.isTeamLead && (profile.leadTeams?.length ?? 0) > 0));
       setTrackingEnabled(!!profile?.trackingEnabled);
+
+      // Admin is auto-a-member of every team channel (see TeamChatView),
+      // so their "unseen" signature spans every team, not just ones
+      // they're formally on. Everyone else: the specific teams they're a
+      // member of or lead, resolved to ids via hr_teams.
+      if (role === 'admin') {
+        setMyTeamIds('all');
+      } else if (profile && allTeams) {
+        const names = new Set([...(profile.teams || []), ...(profile.leadTeams || [])]);
+        setMyTeamIds(allTeams.filter(t => names.has(t.name)).map(t => t.id));
+      }
     }
 
     // Dynamic OS Platform Detection for iOS vs Android
@@ -52,7 +68,7 @@ export function Sidebar({ role }: SidebarProps) {
         setPlatform('ios'); // default fallback
       }
     }
-  }, [profiles]);
+  }, [profiles, allTeams, role]);
 
   // Click outside listener for mobile drawer
   useEffect(() => {
@@ -83,6 +99,7 @@ export function Sidebar({ role }: SidebarProps) {
     { name: 'Master Reports', href: '/admin/reports', icon: FileText },
     { name: 'Screen Tracking', href: '/admin/tracking', icon: Monitor },
     { name: 'Support Tickets', href: '/admin/tickets', icon: HelpCircle },
+    { name: 'Team Chats', href: '/admin/team-chats', icon: MessageSquare },
   ];
 
   const hrItems = [
@@ -105,6 +122,7 @@ export function Sidebar({ role }: SidebarProps) {
     { name: 'Salary History', href: '/employee/salary', icon: Wallet },
     { name: 'Career Board', href: '/employee/careers', icon: Briefcase },
     { name: 'Support Tickets', href: '/employee/tickets', icon: HelpCircle },
+    { name: 'Team Chat', href: '/employee/chat', icon: MessageSquare },
     ...(isTeamLead ? [{ name: 'Team Tasks ⭐', href: '/employee/tasks', icon: Star }] : []),
   ];
 
@@ -164,7 +182,7 @@ export function Sidebar({ role }: SidebarProps) {
           {links.map((item) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
-            const showDot = item.href.endsWith('/tickets') && hasUnseenTickets;
+            const showDot = (item.href.endsWith('/tickets') && hasUnseenTickets) || ((item.href.endsWith('/chat') || item.href.endsWith('/team-chats')) && hasUnseenChat);
             return (
               <Link
                 key={item.name}
@@ -218,7 +236,7 @@ export function Sidebar({ role }: SidebarProps) {
           {mobileQuickLinks.map(item => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
-            const showDot = item.href.endsWith('/tickets') && hasUnseenTickets;
+            const showDot = (item.href.endsWith('/tickets') && hasUnseenTickets) || ((item.href.endsWith('/chat') || item.href.endsWith('/team-chats')) && hasUnseenChat);
             return (
               <Link
                 key={item.name}
@@ -254,7 +272,7 @@ export function Sidebar({ role }: SidebarProps) {
           {mobileQuickLinks.map(item => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
-            const showDot = item.href.endsWith('/tickets') && hasUnseenTickets;
+            const showDot = (item.href.endsWith('/tickets') && hasUnseenTickets) || ((item.href.endsWith('/chat') || item.href.endsWith('/team-chats')) && hasUnseenChat);
             return (
               <Link
                 key={item.name}
@@ -325,7 +343,7 @@ export function Sidebar({ role }: SidebarProps) {
                 {mobileSideLinks.map(item => {
                   const isActive = pathname === item.href;
                   const Icon = item.icon;
-                  const showDot = item.href.endsWith('/tickets') && hasUnseenTickets;
+                  const showDot = (item.href.endsWith('/tickets') && hasUnseenTickets) || ((item.href.endsWith('/chat') || item.href.endsWith('/team-chats')) && hasUnseenChat);
                   return (
                     <Link
                       key={item.name}

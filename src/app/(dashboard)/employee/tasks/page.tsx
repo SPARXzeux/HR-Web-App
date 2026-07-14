@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useProfiles, useTasks, Task, Profile } from '@/lib/hrData';
+import { useProfiles, useTasks, Task, Profile, displayName } from '@/lib/hrData';
 import { TaskBoard } from '@/components/ui/TaskBoard';
 import { Badge } from '@/components/ui/Badge';
 import { Users } from 'lucide-react';
@@ -40,6 +40,15 @@ export default function TeamLeadTasksPage() {
     if (teamFilter === 'all') return leadTeams.includes(t.team);
     return t.team === teamFilter; // specific team tab
   });
+
+  // Team Leads only ever see the Alias, never real names — swap the
+  // assignedTo/createdBy label before handing tasks to TaskBoard, which
+  // just renders whatever string it's given (see displayName in hrData.ts).
+  const emailToProfile = new Map(allProfiles.map(p => [p.email.toLowerCase(), p]));
+  const displayTasks = visibleTasks.map(t => ({
+    ...t,
+    assignedTo: displayName(emailToProfile.get((t.assignedEmail || '').toLowerCase()), userProfile.role) || t.assignedTo,
+  }));
 
   return (
     <div className="space-y-6">
@@ -85,7 +94,7 @@ export default function TeamLeadTasksPage() {
       </div>
 
       <TaskBoard
-        tasks={visibleTasks}
+        tasks={displayTasks}
         onUpdate={() => refetchTasks()}
         canDelete={false}
         readOnly={false}

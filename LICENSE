@@ -1,0 +1,94 @@
+PROPRIETARY SOFTWARE LICENSE
+
+Copyright (c) 2026 SPARX Studioz & Technologies. All Rights Reserved.
+Author / Developer: Faheem ud Darain
+Effective Date: July 1, 2026
+
+Contact:
+  Email: studiozsparx@gmail.com
+  Phone: 0314-2908629 | 0309-5843733
+
+--------------------------------------------------------------------------------
+1. OWNERSHIP
+--------------------------------------------------------------------------------
+
+This software, including but not limited to all source code, scripts,
+configuration files, documentation, design assets, and any associated
+materials contained in this repository (collectively, the "Software"), is the
+exclusive intellectual property of SPARX Studioz & Technologies and its
+developer, Faheem ud Darain (collectively, the "Owner").
+
+The Software was custom-developed by the Owner. All rights, title, and
+interest in and to the Software — including all copyrights, trade secrets,
+and other intellectual property rights — remain solely and exclusively with
+the Owner, except where explicitly and separately assigned in a signed
+written agreement.
+
+--------------------------------------------------------------------------------
+2. LICENSED USE
+--------------------------------------------------------------------------------
+
+This specific build of the Software has been developed for, and its use is
+licensed exclusively to, DelCargo / DelCargo Logistics ("Licensee") for
+Licensee's own internal business operations only.
+
+This license does NOT grant Licensee, its employees, contractors, agents, or
+any third party the right to:
+
+  a) Resell, sublicense, rent, lease, or otherwise transfer the Software or
+     any portion of its source code to any other party;
+  b) Rebrand, white-label, or represent the Software (in whole or in part) as
+     Licensee's own original product or work product;
+  c) Use the Software, or any code derived from it, as the basis for a
+     separate commercial product offered to parties other than Licensee;
+  d) Remove, alter, obscure, or misrepresent authorship or ownership notices
+     contained in this repository, including this LICENSE file.
+
+Any use of the Software outside the scope of internal operational use by
+DelCargo / DelCargo Logistics — including resale, relicensing, or
+rebranding as described above — constitutes a material breach of this
+license and copyright infringement, and the Owner reserves the right to
+pursue all available legal remedies, including injunctive relief and
+monetary damages, in any applicable jurisdiction.
+
+--------------------------------------------------------------------------------
+3. DATA OWNERSHIP (SEPARATE FROM SOFTWARE OWNERSHIP)
+--------------------------------------------------------------------------------
+
+For the avoidance of doubt: the operational data generated and stored by
+Licensee through use of the Software — including but not limited to records
+held in the PocketBase database instance used by this application (employee
+profiles, HR records, payroll, leave applications, tickets, tasks, team chat
+messages, uploaded documents, and any other Licensee-generated data) — is
+and remains the sole property of DelCargo / DelCargo Logistics.
+
+The Owner claims no ownership over Licensee's operational data. Ownership of
+the Software (the application/source code itself) and ownership of
+Licensee's data are distinct and are not affected by one another.
+
+--------------------------------------------------------------------------------
+4. NO WARRANTY
+--------------------------------------------------------------------------------
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+OWNER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM THE
+USE OF THE SOFTWARE, EXCEPT AS OTHERWISE AGREED IN A SEPARATE SIGNED
+WRITTEN AGREEMENT BETWEEN THE OWNER AND LICENSEE.
+
+--------------------------------------------------------------------------------
+5. GOVERNING TERMS
+--------------------------------------------------------------------------------
+
+This notice is a statement of ownership and licensing restrictions and does
+not replace or supersede any separate signed services agreement, statement
+of work, or contract between the Owner and Licensee. Where a signed
+agreement exists between the parties, the terms of that agreement govern in
+addition to the restrictions stated here. Nothing in this file limits any
+right or remedy available to the Owner under such an agreement or under
+applicable law.
+
+--------------------------------------------------------------------------------
+
+All rights not expressly granted herein are reserved by the Owner.

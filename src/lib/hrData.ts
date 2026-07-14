@@ -142,6 +142,35 @@ export interface Profile {
   identityDocs?: { name: string; data: string }[];
   passportFileName?: string;
   passportFileData?: string;
+  // Set by HR/Admin only (see UserProfileModal). Team members / team leads
+  // only ever see this in place of the real name — see displayName() below.
+  // HR/Admin always see the real name, with the alias shown alongside it.
+  alias?: string;
+  // Onboarding approval gate. Undefined/'pending' while the employee's
+  // self-service onboarding stepper has been submitted but not yet reviewed
+  // — the dashboard shows a "waiting for review" screen instead of the real
+  // app. Only flips to 'approved' via HR/Admin action, which is what
+  // actually unlocks the dashboard (separate from onboardingCompleted,
+  // which just means "the stepper was submitted").
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
+  approvalReviewedBy?: string;
+  approvalReviewedAt?: string;
+  approvalRejectionReason?: string;
+}
+
+// Team members and team leads only ever see the Alias (or the real name as
+// a fallback if no alias has been set yet — better than showing a blank).
+// HR/Admin see the real name with the alias appended for reference. This is
+// UI-level masking only — see the security caveat in project notes; every
+// hr_ collection is currently publicly readable, so this is not a real
+// access boundary until PocketBase auth rules are turned on for production.
+export function displayName(profile: { fullName: string; alias?: string } | null | undefined, viewerRole: 'employee' | 'hr' | 'admin' | 'team_lead' | null | undefined): string {
+  if (!profile) return '';
+  const canSeeRealName = viewerRole === 'hr' || viewerRole === 'admin';
+  if (canSeeRealName) {
+    return profile.alias ? `${profile.fullName} (${profile.alias})` : profile.fullName;
+  }
+  return profile.alias || profile.fullName;
 }
 
 export interface Warehouse { id: string; name: string; latitude: number; longitude: number; radius: number; }
@@ -233,6 +262,17 @@ export interface Team {
   id: string; name: string; leadEmail?: string; members: string[]; warehouseId?: string;
 }
 
+// Team Chat — one channel per hr_teams row, no DMs. senderName is a
+// real-name snapshot (see create_messages_collection.py) used only by the
+// Admin oversight view; everywhere else, resolve senderEmail through
+// displayName(profile, viewerRole) so an Alias change also applies
+// retroactively to old messages.
+export interface Message {
+  id: string; teamId: string; senderEmail: string; senderName: string;
+  text?: string; attachmentUrl?: string; attachmentName?: string; attachmentSize?: number;
+  isAnnouncement?: boolean; timestamp: string;
+}
+
 // ---------------------------------------------------------------------------
 // Mappers (PocketBase snake_case record -> app camelCase shape)
 // ---------------------------------------------------------------------------
@@ -309,7 +349,8 @@ function fromProfileFields(p: Partial<Profile>): any {
 const OVERLAY_KEYS: (keyof Profile)[] = [
   'offboarded', 'offboardDate', 'offboardingStatus', 'lastIncrementProcessedYear',
   'cvFileName', 'cvFileData', 'identityDocs', 'passportFileName', 'passportFileData',
-  'accountCreationDate',
+  'accountCreationDate', 'alias', 'approvalStatus', 'approvalReviewedBy',
+  'approvalReviewedAt', 'approvalRejectionReason',
 ];
 
 function toWarehouse(w: any): Warehouse {
@@ -349,6 +390,20 @@ function toPayroll(p: any): PayrollRecord {
 }
 function toTeam(t: any): Team {
   return { id: t.id, name: t.name, leadEmail: t.lead_email || undefined, members: t.members || [], warehouseId: t.warehouse_id || undefined };
+}
+function toMessage(m: any): Message {
+  return {
+    id: m.id,
+    teamId: m.team_id,
+    senderEmail: m.sender_email,
+    senderName: m.sender_name,
+    text: m.text || undefined,
+    attachmentUrl: m.attachment ? pb.files.getURL(m, m.attachment) : undefined,
+    attachmentName: m.attachment_name || undefined,
+    attachmentSize: typeof m.attachment_size === 'number' ? m.attachment_size : undefined,
+    isAnnouncement: !!m.is_announcement,
+    timestamp: m.created,
+  };
 }
 function toTimesheet(t: any): TimesheetEntry {
   const clockOut = t.clock_out || undefined;
@@ -429,6 +484,38 @@ export function usePayroll() {
 }
 export function useTeams() {
   return useQuery({ queryKey: ['hr_teams'], queryFn: async () => (await pbList('hr_teams', { sort: 'name' })).map(toTeam) });
+}
+// Team Chat, one channel per team. Polling rather than a PocketBase
+// realtime (SSE) subscription — this app's web deploy proxies PocketBase
+// through a Next.js rewrite (see next.config.ts), and long-lived SSE
+// connections through that kind of proxy aren't guaranteed to stay open on
+// every host. Polling is the same "near-real-time" approach already used
+// for hr_tickets above and is proven to work here. If you confirm SSE stays
+// connected in your actual deployment, this can be upgraded to
+// pb.collection('hr_messages').subscribe(...) for instant delivery.
+export function useMessages(teamId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['hr_messages', teamId],
+    queryFn: async () => {
+      if (!teamId) return [];
+      const rows = await pbList('hr_messages', { filter: `team_id = "${teamId}"`, sort: 'created' });
+      return rows.map(toMessage);
+    },
+    enabled: !!teamId,
+    refetchInterval: 4000,
+  });
+}
+// Every message across every team, unscoped — used only for the sidebar's
+// unseen-activity dot (see computeMessageActivitySignature), which needs
+// to know about new messages in channels the user isn't currently looking
+// at. Polls less aggressively than useMessages since a dot lighting up a
+// few seconds late is a non-issue.
+export function useAllMessages() {
+  return useQuery({
+    queryKey: ['hr_messages_all'],
+    queryFn: async () => (await pbList('hr_messages', { sort: '-created' })).map(toMessage),
+    refetchInterval: 15000,
+  });
 }
 export function useTimesheets() {
   return useQuery({ queryKey: ['hr_timesheets'], queryFn: async () => (await pbList('hr_timesheets', { sort: '-created' })).map(toTimesheet) });
@@ -591,6 +678,54 @@ export function markTicketActivitySeen(
 }
 
 // ---------------------------------------------------------------------------
+// Team Chat unseen-activity signature — same "count vs. last-seen count in
+// localStorage" pattern as tickets above, used to light up a dot on the
+// Team Chat nav item (every role, not just HR/Admin).
+// ---------------------------------------------------------------------------
+
+// `myTeamIds` is 'all' for Admin (auto-a-member of every channel) or the
+// specific team ids a member/lead belongs to. Own messages never count —
+// you already "saw" what you just sent.
+export function computeMessageActivitySignature(
+  messages: Message[],
+  myTeamIds: string[] | 'all',
+  email: string,
+): number {
+  const emailLower = email.toLowerCase();
+  return messages.filter(m =>
+    (myTeamIds === 'all' || myTeamIds.includes(m.teamId)) &&
+    m.senderEmail.toLowerCase() !== emailLower
+  ).length;
+}
+
+function chatSeenStorageKey(role: string, email: string): string {
+  return `hr_chat_seen_v1_${role}_${email.toLowerCase()}`;
+}
+
+export function hasUnseenMessageActivity(
+  messages: Message[],
+  myTeamIds: string[] | 'all',
+  role: string,
+  email: string,
+): boolean {
+  if (typeof window === 'undefined' || !email) return false;
+  const current = computeMessageActivitySignature(messages, myTeamIds, email);
+  const stored = Number(window.localStorage.getItem(chatSeenStorageKey(role, email)) || '0');
+  return current > stored;
+}
+
+export function markMessageActivitySeen(
+  messages: Message[],
+  myTeamIds: string[] | 'all',
+  role: string,
+  email: string,
+): void {
+  if (typeof window === 'undefined' || !email) return;
+  const current = computeMessageActivitySignature(messages, myTeamIds, email);
+  window.localStorage.setItem(chatSeenStorageKey(role, email), String(current));
+}
+
+// ---------------------------------------------------------------------------
 // hrActions — every write in the app goes through here.
 // ---------------------------------------------------------------------------
 
@@ -626,6 +761,29 @@ export const hrActions = {
     if (Object.keys(overlay).length > 0) await saveProfileExtras(profileId, overlay);
   },
 
+  // Onboarding approval gate — see approvalStatus on Profile and the gate
+  // screen in (dashboard)/layout.tsx. Approving unlocks the employee's
+  // dashboard on their next load; rejecting keeps them locked out with a
+  // reason HR/Admin can leave for them.
+  approveOnboarding: async (profile: Profile, reviewerEmail: string): Promise<void> => {
+    await saveProfileExtras(profile.id, {
+      approvalStatus: 'approved',
+      approvalReviewedBy: reviewerEmail,
+      approvalReviewedAt: new Date().toISOString(),
+      approvalRejectionReason: undefined,
+    });
+    await hrActions.addNotification(profile.email, 'employee', 'Your onboarding documents were approved — your dashboard is now unlocked!');
+  },
+  rejectOnboarding: async (profile: Profile, reviewerEmail: string, reason: string): Promise<void> => {
+    await saveProfileExtras(profile.id, {
+      approvalStatus: 'rejected',
+      approvalReviewedBy: reviewerEmail,
+      approvalReviewedAt: new Date().toISOString(),
+      approvalRejectionReason: reason,
+    });
+    await hrActions.addNotification(profile.email, 'employee', `Your onboarding documents need another look: ${reason}`);
+  },
+
   // Purges every trace of this employee across the database, not just the
   // hr_profiles row. Previously "Delete Permanently" only removed the
   // profile row and left everything else (documents, payroll, leaves,
@@ -633,6 +791,12 @@ export const hrActions = {
   // token) orphaned in place indefinitely — this now actually deletes it.
   // Callers should prompt HR/Admin to download an export first (see
   // exportEmployeeArchive below) since this is irreversible.
+  // NOTE: hr_messages (Team Chat) is deliberately NOT included in this
+  // purge — team chat history is a shared, team-owned record, not this one
+  // person's individual data, so their sent messages/files stay visible to
+  // the rest of the team even after a full account deletion (same as they
+  // already do through offboarding, see confirmOffboard in
+  // UserProfileModal.tsx). Don't add hr_messages here without asking first.
   deleteEmployee: async (id: string, email: string, fullName?: string): Promise<void> => {
     const lower = (email || '').toLowerCase();
 
@@ -961,6 +1125,34 @@ export const hrActions = {
   updateTeamMembers: (id: string, members: string[]) => pbUpdate('hr_teams', id, { members }),
   updateTeamLead: (id: string, leadEmail: string) => pbUpdate('hr_teams', id, { lead_email: leadEmail }),
   updateTeamWarehouse: (id: string, warehouseId: string) => pbUpdate('hr_teams', id, { warehouse_id: warehouseId }),
+
+  // ── Team Chat (hr_messages — see migration_data/create_messages_collection.py) ──
+  // One channel per team, no DMs. `file` is optional; when present it's
+  // uploaded as a real PocketBase file on the `attachment` field (multipart
+  // FormData), not base64-in-JSON, so large images/PDFs stay cheap to store
+  // and serve. UI-only team-scoping for now — see the security note in the
+  // migration script; every hr_ collection is currently publicly
+  // readable/writable, same as the rest of this app pre-production.
+  sendMessage: async (teamId: string, senderEmail: string, senderName: string, text: string, file?: File, isAnnouncement?: boolean): Promise<void> => {
+    if (!text.trim() && !file) return;
+    if (file) {
+      const form = new FormData();
+      form.append('team_id', teamId);
+      form.append('sender_email', senderEmail);
+      form.append('sender_name', senderName);
+      form.append('text', text.trim());
+      form.append('attachment', file);
+      form.append('attachment_name', file.name);
+      form.append('attachment_size', String(file.size));
+      if (isAnnouncement) form.append('is_announcement', 'true');
+      await pb.collection('hr_messages').create(form);
+    } else {
+      await pbCreate('hr_messages', {
+        team_id: teamId, sender_email: senderEmail, sender_name: senderName, text: text.trim(),
+        is_announcement: !!isAnnouncement,
+      });
+    }
+  },
 
   // ── Payroll ───────────────────────────────────────────────────────────
   // Computes the current payroll view for a set of employees (pure, no

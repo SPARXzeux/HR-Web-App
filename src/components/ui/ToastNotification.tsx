@@ -17,7 +17,20 @@ export function ToastNotification() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
+    let unsubscribed = false;
+
+    // subscribe() returns a Promise that rejects if the initial realtime
+    // (SSE) handshake fails or times out — this app's web deploy proxies
+    // PocketBase through a Next.js rewrite (see next.config.ts), and that
+    // proxy doesn't always keep a long-lived EventSource connection alive,
+    // especially on first load. Uncaught, that rejection surfaced as a
+    // full "Runtime ClientResponseError" crash overlay. It's caught here
+    // instead: the toast/push feature just silently stays unavailable
+    // (notifications still show up via TopNav's normal 15s polling) rather
+    // than breaking the page. PocketBase's SDK retries the connection with
+    // its own backoff in the background, so this can recover on its own.
     pb.collection('hr_notifications').subscribe('*', function (e) {
+      if (unsubscribed) return;
       if (e.action === 'create') {
         const notif = e.record;
 
@@ -54,10 +67,15 @@ export function ToastNotification() {
           setToasts(prev => prev.filter(t => t.id !== notif.id));
         }, 4500);
       }
+    }).catch(err => {
+      console.error('[ToastNotification] realtime subscribe failed (will keep retrying in the background):', err);
     });
 
     return () => {
-      pb.collection('hr_notifications').unsubscribe('*');
+      unsubscribed = true;
+      pb.collection('hr_notifications').unsubscribe('*').catch(() => {
+        // Nothing to clean up if the subscription never actually connected.
+      });
     };
   }, []);
 

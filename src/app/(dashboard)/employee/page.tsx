@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   useProfiles, useTimesheets, useAnnouncements, useWarehouses, useLeaves, useTasks, usePayroll, useTeams,
   hrActions, calculatePTOAccrued, getPTOAccrualDate, LeaveApplication, Profile, Task, Warehouse, TimesheetEntry,
+  displayName,
 } from '@/lib/hrData';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -573,9 +574,9 @@ export default function EmployeeDashboard() {
                     .map(member => (
                       <div key={member.id} className="flex items-center justify-between p-2.5 rounded-xl border border-slate-150 bg-slate-50/50 text-xs font-semibold">
                         <div className="flex items-center gap-2">
-                        <Avatar src={member.profilePicture} name={member.fullName} size={24} />
+                        <Avatar src={member.profilePicture} name={displayName(member, userProfile?.role)} size={24} />
                           <div className="truncate max-w-[110px]">
-                            <div className="font-bold text-slate-800 truncate">{member.fullName}</div>
+                            <div className="font-bold text-slate-800 truncate">{displayName(member, userProfile?.role)}</div>
                             <div className="text-[9px] text-slate-450 font-semibold truncate">{member.jobTitle || 'Staff'}</div>
                           </div>
                         </div>
@@ -607,9 +608,9 @@ export default function EmployeeDashboard() {
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Team Lead</p>
                 {teamLead ? (
                   <div className="flex items-center gap-2.5 bg-purple-50/80 border border-purple-100 p-2.5 rounded-lg text-xs">
-                  <Avatar src={teamLead.profilePicture} name={teamLead.fullName} size={24} />
+                  <Avatar src={teamLead.profilePicture} name={displayName(teamLead, userProfile?.role)} size={24} />
                     <div>
-                      <div className="font-bold text-slate-800">⭐ {teamLead.fullName}</div>
+                      <div className="font-bold text-slate-800">⭐ {displayName(teamLead, userProfile?.role)}</div>
                       <div className="text-[10px] text-slate-450 font-semibold">{teamLead.email}</div>
                     </div>
                   </div>
@@ -624,9 +625,9 @@ export default function EmployeeDashboard() {
                 <div className="space-y-1.5 max-h-40 overflow-y-auto">
                   {teamMembers.map(member => (
                     <div key={member.id} className="flex items-center gap-2 p-2 rounded-lg border border-slate-100 bg-white text-xs">
-                    <Avatar src={member.profilePicture} name={member.fullName} size={20} />
+                    <Avatar src={member.profilePicture} name={displayName(member, userProfile?.role)} size={20} />
                       <div className="truncate">
-                        <div className="font-semibold text-slate-800 truncate">{member.fullName}</div>
+                        <div className="font-semibold text-slate-800 truncate">{displayName(member, userProfile?.role)}</div>
                         <div className="text-[9px] text-slate-400 truncate">{member.email}</div>
                       </div>
                     </div>
@@ -727,7 +728,7 @@ export default function EmployeeDashboard() {
             <div className="flex justify-between items-start bg-slate-50 p-4 border border-slate-200 rounded-xl">
               <div>
                 <p className="text-xs text-slate-500 font-semibold">Reviewing Employee</p>
-                <p className="text-sm font-bold text-slate-900">{selectedReviewEmp.fullName}</p>
+                <p className="text-sm font-bold text-slate-900">{displayName(selectedReviewEmp, userProfile?.role)}</p>
                 <p className="text-[10px] text-slate-455 font-bold">{selectedReviewEmp.email} · {selectedReviewEmp.jobTitle || 'Staff'}</p>
               </div>
               <Badge variant={selectedReviewEmp.region === 'USA' ? 'default' : 'success'}>

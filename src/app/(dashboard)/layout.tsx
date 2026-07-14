@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { AvatarCropperModal } from '@/components/ui/AvatarCropperModal';
 import { compressImageToWebP, MAX_DOCUMENT_IMAGE_BYTES } from '@/lib/imageCompressor';
-import { CheckCircle2, ChevronRight, BookOpen, User, ShieldCheck, HelpCircle, FileText, Upload } from 'lucide-react';
+import { CheckCircle2, ChevronRight, BookOpen, User, ShieldCheck, ShieldAlert, HelpCircle, FileText, Upload } from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<'admin' | 'hr' | 'employee' | null>(null);
@@ -246,12 +246,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             : undefined,
           passportFileName: passportFile || undefined,
           passportFileData: passportFileData || undefined,
+          // Gate: dashboard stays locked (see the approvalStatus check below)
+          // until HR/Admin reviews the uploaded documents and approves.
+          // Existing employees who onboarded before this feature shipped
+          // have approvalStatus === undefined, which is deliberately treated
+          // as "grandfathered in" everywhere this field is checked — only
+          // fresh completions from here on get gated.
+          approvalStatus: 'pending',
         });
 
-        // Add welcome notification
-        await hrActions.addNotification(email, 'employee', 'Welcome onboard! Your dashboard is now fully unlocked.');
+        // Add review-needed notification instead of a "you're in" one —
+        // the dashboard is not actually unlocked yet.
+        await hrActions.addNotification('all', 'hr', `${profile.fullName} completed onboarding and is waiting for document approval.`);
+        await hrActions.addNotification('all', 'admin', `${profile.fullName} completed onboarding and is waiting for document approval.`);
 
-        // Reload to let React Query fetch fresh profile and bypass onboarding screen
+        // Reload to let React Query fetch fresh profile and show the
+        // "waiting for review" screen instead of the stepper.
         window.location.reload();
       } catch (err) {
         console.error('Failed to complete onboarding:', err);
@@ -813,6 +823,51 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             setPendingPhotoFile(null);
           }}
         />
+      </div>
+    );
+  }
+
+  // Approval gate: onboarding stepper is done, but HR/Admin hasn't reviewed
+  // the uploaded documents yet. Deliberately only fires for 'pending' or
+  // 'rejected' — undefined (employees onboarded before this feature
+  // existed) is left alone so nobody already using the app gets locked out.
+  if (role === 'employee' && profile && profile.onboardingCompleted && (profile.approvalStatus === 'pending' || profile.approvalStatus === 'rejected')) {
+    const isRejected = profile.approvalStatus === 'rejected';
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-sm text-center space-y-4">
+          <div className={`h-14 w-14 rounded-full flex items-center justify-center mx-auto ${isRejected ? 'bg-rose-50' : 'bg-amber-50'}`}>
+            {isRejected ? (
+              <ShieldAlert className="h-7 w-7 text-rose-500" />
+            ) : (
+              <svg className="animate-spin h-7 w-7 text-amber-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            )}
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-slate-900">
+              {isRejected ? 'Documents Need Another Look' : 'Almost There — Awaiting HR Approval'}
+            </h1>
+            <p className="text-sm text-slate-500 mt-2 leading-relaxed">
+              {isRejected
+                ? 'HR/Admin reviewed your onboarding documents and flagged an issue. Please reach out to HR to sort it out before your dashboard is unlocked.'
+                : "You've completed onboarding — thanks! HR/Admin is verifying your documents now. Your dashboard will unlock automatically once you're approved."}
+            </p>
+          </div>
+          {isRejected && profile.approvalRejectionReason && (
+            <div className="bg-rose-50 border border-rose-100 text-rose-700 text-xs font-semibold p-3 rounded-lg text-left">
+              <span className="font-bold">HR note:</span> {profile.approvalRejectionReason}
+            </div>
+          )}
+          <button
+            onClick={() => { localStorage.removeItem('user_role'); localStorage.removeItem('user_email'); router.push('/auth'); }}
+            className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97"
+          >
+            Log Out
+          </button>
+        </div>
       </div>
     );
   }

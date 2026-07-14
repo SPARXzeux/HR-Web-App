@@ -12,6 +12,7 @@ import {
   useWarehouses,
   useLeaves,
   hrActions,
+  displayName,
 } from '@/lib/hrData';
 import { Badge } from './Badge';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -56,6 +57,9 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
   const [joinedDate, setJoinedDate] = useState('');
   const [salaryStartDate, setSalaryStartDate] = useState('');
   const [accountCreationDate, setAccountCreationDate] = useState('');
+  // HR/Admin-only field — see displayName() in hrData.ts. Team members and
+  // team leads only ever see this in place of the real name.
+  const [alias, setAlias] = useState('');
 
   // Offboarding fields
   const [itClearance, setItClearance] = useState(false);
@@ -90,6 +94,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
         setSalaryStartDate(match.salaryStartDate || match.joinedDate || new Date().toISOString().split('T')[0]);
         setAccountCreationDate(match.accountCreationDate || match.joinedDate || new Date().toISOString().split('T')[0]);
         setAssignedWarehouses(match.assignedWarehouses || []);
+        setAlias(match.alias || '');
         
         if (match.offboardingStatus) {
           setItClearance(match.offboardingStatus.itClearance);
@@ -168,6 +173,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
       salaryStartDate,
       accountCreationDate,
       assignedWarehouses,
+      alias: alias.trim() || undefined,
     });
 
     setIsEditing(false);
@@ -186,6 +192,14 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
     // at contract end, computed from real accrual + leave records.
     const finalLeavePayout = getFinalLeavePayout(profile, leaves);
 
+    // Offboarding only flips these overlay flags — it deliberately does not
+    // touch hr_messages, hr_tasks, hr_tickets, documents, etc. Their chat
+    // history, sent files, and every other record stay exactly where they
+    // are (the profile itself isn't deleted, just flagged). Only the
+    // separate, irreversible "Delete Account Permanently" action actually
+    // removes data — see hrActions.deleteEmployee's purge list, which is
+    // intentionally its own explicit step, not something offboarding does
+    // implicitly.
     await saveProfileExtras(profile.id, {
       offboarded: true,
       offboardDate: new Date().toISOString().split('T')[0],
@@ -278,10 +292,10 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
         <div className="px-5 py-5 overflow-y-auto flex-1 space-y-5">
           {/* Header summary */}
           <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-            <Avatar src={profile.profilePicture} name={profile.fullName} size={48} />
+            <Avatar src={profile.profilePicture} name={displayName(profile, currentUserRole)} size={48} />
             <div>
               <h3 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
-                {profile.fullName}
+                {displayName(profile, currentUserRole)}
                 {profile.offboarded && <Badge variant="danger">Offboarded</Badge>}
               </h3>
               <p className="text-[10px] text-slate-455 font-bold uppercase tracking-wider mt-0.5">{profile.jobTitle || profile.role}</p>
@@ -473,6 +487,12 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-500 uppercase">Full Name *</label>
                 <input type="text" required value={fullName} onChange={e => setFullName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs outline-none focus:border-orange-500 font-semibold" />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">Alias <span className="normal-case font-medium text-slate-400">(shown to their team instead of their real name)</span></label>
+                <input type="text" value={alias} onChange={e => setAlias(e.target.value)} placeholder="e.g. Falcon, Agent-07, Employee 14" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs outline-none focus:border-orange-500 font-semibold" />
+                <p className="text-[10px] text-slate-400 font-medium">Only HR/Admin ever see the real name. Leave blank to show the real name to everyone (not recommended once this is enforced in production).</p>
               </div>
 
               <div className="space-y-1.5">

@@ -5,13 +5,62 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { hrActions, Profile, useProfiles, useTeams } from '@/lib/hrData';
-import { UserPlus, CheckCircle2, AlertCircle } from 'lucide-react';
+import { UserPlus, CheckCircle2, AlertCircle, FileText, ShieldCheck, XCircle, ClipboardCheck } from 'lucide-react';
 
 export default function HROnboardingPage() {
   const { data: employees = [], refetch: refetchProfiles } = useProfiles();
   const { data: teamsData = [], refetch: refetchTeams } = useTeams();
   const teams = teamsData.map(t => t.name);
   const [isOnboardOpen, setIsOnboardOpen] = useState(false);
+
+  // Pending onboarding-document approvals — anyone who finished the
+  // self-service stepper (onboardingCompleted) but is still gated out of
+  // their dashboard (approvalStatus 'pending'). See the gate screen in
+  // (dashboard)/layout.tsx and hrActions.approveOnboarding/rejectOnboarding.
+  const pendingApprovals = employees.filter(e => e.onboardingCompleted && e.approvalStatus === 'pending');
+  const [reviewingEmp, setReviewingEmp] = useState<Profile | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [showRejectForm, setShowRejectForm] = useState(false);
+  const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
+  const [reviewError, setReviewError] = useState('');
+
+  const handleApprove = async (emp: Profile) => {
+    setIsReviewSubmitting(true);
+    setReviewError('');
+    try {
+      const reviewer = localStorage.getItem('user_email') || '';
+      await hrActions.approveOnboarding(emp, reviewer);
+      await refetchProfiles();
+      setReviewingEmp(null);
+    } catch (err) {
+      console.error('Approve onboarding failed:', err);
+      setReviewError('Could not approve this employee. Please try again.');
+    } finally {
+      setIsReviewSubmitting(false);
+    }
+  };
+
+  const handleReject = async (emp: Profile) => {
+    if (!rejectReason.trim()) {
+      setReviewError('Please leave a short reason so the employee knows what to fix.');
+      return;
+    }
+    setIsReviewSubmitting(true);
+    setReviewError('');
+    try {
+      const reviewer = localStorage.getItem('user_email') || '';
+      await hrActions.rejectOnboarding(emp, reviewer, rejectReason.trim());
+      await refetchProfiles();
+      setReviewingEmp(null);
+      setShowRejectForm(false);
+      setRejectReason('');
+    } catch (err) {
+      console.error('Reject onboarding failed:', err);
+      setReviewError('Could not reject this employee. Please try again.');
+    } finally {
+      setIsReviewSubmitting(false);
+    }
+  };
 
   // Form states
   const [fullName, setFullName] = useState('');
@@ -103,6 +152,34 @@ export default function HROnboardingPage() {
         </button>
       </div>
 
+      {/* Pending Onboarding Approvals — dashboard stays locked for these
+          employees until reviewed here (or on the Admin side, since /hr
+          routes are also reachable by Admin). */}
+      {pendingApprovals.length > 0 && (
+        <Card className="border border-amber-200 bg-amber-50/40 overflow-hidden">
+          <div className="px-5 py-4 border-b border-amber-200/70 flex items-center gap-2">
+            <ClipboardCheck className="h-4 w-4 text-amber-600" />
+            <h2 className="font-bold text-slate-900 text-sm">Pending Document Approvals ({pendingApprovals.length})</h2>
+          </div>
+          <div className="divide-y divide-amber-200/60">
+            {pendingApprovals.map(emp => (
+              <div key={emp.id} className="px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold text-slate-900">{emp.fullName}</p>
+                  <p className="text-xs text-slate-500 font-medium">{emp.email} · {emp.jobTitle || 'Staff'}</p>
+                </div>
+                <button
+                  onClick={() => { setReviewingEmp(emp); setShowRejectForm(false); setRejectReason(''); setReviewError(''); }}
+                  className="bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 font-bold px-3.5 py-2 rounded-lg text-xs active:scale-97 transition-all self-start sm:self-auto"
+                >
+                  Review Documents
+                </button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       <Card className="overflow-hidden border border-slate-200">
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm text-left border-collapse">
@@ -126,8 +203,8 @@ export default function HROnboardingPage() {
                   </td>
                   <td className="px-6 py-4 text-center capitalize font-semibold text-slate-500">{emp.gender || 'male'}</td>
                   <td className="px-6 py-4">
-                    <Badge variant={emp.onboardingCompleted ? 'success' : 'warning'}>
-                      {emp.onboardingCompleted ? 'Completed' : 'Invite Sent'}
+                    <Badge variant={emp.approvalStatus === 'pending' ? 'warning' : emp.approvalStatus === 'rejected' ? 'danger' : emp.onboardingCompleted ? 'success' : 'warning'}>
+                      {emp.approvalStatus === 'pending' ? 'Pending Approval' : emp.approvalStatus === 'rejected' ? 'Rejected' : emp.onboardingCompleted ? 'Completed' : 'Invite Sent'}
                     </Badge>
                   </td>
                   <td className="px-6 py-4 text-center text-slate-550">{emp.joinedDate}</td>
@@ -373,6 +450,106 @@ export default function HROnboardingPage() {
           </div>
         </form>
       </Modal>
+
+      {/* Review Documents Modal */}
+      {reviewingEmp && (
+        <Modal isOpen onClose={() => { setReviewingEmp(null); setShowRejectForm(false); }} title="Review Onboarding Documents" className="md:max-w-2xl">
+          <div className="space-y-5 pt-1">
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold text-slate-900">{reviewingEmp.fullName}</p>
+                <p className="text-xs text-slate-500 font-semibold">{reviewingEmp.email} · {reviewingEmp.jobTitle || 'Staff'} · {reviewingEmp.region || 'Pakistan'}</p>
+              </div>
+              <Badge variant="warning">Pending Approval</Badge>
+            </div>
+
+            {reviewError && (
+              <div className="p-3 text-xs bg-rose-50 text-rose-700 border border-rose-100 rounded-lg font-semibold">{reviewError}</div>
+            )}
+
+            <div className="space-y-2.5">
+              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Uploaded Documents</h4>
+
+              {reviewingEmp.cvFileData && reviewingEmp.cvFileName && (
+                <a href={reviewingEmp.cvFileData} download={reviewingEmp.cvFileName} className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition-all">
+                  <FileText className="h-4 w-4 text-orange-600 shrink-0" /> {reviewingEmp.cvFileName} <span className="text-slate-400 font-medium ml-auto">CV</span>
+                </a>
+              )}
+
+              {(reviewingEmp.identityDocs || []).map((doc, idx) => (
+                <a key={idx} href={doc.data} download={doc.name} className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition-all">
+                  <FileText className="h-4 w-4 text-orange-600 shrink-0" /> {doc.name} <span className="text-slate-400 font-medium ml-auto">Identity Doc</span>
+                </a>
+              ))}
+
+              {reviewingEmp.passportFileData && reviewingEmp.passportFileName && (
+                <a href={reviewingEmp.passportFileData} download={reviewingEmp.passportFileName} className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition-all">
+                  <FileText className="h-4 w-4 text-orange-600 shrink-0" /> {reviewingEmp.passportFileName} <span className="text-slate-400 font-medium ml-auto">Passport</span>
+                </a>
+              )}
+
+              {!reviewingEmp.cvFileData && (reviewingEmp.identityDocs || []).length === 0 && !reviewingEmp.passportFileData && (
+                <p className="text-xs text-slate-400 italic font-semibold">No documents on file.</p>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                  <p className="text-[9px] font-bold text-slate-400 uppercase">Bank</p>
+                  <p className="text-xs font-semibold text-slate-800">{reviewingEmp.bankName || '—'}</p>
+                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                  <p className="text-[9px] font-bold text-slate-400 uppercase">Account / IBAN</p>
+                  <p className="text-xs font-semibold text-slate-800">{reviewingEmp.accountNumber || '—'} · {reviewingEmp.iban || '—'}</p>
+                </div>
+              </div>
+            </div>
+
+            {showRejectForm ? (
+              <div className="space-y-3 pt-3 border-t border-slate-200">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">Reason for rejection *</label>
+                <textarea
+                  value={rejectReason}
+                  onChange={e => setRejectReason(e.target.value)}
+                  rows={3}
+                  placeholder="e.g. CNIC back-side image is blurry, please re-upload."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs outline-none focus:border-orange-500 font-semibold"
+                />
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setShowRejectForm(false)} className="flex-1 bg-white border border-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs">
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isReviewSubmitting}
+                    onClick={() => handleReject(reviewingEmp)}
+                    className="flex-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white font-bold py-2.5 rounded-xl text-xs active:scale-97 transition-all"
+                  >
+                    {isReviewSubmitting ? 'Submitting…' : 'Confirm Rejection'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-3 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowRejectForm(true)}
+                  className="flex-1 bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 font-bold py-2.5 rounded-xl text-xs active:scale-97 transition-all flex items-center justify-center gap-1.5"
+                >
+                  <XCircle className="h-3.5 w-3.5" /> Reject
+                </button>
+                <button
+                  type="button"
+                  disabled={isReviewSubmitting}
+                  onClick={() => handleApprove(reviewingEmp)}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold py-2.5 rounded-xl text-xs active:scale-97 transition-all flex items-center justify-center gap-1.5"
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" /> {isReviewSubmitting ? 'Approving…' : 'Approve & Unlock Dashboard'}
+                </button>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
