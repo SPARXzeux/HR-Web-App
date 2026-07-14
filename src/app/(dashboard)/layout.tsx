@@ -822,8 +822,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <Sidebar role={role} />
       <div className="flex flex-col flex-1 w-full overflow-hidden">
         <TopNav />
-        <main className="flex-1 overflow-y-auto px-4 py-4 md:px-8 md:py-8 pb-24 md:pb-8">
-          <div className="max-w-6xl mx-auto">
+        <main className="flex-1 min-w-0 overflow-y-auto px-4 py-4 md:px-8 md:py-8 pb-24 md:pb-8">
+          <div className="max-w-6xl mx-auto min-w-0 w-full">
             {children}
           </div>
         </main>

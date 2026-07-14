@@ -167,9 +167,8 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* Main Table */}
       <Card className="overflow-hidden p-0 border border-slate-200">
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full min-w-[950px] text-sm text-left border-collapse">
             <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
               <tr>
@@ -238,6 +237,67 @@ export default function ReportsPage() {
               )}
             </tbody>
           </table>
+        </div>
+        
+        {/* Mobile card stack */}
+        <div className="md:hidden space-y-3 p-4">
+          {filteredEmployees.map((emp) => (
+            <div key={emp.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
+              <div className="flex items-start justify-between gap-2" onClick={() => setSelectedProfileEmail(emp.email)}>
+                <div className="flex items-center gap-3">
+                  <Avatar src={emp.profilePicture} name={emp.fullName} size={40} />
+                  <div>
+                    <div className="font-semibold text-slate-900 text-sm">{emp.fullName}</div>
+                    <div className="text-[10px] text-slate-450">{emp.email}</div>
+                  </div>
+                </div>
+                <Badge variant={emp.onboardingCompleted ? 'success' : 'warning'} className="shrink-0">
+                  {emp.onboardingCompleted ? 'Completed' : 'Pending'}
+                </Badge>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Role & Region</p>
+                  <p className="text-xs font-semibold text-slate-800"><span className="text-orange-600">{emp.jobTitle || 'Staff'}</span> · {emp.region || 'Pakistan'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Base Salary</p>
+                  <p className="text-xs font-bold text-slate-900">{formatMoney(emp.baseSalary, emp.region)}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Bank Details</p>
+                  {emp.bankName ? (
+                    <div className="text-[10px] text-slate-655 leading-relaxed font-semibold">
+                      <div>🏦 <span className="text-slate-900">{emp.bankName}</span></div>
+                      <div>Acc: <span className="text-slate-500 font-medium">{emp.accountNumber}</span></div>
+                      <div>IBAN: <span className="text-slate-550 font-mono">{emp.iban}</span></div>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] text-slate-400 font-semibold italic">Details pending</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex justify-between gap-2 pt-2 border-t border-slate-100">
+                <button
+                  onClick={() => handleOpenReviewModal(emp)}
+                  className="flex-1 text-[10px] font-bold text-slate-650 hover:text-orange-700 bg-slate-100 hover:bg-orange-50 border border-slate-200 hover:border-orange-200 py-2 rounded-lg active:scale-97 transition-all flex items-center justify-center gap-1.5"
+                >
+                  <FileText className="h-3.5 w-3.5" /> View Tracking
+                </button>
+                <button
+                  onClick={() => setSelectedDocsEmp(emp)}
+                  className="flex-1 text-[10px] font-bold text-blue-650 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 py-2 rounded-lg active:scale-97 transition-all flex items-center justify-center gap-1.5"
+                >
+                  <Download className="h-3.5 w-3.5" /> Documents
+                </button>
+              </div>
+            </div>
+          ))}
+          {filteredEmployees.length === 0 && (
+            <p className="py-8 text-center text-slate-400 font-semibold italic text-sm">
+              No employees matching the criteria found.
+            </p>
+          )}
         </div>
       </Card>
 

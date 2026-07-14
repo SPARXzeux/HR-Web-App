@@ -739,7 +739,7 @@ export default function EmployeeDashboard() {
               <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Real Shift History (Clock-In / Clock-Out)</h4>
               <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
                 {/* Desktop table */}
-                <div className="hidden md:block">
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-xs text-left border-collapse">
                     <thead className="font-bold text-slate-555 bg-slate-50 border-b border-slate-200 uppercase tracking-widest text-[9px]">
                       <tr>

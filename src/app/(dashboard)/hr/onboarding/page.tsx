@@ -104,7 +104,7 @@ export default function HROnboardingPage() {
       </div>
 
       <Card className="overflow-hidden border border-slate-200">
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm text-left border-collapse">
             <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
               <tr>
@@ -135,6 +135,44 @@ export default function HROnboardingPage() {
               ))}
             </tbody>
           </table>
+        </div>
+        
+        <div className="md:hidden space-y-3 p-4">
+          {employees.map((emp) => (
+            <div key={emp.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold text-slate-900 truncate pr-2">{emp.fullName}</p>
+                <Badge variant={emp.onboardingCompleted ? 'success' : 'warning'} className="shrink-0">
+                  {emp.onboardingCompleted ? 'Completed' : 'Invite Sent'}
+                </Badge>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="col-span-2">
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Email</p>
+                  <p className="text-xs font-semibold text-slate-700">{emp.email}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Job Title (Role)</p>
+                  <p className="text-xs font-medium text-slate-800 capitalize">
+                    {emp.jobTitle || 'Employee'} <span className="text-[10px] text-slate-400 font-bold uppercase">({emp.role})</span>
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Gender</p>
+                  <p className="text-xs font-semibold text-slate-700 capitalize">{emp.gender || 'male'}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Invited Date</p>
+                  <p className="text-xs font-medium text-slate-600">{emp.joinedDate}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+          {employees.length === 0 && (
+            <p className="py-8 text-center text-slate-400 font-semibold italic text-sm">
+              No employees found.
+            </p>
+          )}
         </div>
       </Card>
 

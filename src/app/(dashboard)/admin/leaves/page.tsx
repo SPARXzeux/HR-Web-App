@@ -142,7 +142,7 @@ export default function AdminLeavesPage() {
       {/* ── CEO QUEUE TAB ── */}
       {activeTab === 'queue' && (
         <Card className="overflow-hidden p-0 border border-slate-200">
-          <div className="overflow-x-auto">
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full min-w-[750px] text-sm text-left border-collapse">
               <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
                 <tr>
@@ -184,6 +184,38 @@ export default function AdminLeavesPage() {
               </tbody>
             </table>
           </div>
+          
+          <div className="md:hidden space-y-3 p-4">
+            {pendingCEOLeaves.map(leave => (
+              <div key={leave.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-slate-900">{leave.employeeName}</p>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${TYPE_COLORS[leave.type] || ''}`}>{leave.type}</span>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Dates</p>
+                  <p className="text-xs font-semibold text-slate-800">{leave.duration}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Reason</p>
+                  <p className="text-xs text-slate-600 line-clamp-2">{leave.reason}</p>
+                </div>
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button onClick={() => handleCEOAction(leave.id, 'approve')} className="text-xs font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded transition-all active:scale-97">
+                    CEO Approve
+                  </button>
+                  <button onClick={() => handleCEOAction(leave.id, 'reject')} className="text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded transition-all active:scale-97">
+                    Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+            {pendingCEOLeaves.length === 0 && (
+              <p className="py-8 text-center text-slate-400 font-semibold italic text-sm">
+                No leaves waiting for CEO approval.
+              </p>
+            )}
+          </div>
         </Card>
       )}
 
@@ -216,7 +248,7 @@ export default function AdminLeavesPage() {
           </div>
 
           <Card className="overflow-hidden p-0 border border-slate-200">
-            <div className="overflow-x-auto">
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full min-w-[750px] text-sm text-left border-collapse">
                 <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
                   <tr>
@@ -250,6 +282,34 @@ export default function AdminLeavesPage() {
                   )}
                 </tbody>
               </table>
+            </div>
+
+            <div className="md:hidden space-y-3 p-4">
+              {historyLeaves.map(l => (
+                <div key={l.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold text-slate-900">{l.employeeName}</p>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${TYPE_COLORS[l.type] || 'bg-slate-100 text-slate-600'}`}>{l.type}</span>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase">Dates</p>
+                    <p className="text-xs font-semibold text-slate-800">{l.duration}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase">Reason</p>
+                    <p className="text-xs text-slate-600 line-clamp-2">{l.reason}</p>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase">Status</p>
+                    <Badge variant={STATUS_BADGE_MAP[l.status].variant}>{STATUS_BADGE_MAP[l.status].label}</Badge>
+                  </div>
+                </div>
+              ))}
+              {historyLeaves.length === 0 && (
+                <p className="py-8 text-center text-slate-400 font-semibold italic text-sm">
+                  No records match your filters.
+                </p>
+              )}
             </div>
           </Card>
         </div>

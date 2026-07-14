@@ -15,6 +15,7 @@ const config: CapacitorConfig = {
     // See the Android/iOS setup notes for the manifest/plist changes this
     // still requires beyond this config file.
     cleartext: true,
+    androidScheme: 'http',
   },
 };
 

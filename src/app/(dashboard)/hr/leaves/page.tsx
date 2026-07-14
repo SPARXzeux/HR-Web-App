@@ -333,7 +333,7 @@ export default function HRLeavesPage() {
           </div>
 
           <Card className="overflow-hidden p-0 border border-slate-200">
-            <div className="overflow-x-auto">
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full min-w-[750px] text-sm text-left border-collapse">
                 <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
                   <tr>
@@ -423,6 +423,83 @@ export default function HRLeavesPage() {
                   )}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile card stack */}
+            <div className="md:hidden space-y-3 p-4">
+              {historyLeaves.map(l => (
+                <div key={l.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold text-slate-900 truncate pr-2">{l.employeeName}</p>
+                    <Badge variant={STATUS_BADGE[l.status].variant as 'success' | 'warning' | 'danger' | 'default'} className="shrink-0">
+                      {STATUS_BADGE[l.status].label}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <p className="text-[10px] text-slate-400 font-semibold uppercase">Type</p>
+                      <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${TYPE_COLORS[l.type] || 'bg-slate-100 text-slate-700'}`}>{l.type}</span>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-slate-400 font-semibold uppercase">Duration</p>
+                      <p className="text-xs font-semibold text-slate-700">{l.duration}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-[10px] text-slate-400 font-semibold uppercase">Reason</p>
+                      <p className="text-xs font-medium text-slate-600 line-clamp-2">{l.reason}</p>
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-slate-100 flex justify-end gap-2">
+                    {l.status === 'pending' && (
+                      <>
+                        <button
+                          onClick={async () => {
+                            await hrActions.updateLeaveStatus(l.id, 'hr_approved');
+                            refetchLeaves();
+                            await hrActions.addNotification('all', 'admin', `CEO approval required for ${l.employeeName}'s leave.`);
+                            await hrActions.addNotification('all', 'hr', `Leave for ${l.employeeName} forwarded to CEO for approval.`);
+                            setSuccessMsg('Sent to CEO!');
+                            setTimeout(() => setSuccessMsg(''), 1500);
+                          }}
+                          className="flex-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 py-2 rounded-lg transition-all active:scale-97"
+                        >Send to CEO</button>
+                        <button
+                          onClick={async () => {
+                            await hrActions.updateLeaveStatus(l.id, 'rejected');
+                            const emp = employees.find((e: Profile) => e.fullName === l.employeeName);
+                            if (emp) await hrActions.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was rejected.`);
+                            await hrActions.addNotification('all', 'hr', `Leave for ${l.employeeName} rejected by HR.`);
+                            refetchLeaves();
+                            setSuccessMsg('Rejected!');
+                            setTimeout(() => setSuccessMsg(''), 1500);
+                          }}
+                          className="flex-1 text-[10px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 py-2 rounded-lg transition-all active:scale-97"
+                        >Reject</button>
+                      </>
+                    )}
+                    {l.status === 'rejected' && (
+                      <button
+                        onClick={async () => {
+                          await hrActions.updateLeaveStatus(l.id, 'pending');
+                          await hrActions.addNotification('all', 'hr', `Leave for ${l.employeeName} re-opened for reconsideration.`);
+                          refetchLeaves();
+                          setSuccessMsg('Re-opened for review!');
+                          setTimeout(() => setSuccessMsg(''), 1500);
+                        }}
+                        className="w-full text-[10px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 py-2 rounded-lg transition-all active:scale-97"
+                      >Re-open</button>
+                    )}
+                    {(l.status === 'approved' || l.status === 'hr_approved') && (
+                      <span className="text-[10px] text-slate-400 font-medium w-full text-center py-1">—</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {historyLeaves.length === 0 && (
+                <p className="py-8 text-center text-slate-400 font-semibold italic text-sm">
+                  No records match your filters.
+                </p>
+              )}
             </div>
           </Card>
         </div>

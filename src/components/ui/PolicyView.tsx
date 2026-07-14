@@ -22,7 +22,7 @@ export function PolicyView() {
           <p className="text-xs text-slate-500 leading-relaxed">
             DelCargo utilizes a combined sick + vacation bank. Accruals run monthly on your individual anniversary date, capping at a maximum service ceiling of 30 days.
           </p>
-          <div className="overflow-x-auto border border-slate-200 rounded-lg">
+          <div className="hidden md:block overflow-x-auto border border-slate-200 rounded-lg">
             <table className="w-full min-w-[450px] text-xs text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-650 font-bold uppercase tracking-wider">
@@ -44,6 +44,31 @@ export function PolicyView() {
                 <tr className="bg-orange-50/20 font-bold"><td className="px-4 py-2.5 text-orange-950">Year 10+</td><td className="px-4 py-2.5 text-center text-orange-950">30 days (Permanent Cap)</td><td className="px-4 py-2.5 text-right font-mono text-orange-950">2.50 / mo</td></tr>
               </tbody>
             </table>
+          </div>
+
+          <div className="md:hidden space-y-2">
+            {[
+              { year: 'Year 1', days: '10 days', rate: '0.83 / mo' },
+              { year: 'Year 2', days: '12 days', rate: '1.00 / mo' },
+              { year: 'Year 3', days: '14 days', rate: '1.17 / mo' },
+              { year: 'Year 4', days: '16 days', rate: '1.33 / mo' },
+              { year: 'Year 5', days: '18 days', rate: '1.50 / mo' },
+              { year: 'Year 6', days: '20 days', rate: '1.67 / mo' },
+              { year: 'Year 7', days: '22 days', rate: '1.83 / mo' },
+              { year: 'Year 8', days: '25 days', rate: '2.08 / mo' },
+              { year: 'Year 9', days: '27 days', rate: '2.25 / mo' },
+              { year: 'Year 10+', days: '30 days (Permanent Cap)', rate: '2.50 / mo', isCap: true },
+            ].map((row, idx) => (
+              <div key={idx} className={`border border-slate-200 rounded-xl p-3 shadow-sm ${row.isCap ? 'bg-orange-50/20 border-orange-100' : 'bg-white'}`}>
+                <div className="flex justify-between items-center mb-1">
+                  <span className={`font-bold ${row.isCap ? 'text-orange-950' : 'text-slate-700'}`}>{row.year}</span>
+                  <span className={`font-mono text-xs ${row.isCap ? 'text-orange-950' : 'text-slate-700'}`}>{row.rate}</span>
+                </div>
+                <div className={`text-[10px] ${row.isCap ? 'text-orange-900 font-bold' : 'text-slate-500 font-medium'}`}>
+                  {row.days}
+                </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>

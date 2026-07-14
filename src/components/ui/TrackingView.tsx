@@ -373,19 +373,30 @@ export function TrackingView({ role }: TrackingViewProps) {
       <Card className="border border-amber-200 bg-amber-50/60">
         <CardContent className="p-4 flex items-start gap-3">
           <ShieldAlert className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
-          <p className="text-xs text-amber-800 font-semibold leading-relaxed">
-            This feature requires each employee to install the free DelCargo Tracker desktop app (Windows/Mac) — a browser tab alone cannot silently capture the desktop.
-            It runs quietly in the background (system tray) and only captures while you&apos;ve toggled tracking on below and the employee is on a manually-started shift.
-            Employees can now get their own setup code directly from their Shift Tracker page — you don&apos;t have to hand it to them, though the button below still works if you want to.
-            Each employee&apos;s setup code only ever connects to their own account (the app confirms the resolved identity before connecting) and can&apos;t reveal or alter anyone else&apos;s.
-            Screenshots are stored on the DelCargo PocketBase server; captured images older than 30 days are automatically deleted each month
-            (with a warning first), unless an employee is explicitly excluded below.
-          </p>
+          <details className="text-xs text-amber-800 font-semibold leading-relaxed w-full [&_summary::-webkit-details-marker]:hidden">
+            <summary className="cursor-pointer font-bold flex justify-between items-center outline-none">
+              <span className="truncate pr-2">About Tracker</span>
+              <span className="text-[10px] bg-amber-200/50 px-2 py-1 rounded text-amber-900 shrink-0 whitespace-nowrap">Read More</span>
+            </summary>
+            <div className="mt-2 space-y-2 text-amber-800/90 font-medium">
+              <p>
+                Requires the DelCargo Tracker desktop app (Windows/Mac). It runs quietly in the background and only captures while tracking is Active and the employee is clocked in.
+              </p>
+              <p className="hidden sm:block">
+                Employees can get their own setup code directly from their Shift Tracker page.
+                Each code securely connects only to their own account.
+              </p>
+              <p className="hidden sm:block">
+                Screenshots older than 30 days are automatically deleted each month,
+                unless an employee is explicitly excluded below.
+              </p>
+            </div>
+          </details>
         </CardContent>
       </Card>
 
       <Card className="overflow-hidden p-0 border border-slate-200">
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full min-w-[1000px] text-sm text-left border-collapse">
             <thead className="text-xs font-bold text-slate-500 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
               <tr>
@@ -485,6 +496,104 @@ export function TrackingView({ role }: TrackingViewProps) {
               )}
             </tbody>
           </table>
+        </div>
+        
+        {/* Mobile card stack */}
+        <div className="md:hidden space-y-3 p-4">
+          {filteredEmployees.map(emp => {
+            const settings = settingsFor(emp.email);
+            const hb = heartbeatFor(emp.email);
+            const isLive = hrActions.isHeartbeatLive(hb);
+            return (
+              <div key={emp.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">{emp.fullName}</p>
+                    <p className="text-[10px] text-slate-500">{emp.email}</p>
+                  </div>
+                  {isLive ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-150 px-2 py-1 rounded-full shrink-0" title={hb?.deviceLabel || ''}>
+                      <Wifi className="h-3 w-3" /> Connected
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-full shrink-0">
+                      <WifiOff className="h-3 w-3" /> {hb ? 'Offline' : 'Not installed'}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase">Region</p>
+                    <p className="text-xs font-semibold text-slate-700">{emp.region || 'Pakistan'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase">Tracking</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <button
+                        onClick={() => handleToggle(emp.email, !settings.enabled)}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                      >
+                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                      </button>
+                      <Badge variant={settings.enabled ? 'success' : 'default'} className="text-[9px] px-1.5 py-0">
+                        {settings.enabled ? 'Active' : 'Off'}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase mb-1">Interval (min)</p>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      max="60"
+                      value={settings.intervalMinutes}
+                      onChange={(e) => handleIntervalChange(emp.email, Number(e.target.value))}
+                      onBlur={(e) => { if (Number(e.target.value) < 1) handleIntervalChange(emp.email, 1); }}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-md py-1.5 px-2 text-xs focus:border-orange-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase mb-1">Exclude Auto-Delete</p>
+                    <label className="flex items-center gap-2 cursor-pointer mt-1.5">
+                      <input
+                        type="checkbox"
+                        checked={settings.excludeFromAutoDelete}
+                        onChange={(e) => handleExcludeToggle(emp.email, e.target.checked)}
+                        className="h-4 w-4 accent-orange-600 cursor-pointer"
+                      />
+                      <span className="text-xs text-slate-600 font-medium">{settings.excludeFromAutoDelete ? 'Yes' : 'No'}</span>
+                    </label>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    onClick={() => handleOpenViewer(emp)}
+                    className="w-full text-[10px] font-bold text-slate-650 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 py-2.5 rounded-lg active:scale-97 transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <ImageIcon className="h-3.5 w-3.5" /> View Screenshots
+                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleOpenSetup(emp)}
+                      className="flex-1 text-[10px] font-bold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 py-2.5 rounded-lg active:scale-97 transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <Settings className="h-3.5 w-3.5" /> Setup Agent
+                    </button>
+                    <button
+                      onClick={() => handleOpenMouseView(emp)}
+                      className="flex-1 text-[10px] font-bold text-slate-650 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 py-2.5 rounded-lg active:scale-97 transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <MousePointerClick className="h-3.5 w-3.5" /> Mouse Activity
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {filteredEmployees.length === 0 && (
+            <p className="py-8 text-center text-slate-400 font-semibold italic text-sm">No employees found.</p>
+          )}
         </div>
       </Card>
 

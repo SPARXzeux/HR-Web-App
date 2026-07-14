@@ -179,14 +179,14 @@ export function CareersView({ role }: CareersViewProps) {
       </section>
 
       {/* Categories Filter tab */}
-      <div className="border-b border-slate-200 flex flex-wrap gap-6 justify-center text-xs uppercase tracking-wider font-bold text-slate-400">
+      <div className="border-b border-slate-200 flex overflow-x-auto gap-4 sm:gap-6 justify-start sm:justify-center text-xs uppercase tracking-wider font-bold text-slate-400 no-scrollbar">
         {categories.map(cat => {
           const active = selectedCategory === cat;
           return (
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
-              className={`pb-3 transition-colors ${
+              className={`pb-3 whitespace-nowrap transition-colors shrink-0 ${
                 active 
                   ? 'border-b-2 border-orange-600 text-slate-900' 
                   : 'hover:text-slate-700'

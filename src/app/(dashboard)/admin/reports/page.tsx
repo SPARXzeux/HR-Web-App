@@ -199,7 +199,7 @@ export default function ReportsPage() {
 
       {/* Main Table */}
       <Card className="overflow-hidden p-0 border border-slate-200">
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full min-w-[950px] text-sm text-left border-collapse">
             <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
               <tr>
@@ -274,6 +274,57 @@ export default function ReportsPage() {
               )}
             </tbody>
           </table>
+        </div>
+        
+        <div className="md:hidden space-y-3 p-4">
+          {filteredEmployees.map((emp) => (
+            <div key={emp.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
+              <div className="flex items-center gap-3 cursor-pointer" onClick={() => setSelectedProfileEmail(emp.email)}>
+                <Avatar src={emp.profilePicture} name={emp.fullName} size={36} />
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-slate-900 text-sm truncate">{emp.fullName}</div>
+                  <div className="text-[10px] text-slate-500 truncate">{emp.email}</div>
+                </div>
+                <Badge variant={emp.onboardingCompleted ? 'success' : 'warning'} className="shrink-0">
+                  {emp.onboardingCompleted ? 'Completed' : 'Pending'}
+                </Badge>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Role & Region</p>
+                  <p className="text-xs font-bold text-slate-800">{emp.jobTitle || 'Staff'} · {emp.region || 'Pakistan'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Base Salary</p>
+                  <p className="text-xs font-bold text-slate-800">{formatMoney(emp.baseSalary, emp.region)}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase">Bank Details</p>
+                  {emp.bankName ? (
+                    <p className="text-xs font-medium text-slate-600 truncate">{emp.bankName} - {emp.accountNumber}</p>
+                  ) : (
+                    <p className="text-xs font-medium text-slate-400 italic">Details pending</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
+                <button onClick={() => handleOpenAssignModal(emp)} className="flex-1 text-[10px] font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 py-2 rounded-lg flex items-center justify-center gap-1.5 active:scale-97 transition-all">
+                  <MapPin className="h-3.5 w-3.5" /> Assign
+                </button>
+                <button onClick={() => handleOpenReviewModal(emp)} className="flex-1 text-[10px] font-bold text-slate-650 bg-slate-100 hover:bg-slate-200 py-2 rounded-lg flex items-center justify-center gap-1.5 active:scale-97 transition-all">
+                  <FileText className="h-3.5 w-3.5" /> Tracker
+                </button>
+                <button onClick={() => setSelectedDocsEmp(emp)} className="flex-1 text-[10px] font-bold text-blue-650 bg-blue-50 hover:bg-blue-100 py-2 rounded-lg flex items-center justify-center gap-1.5 active:scale-97 transition-all">
+                  <Download className="h-3.5 w-3.5" /> Docs
+                </button>
+              </div>
+            </div>
+          ))}
+          {filteredEmployees.length === 0 && (
+            <p className="py-8 text-center text-slate-400 font-semibold italic text-sm">
+              No employees matching the criteria found.
+            </p>
+          )}
         </div>
       </Card>
 
@@ -400,37 +451,69 @@ export default function ReportsPage() {
                 </button>
               </div>
               <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-                <table className="w-full text-xs text-left border-collapse">
-                  <thead className="font-bold text-slate-550 bg-slate-50 border-b border-slate-200 uppercase tracking-widest text-[9px]">
-                    <tr>
-                      <th className="px-4 py-2.5">Date</th>
-                      <th className="px-4 py-2.5">Clock In</th>
-                      <th className="px-4 py-2.5">Clock Out</th>
-                      <th className="px-4 py-2.5 text-right">Duration</th>
-                      <th className="px-4 py-2.5 text-right">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-150">
-                    {reviewEntries.map((entry) => (
-                      <tr key={entry.id} className="hover:bg-slate-50/50">
-                        <td className="px-4 py-3 font-bold text-slate-700">{entry.date}</td>
-                        <td className="px-4 py-3 text-slate-600 font-medium font-mono text-[10px]">{entry.clockIn ? new Date(entry.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                        <td className="px-4 py-3 text-slate-600 font-medium font-mono text-[10px]">{entry.clockOut ? new Date(entry.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                        <td className="px-4 py-3 text-right font-bold text-slate-900">{entry.duration || '—'}</td>
-                        <td className="px-4 py-3 text-right">
-                          <Badge variant={entry.status === 'in_progress' ? 'warning' : 'success'}>
-                            {entry.status === 'in_progress' ? 'On Shift' : 'Completed'}
-                          </Badge>
-                        </td>
-                      </tr>
-                    ))}
-                    {reviewEntries.length === 0 && (
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-xs text-left border-collapse">
+                    <thead className="font-bold text-slate-550 bg-slate-50 border-b border-slate-200 uppercase tracking-widest text-[9px]">
                       <tr>
-                        <td colSpan={5} className="py-6 text-center text-slate-400 font-semibold italic">No shifts recorded yet.</td>
+                        <th className="px-4 py-2.5">Date</th>
+                        <th className="px-4 py-2.5">Clock In</th>
+                        <th className="px-4 py-2.5">Clock Out</th>
+                        <th className="px-4 py-2.5 text-right">Duration</th>
+                        <th className="px-4 py-2.5 text-right">Status</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-150">
+                      {reviewEntries.map((entry) => (
+                        <tr key={entry.id} className="hover:bg-slate-50/50">
+                          <td className="px-4 py-3 font-bold text-slate-700">{entry.date}</td>
+                          <td className="px-4 py-3 text-slate-600 font-medium font-mono text-[10px]">{entry.clockIn ? new Date(entry.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                          <td className="px-4 py-3 text-slate-600 font-medium font-mono text-[10px]">{entry.clockOut ? new Date(entry.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                          <td className="px-4 py-3 text-right font-bold text-slate-900">{entry.duration || '—'}</td>
+                          <td className="px-4 py-3 text-right">
+                            <Badge variant={entry.status === 'in_progress' ? 'warning' : 'success'}>
+                              {entry.status === 'in_progress' ? 'On Shift' : 'Completed'}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                      {reviewEntries.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="py-6 text-center text-slate-400 font-semibold italic">No shifts recorded yet.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="md:hidden space-y-3 p-4 bg-slate-50">
+                  {reviewEntries.map((entry) => (
+                    <div key={entry.id} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex flex-col gap-2">
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-slate-700 text-xs">{entry.date}</span>
+                        <Badge variant={entry.status === 'in_progress' ? 'warning' : 'success'} className="text-[9px]">
+                          {entry.status === 'in_progress' ? 'On Shift' : 'Completed'}
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[10px]">
+                        <div>
+                          <span className="text-slate-400 font-semibold block uppercase">Clock In</span>
+                          <span className="font-mono text-slate-800 font-medium">{entry.clockIn ? new Date(entry.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 font-semibold block uppercase">Clock Out</span>
+                          <span className="font-mono text-slate-800 font-medium">{entry.clockOut ? new Date(entry.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+                        </div>
+                        <div className="col-span-2 flex justify-between items-center pt-2 border-t border-slate-100">
+                          <span className="text-slate-400 font-semibold uppercase">Duration</span>
+                          <span className="font-bold text-slate-900 text-xs">{entry.duration || '—'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {reviewEntries.length === 0 && (
+                    <p className="py-4 text-center text-slate-400 font-semibold italic text-xs">No shifts recorded yet.</p>
+                  )}
+                </div>
               </div>
             </div>
 
