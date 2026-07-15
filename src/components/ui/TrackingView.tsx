@@ -20,12 +20,21 @@ import { encodeSetupCode, getPocketBaseConfig, TRACKER_DOWNLOAD_WINDOWS_URL, TRA
 import { Monitor, Settings, Image as ImageIcon, Download, Copy, RefreshCw, ShieldAlert, Wifi, WifiOff, MousePointerClick, ZoomIn, ZoomOut, X, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
 
 interface TrackingViewProps {
-  role: 'admin' | 'hr';
+  role: 'admin' | 'hr' | 'team_lead';
+  // Required when role === 'team_lead' — scopes the visible employee list
+  // to that team lead's own teammates (see `employees` below) and is used
+  // to look up their leadTeams. Ignored for admin/hr, who see everyone.
+  viewerEmail?: string;
 }
 
 const AGENT_SCRIPT_PATH = '/delcargo_tracker_agent.py';
 
-export function TrackingView({ role }: TrackingViewProps) {
+export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
+  // Team Leads get read-only access to their own teammates' tracking data
+  // (screenshots, mouse inactivity) — they can never see/change tracking
+  // settings (enable/disable, interval, exclude-from-auto-delete) or the
+  // Setup Agent flow, which stays HR/Admin-only.
+  const canManage = role === 'admin' || role === 'hr';
   const [regionFilter, setRegionFilter] = useState<'All' | 'USA' | 'Pakistan'>('All');
 
   // Setup Agent modal
@@ -71,7 +80,18 @@ export function TrackingView({ role }: TrackingViewProps) {
   // in the Mouse Activity modal below.
   const { data: allTimesheets } = useTimesheets();
 
-  const employees = (allProfiles || []).filter(e => e.role === 'employee' || e.role === 'team_lead');
+  // Team Lead's own profile — used to resolve which teams they lead, so
+  // their tracking view only ever shows their own teammates, never the
+  // whole company.
+  const viewerProfile = role === 'team_lead' ? (allProfiles || []).find(p => p.email.toLowerCase() === (viewerEmail || '').toLowerCase()) : null;
+
+  const employees = (allProfiles || []).filter(e => {
+    if (!(e.role === 'employee' || e.role === 'team_lead')) return false;
+    if (role !== 'team_lead') return true;
+    if (!viewerProfile) return false;
+    if (e.email.toLowerCase() === (viewerEmail || '').toLowerCase()) return false; // teammates only, not self
+    return e.teams?.some(t => viewerProfile.leadTeams?.includes(t));
+  });
   const settingsList = ((settingsRows || []).find(r => r.key === 'hr_tracking_settings_prod_v1')?.value as TrackingSettings[]) || [];
   const heartbeats = (heartbeatRows || []).map(r => r.value as TrackerHeartbeat);
 
@@ -359,10 +379,12 @@ export function TrackingView({ role }: TrackingViewProps) {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h1 className="text-lg md:text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <Monitor className="h-5 w-5 md:h-6 md:w-6 text-orange-600" /> Employee Screen Tracking
+            <Monitor className="h-5 w-5 md:h-6 md:w-6 text-orange-600" /> {canManage ? 'Employee Screen Tracking' : 'My Team — Screen Tracking'}
           </h1>
           <p className="text-xs md:text-sm text-slate-500 mt-1">
-            Enable desktop screenshot monitoring per employee, set capture intervals, and manage the monthly retention policy.
+            {canManage
+              ? 'Enable desktop screenshot monitoring per employee, set capture intervals, and manage the monthly retention policy.'
+              : "View screenshots and mouse-activity for your team — tracking settings (on/off, interval, retention) are managed by HR/Admin only."}
           </p>
         </div>
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg self-start">
@@ -412,8 +434,8 @@ export function TrackingView({ role }: TrackingViewProps) {
                 <th className="px-6 py-4">Region</th>
                 <th className="px-6 py-4 text-center">Device</th>
                 <th className="px-6 py-4 text-center">Tracking</th>
-                <th className="px-6 py-4 text-center">Interval (min)</th>
-                <th className="px-6 py-4 text-center">Exclude from Auto-Delete</th>
+                {canManage && <th className="px-6 py-4 text-center">Interval (min)</th>}
+                {canManage && <th className="px-6 py-4 text-center">Exclude from Auto-Delete</th>}
                 <th className="px-6 py-4 text-center">Actions</th>
               </tr>
             </thead>
@@ -441,45 +463,57 @@ export function TrackingView({ role }: TrackingViewProps) {
                       )}
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <button
-                        onClick={() => handleToggle(emp.email, !settings.enabled)}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
-                      >
-                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                      </button>
-                      <div className="mt-1">
+                      {canManage ? (
+                        <>
+                          <button
+                            onClick={() => handleToggle(emp.email, !settings.enabled)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                          >
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                          </button>
+                          <div className="mt-1">
+                            <Badge variant={settings.enabled ? 'success' : 'default'}>{settings.enabled ? 'Active' : 'Off'}</Badge>
+                          </div>
+                        </>
+                      ) : (
                         <Badge variant={settings.enabled ? 'success' : 'default'}>{settings.enabled ? 'Active' : 'Off'}</Badge>
-                      </div>
+                      )}
                     </td>
-                    <td className="px-6 py-4 text-center">
-                      <input
-                        type="number"
-                        min="1"
-                        step="1"
-                        max="60"
-                        value={settings.intervalMinutes}
-                        onChange={(e) => handleIntervalChange(emp.email, Number(e.target.value))}
-                        onBlur={(e) => { if (Number(e.target.value) < 1) handleIntervalChange(emp.email, 1); }}
-                        className="w-20 bg-slate-50 border border-slate-200 rounded-md py-1.5 px-2 text-center text-xs focus:border-orange-500 outline-none"
-                        title="Minimum 1 minute"
-                      />
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <input
-                        type="checkbox"
-                        checked={settings.excludeFromAutoDelete}
-                        onChange={(e) => handleExcludeToggle(emp.email, e.target.checked)}
-                        className="h-4 w-4 accent-orange-600 cursor-pointer"
-                      />
-                    </td>
+                    {canManage && (
+                      <td className="px-6 py-4 text-center">
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          max="60"
+                          value={settings.intervalMinutes}
+                          onChange={(e) => handleIntervalChange(emp.email, Number(e.target.value))}
+                          onBlur={(e) => { if (Number(e.target.value) < 1) handleIntervalChange(emp.email, 1); }}
+                          className="w-20 bg-slate-50 border border-slate-200 rounded-md py-1.5 px-2 text-center text-xs focus:border-orange-500 outline-none"
+                          title="Minimum 1 minute"
+                        />
+                      </td>
+                    )}
+                    {canManage && (
+                      <td className="px-6 py-4 text-center">
+                        <input
+                          type="checkbox"
+                          checked={settings.excludeFromAutoDelete}
+                          onChange={(e) => handleExcludeToggle(emp.email, e.target.checked)}
+                          className="h-4 w-4 accent-orange-600 cursor-pointer"
+                        />
+                      </td>
+                    )}
                     <td className="px-6 py-4 text-center">
                       <div className="flex flex-col sm:flex-row justify-center gap-2">
+                        {canManage && (
                         <button
                           onClick={() => handleOpenSetup(emp)}
                           className="text-[10px] font-bold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1.5"
                         >
                           <Settings className="h-3.5 w-3.5" /> Setup Agent
                         </button>
+                        )}
                         <button
                           onClick={() => handleOpenViewer(emp)}
                           className="text-[10px] font-bold text-slate-650 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1.5"
@@ -499,7 +533,9 @@ export function TrackingView({ role }: TrackingViewProps) {
               })}
               {filteredEmployees.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400 font-semibold italic">No employees found.</td>
+                  <td colSpan={canManage ? 7 : 5} className="py-12 text-center text-slate-400 font-semibold italic">
+                    {canManage ? 'No employees found.' : 'No teammates found on your team(s) yet.'}
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -536,43 +572,53 @@ export function TrackingView({ role }: TrackingViewProps) {
                   </div>
                   <div>
                     <p className="text-[10px] text-slate-400 font-semibold uppercase">Tracking</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <button
-                        onClick={() => handleToggle(emp.email, !settings.enabled)}
-                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
-                      >
-                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                      </button>
-                      <Badge variant={settings.enabled ? 'success' : 'default'} className="text-[9px] px-1.5 py-0">
+                    {canManage ? (
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <button
+                          onClick={() => handleToggle(emp.email, !settings.enabled)}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                        >
+                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                        </button>
+                        <Badge variant={settings.enabled ? 'success' : 'default'} className="text-[9px] px-1.5 py-0">
+                          {settings.enabled ? 'Active' : 'Off'}
+                        </Badge>
+                      </div>
+                    ) : (
+                      <Badge variant={settings.enabled ? 'success' : 'default'} className="text-[9px] px-1.5 py-0 mt-0.5">
                         {settings.enabled ? 'Active' : 'Off'}
                       </Badge>
-                    </div>
+                    )}
                   </div>
-                  <div>
-                    <p className="text-[10px] text-slate-400 font-semibold uppercase mb-1">Interval (min)</p>
-                    <input
-                      type="number"
-                      min="1"
-                      step="1"
-                      max="60"
-                      value={settings.intervalMinutes}
-                      onChange={(e) => handleIntervalChange(emp.email, Number(e.target.value))}
-                      onBlur={(e) => { if (Number(e.target.value) < 1) handleIntervalChange(emp.email, 1); }}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-md py-1.5 px-2 text-xs focus:border-orange-500 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-slate-400 font-semibold uppercase mb-1">Exclude Auto-Delete</p>
-                    <label className="flex items-center gap-2 cursor-pointer mt-1.5">
+                  {canManage && (
+                    <div>
+                      <p className="text-[10px] text-slate-400 font-semibold uppercase mb-1">Interval (min)</p>
                       <input
-                        type="checkbox"
-                        checked={settings.excludeFromAutoDelete}
-                        onChange={(e) => handleExcludeToggle(emp.email, e.target.checked)}
-                        className="h-4 w-4 accent-orange-600 cursor-pointer"
+                        type="number"
+                        min="1"
+                        step="1"
+                        max="60"
+                        value={settings.intervalMinutes}
+                        onChange={(e) => handleIntervalChange(emp.email, Number(e.target.value))}
+                        onBlur={(e) => { if (Number(e.target.value) < 1) handleIntervalChange(emp.email, 1); }}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-md py-1.5 px-2 text-xs focus:border-orange-500 outline-none"
                       />
-                      <span className="text-xs text-slate-600 font-medium">{settings.excludeFromAutoDelete ? 'Yes' : 'No'}</span>
-                    </label>
-                  </div>
+                    </div>
+                  )}
+                  {canManage && (
+                    <div>
+                      <p className="text-[10px] text-slate-400 font-semibold uppercase mb-1">Exclude Auto-Delete</p>
+                      <label className="flex items-center gap-2 cursor-pointer mt-1.5">
+                        <input
+                          type="checkbox"
+                          checked={settings.excludeFromAutoDelete}
+                          onChange={(e) => handleExcludeToggle(emp.email, e.target.checked)}
+                          className="h-4 w-4 accent-orange-600 cursor-pointer"
+                        />
+                        <span className="text-xs text-slate-600 font-medium">{settings.excludeFromAutoDelete ? 'Yes' : 'No'}</span>
+                      </label>
+                    </div>
+                  )}
                 </div>
                 <div className="grid grid-cols-1 gap-2 pt-2 border-t border-slate-100">
                   <button
@@ -582,12 +628,14 @@ export function TrackingView({ role }: TrackingViewProps) {
                     <ImageIcon className="h-3.5 w-3.5" /> View Screenshots
                   </button>
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => handleOpenSetup(emp)}
-                      className="flex-1 text-[10px] font-bold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 py-2.5 rounded-lg active:scale-97 transition-all flex items-center justify-center gap-1.5"
-                    >
-                      <Settings className="h-3.5 w-3.5" /> Setup Agent
-                    </button>
+                    {canManage && (
+                      <button
+                        onClick={() => handleOpenSetup(emp)}
+                        className="flex-1 text-[10px] font-bold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 py-2.5 rounded-lg active:scale-97 transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <Settings className="h-3.5 w-3.5" /> Setup Agent
+                      </button>
+                    )}
                     <button
                       onClick={() => handleOpenMouseView(emp)}
                       className="flex-1 text-[10px] font-bold text-slate-650 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 py-2.5 rounded-lg active:scale-97 transition-all flex items-center justify-center gap-1.5"
