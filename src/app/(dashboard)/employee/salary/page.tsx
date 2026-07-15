@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useProfiles, usePayroll, Profile, PayrollRecord, formatMoney } from '@/lib/hrData';
+import { useProfiles, usePayroll, Profile, PayrollRecord, formatMoney, getPendingIncrement } from '@/lib/hrData';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
@@ -41,10 +41,16 @@ export default function EmployeeSalaryPage() {
   // Real, currently-effective base salary — this already reflects every
   // anniversary increment that's actually been processed in the past.
   const baseSalary = userProfile ? userProfile.baseSalary : 0;
-  // Pending increment for THIS cycle only (0 unless this is the anniversary
-  // month and HR/Admin hasn't processed it yet). Once processed, it folds
-  // permanently into baseSalary above and this goes back to 0 next cycle.
-  const pendingIncrement = payrollRecord?.incrementAmount || 0;
+  // Live-computed pending increment (includes any back-filled/missed years),
+  // sourced the same way Admin/HR's Payroll page computes it
+  // (hrActions.computePayrollView -> getPendingIncrement) rather than from
+  // whatever's already persisted in hr_payroll. A persisted payroll record
+  // only exists once HR/Admin has actually opened Payroll for this employee,
+  // so relying on payrollRecord?.incrementAmount alone left this page
+  // showing 0 (or a stale number) until that happened. Once HR/Admin
+  // actually processes the increment via Payroll, getPendingIncrement
+  // naturally returns 0 again since lastIncrementProcessedYear catches up.
+  const pendingIncrement = userProfile ? getPendingIncrement(userProfile) : 0;
 
   const nextAnniversaryDate = (() => {
     if (!userProfile) return null;
