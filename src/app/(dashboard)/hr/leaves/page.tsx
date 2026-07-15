@@ -236,7 +236,7 @@ export default function HRLeavesPage() {
 
       {/* ── KANBAN VIEW ── */}
       {activeTab === 'kanban' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="flex xl:grid xl:grid-cols-4 gap-4 overflow-x-auto snap-x snap-mandatory pb-4 -mx-4 px-4 xl:mx-0 xl:px-0 scrollbar-hide">
           {COLUMNS.map(col => {
             const cards = filteredInCol(col.key);
             const isOver = overCol === col.key;
@@ -247,7 +247,7 @@ export default function HRLeavesPage() {
                 onDragOver={e => handleDragOver(e, col.key)}
                 onDragLeave={handleDragLeave}
                 onDrop={e => handleDrop(e, col.key)}
-                className={`rounded-xl border-2 flex flex-col transition-all duration-150 ${
+                className={`snap-center shrink-0 w-[85vw] sm:w-[45vw] xl:w-auto rounded-xl border-2 flex flex-col transition-all duration-150 ${
                   isOver ? `${col.headerBg} border-dashed scale-[1.01] shadow-md` : 'border-slate-200 bg-slate-50/50'
                 }`}
               >

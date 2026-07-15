@@ -10,6 +10,27 @@
 
 export const TRACKER_RELEASES_URL = 'https://github.com/SPARXzeux/HR-Web-App/releases';
 
+// Direct-download links to the actual installer files, instead of sending
+// people to the GitHub Releases page and making them find/click the right
+// asset themselves. GitHub's "/latest/download/<filename>" path always
+// redirects to whichever release was published most recently (from the
+// "tracker-agent-v*" tag build — see .github/workflows/build-tracker-agent.yml)
+// and serves the file with a Content-Disposition: attachment header, so the
+// browser starts downloading immediately instead of navigating to a page.
+// Filenames must stay in sync with that workflow's release asset names.
+export const TRACKER_DOWNLOAD_WINDOWS_URL = 'https://github.com/SPARXzeux/HR-Web-App/releases/latest/download/DelCargo_Tracker_Setup.exe';
+export const TRACKER_DOWNLOAD_MAC_URL = 'https://github.com/SPARXzeux/HR-Web-App/releases/latest/download/DelCargo-Tracker-Mac.zip';
+
+/** Best-effort OS guess from the browser, used only to default which
+ * download button we highlight — both are always shown regardless. */
+export function detectOS(): 'windows' | 'mac' | 'other' {
+  if (typeof navigator === 'undefined') return 'other';
+  const ua = (navigator.userAgent || '').toLowerCase();
+  if (ua.includes('win')) return 'windows';
+  if (ua.includes('mac')) return 'mac';
+  return 'other';
+}
+
 /** The PocketBase server URL used by both the web app and tracker agents. */
 export const POCKETBASE_URL = 'http://157.230.7.89';
 

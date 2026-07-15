@@ -16,7 +16,7 @@ import {
   useTimesheets,
   hrActions,
 } from '@/lib/hrData';
-import { encodeSetupCode, getPocketBaseConfig, TRACKER_RELEASES_URL, POCKETBASE_URL } from '@/lib/trackerSetup';
+import { encodeSetupCode, getPocketBaseConfig, TRACKER_DOWNLOAD_WINDOWS_URL, TRACKER_DOWNLOAD_MAC_URL, POCKETBASE_URL } from '@/lib/trackerSetup';
 import { Monitor, Settings, Image as ImageIcon, Download, Copy, RefreshCw, ShieldAlert, Wifi, WifiOff, MousePointerClick, ZoomIn, ZoomOut, X, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
 
 interface TrackingViewProps {
@@ -24,7 +24,6 @@ interface TrackingViewProps {
 }
 
 const AGENT_SCRIPT_PATH = '/delcargo_tracker_agent.py';
-const RELEASES_URL = TRACKER_RELEASES_URL;
 
 export function TrackingView({ role }: TrackingViewProps) {
   const [regionFilter, setRegionFilter] = useState<'All' | 'USA' | 'Pakistan'>('All');
@@ -616,14 +615,20 @@ export function TrackingView({ role }: TrackingViewProps) {
                 <p className="text-xs text-slate-600 leading-relaxed">
                   <span className="font-bold text-slate-800">Step 1.</span> Have the employee download the <span className="font-semibold">DelCargo Tracker</span> app for their computer (no Python or setup required) and install it like any other program.
                 </p>
-                <a
-                  href={RELEASES_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 px-3 py-2 rounded-lg active:scale-97 transition-all"
-                >
-                  <Download className="h-3.5 w-3.5" /> Get DelCargo Tracker (Windows / Mac)
-                </a>
+                <div className="flex flex-wrap gap-2">
+                  <a
+                    href={TRACKER_DOWNLOAD_WINDOWS_URL}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 px-3 py-2 rounded-lg active:scale-97 transition-all"
+                  >
+                    <Download className="h-3.5 w-3.5" /> Download for Windows
+                  </a>
+                  <a
+                    href={TRACKER_DOWNLOAD_MAC_URL}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 px-3 py-2 rounded-lg active:scale-97 transition-all"
+                  >
+                    <Download className="h-3.5 w-3.5" /> Download for Mac
+                  </a>
+                </div>
               </div>
 
               <div className="space-y-2 border-t border-slate-200 pt-4">

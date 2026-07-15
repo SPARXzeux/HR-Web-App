@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useProfiles, useTimesheets, hrActions, Profile, TimesheetEntry, TrackingSettings, TrackerHeartbeat } from '@/lib/hrData';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { encodeSetupCode, getPocketBaseConfig, TRACKER_RELEASES_URL } from '@/lib/trackerSetup';
+import { encodeSetupCode, getPocketBaseConfig, TRACKER_DOWNLOAD_WINDOWS_URL, TRACKER_DOWNLOAD_MAC_URL, detectOS } from '@/lib/trackerSetup';
 import { Timer, Monitor, ShieldAlert, MapPin, Download, Copy, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 
 export default function TrackerPage() {
@@ -20,6 +20,11 @@ export default function TrackerPage() {
   const [heartbeat, setHeartbeat] = useState<TrackerHeartbeat | null>(null);
   const [heartbeatChecking, setHeartbeatChecking] = useState(false);
   const [heartbeatCheckedOnce, setHeartbeatCheckedOnce] = useState(false);
+  const [detectedOS, setDetectedOS] = useState<'windows' | 'mac' | 'other'>('other');
+
+  useEffect(() => {
+    setDetectedOS(detectOS());
+  }, []);
 
   useEffect(() => {
     const email = localStorage.getItem('user_email');
@@ -240,14 +245,25 @@ export default function TrackerPage() {
 
               {trackingSettings?.agentToken ? (
                 <>
-                  <a
-                    href={TRACKER_RELEASES_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 px-3 py-2 rounded-lg active:scale-97 transition-all w-full justify-center"
-                  >
-                    <Download className="h-3.5 w-3.5" /> Get DelCargo Tracker (Windows / Mac)
-                  </a>
+                  {/* Direct-download links straight to the installer file (not the
+                      GitHub Releases page) — clicking starts the download
+                      immediately instead of sending the employee to GitHub to
+                      find and click the right asset themselves. The button
+                      matching their detected OS is highlighted first. */}
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <a
+                      href={TRACKER_DOWNLOAD_WINDOWS_URL}
+                      className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg active:scale-97 transition-all flex-1 justify-center ${detectedOS === 'windows' ? 'text-white bg-orange-600 hover:bg-orange-700' : 'text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200'}`}
+                    >
+                      <Download className="h-3.5 w-3.5" /> Download for Windows
+                    </a>
+                    <a
+                      href={TRACKER_DOWNLOAD_MAC_URL}
+                      className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg active:scale-97 transition-all flex-1 justify-center ${detectedOS === 'mac' ? 'text-white bg-orange-600 hover:bg-orange-700' : 'text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200'}`}
+                    >
+                      <Download className="h-3.5 w-3.5" /> Download for Mac
+                    </a>
+                  </div>
 
                   <div>
                     <p className="text-[10px] text-slate-500 font-semibold mb-1">Paste this code into the app when it first opens:</p>

@@ -306,15 +306,15 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
   }
 
   return (
-    <div className="flex flex-col md:flex-row gap-4 h-[calc(100vh-11rem)] md:h-[calc(100vh-9rem)]">
+    <div className="flex flex-col md:flex-row gap-2 md:gap-4 h-[calc(100dvh-9rem)] md:h-[calc(100vh-9rem)]">
       {/* Team selector — only shown when there's more than one team to pick from */}
       {teams.length > 1 && (
-        <div className="md:w-56 shrink-0 flex md:flex-col gap-2 overflow-x-auto md:overflow-visible pb-2 md:pb-0">
+        <div className="md:w-56 shrink-0 flex md:flex-col gap-2 overflow-x-auto md:overflow-visible pb-1 md:pb-0 scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0">
           {teams.map(t => (
             <button
               key={t.id}
               onClick={() => setActiveTeamId(t.id)}
-              className={`px-3 py-2.5 rounded-xl text-xs font-bold text-left whitespace-nowrap md:whitespace-normal transition-all shrink-0 ${
+              className={`px-4 py-2 md:py-2.5 rounded-full md:rounded-xl text-xs font-bold text-left whitespace-nowrap md:whitespace-normal transition-all shrink-0 ${
                 activeTeamId === t.id ? 'bg-orange-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
@@ -510,7 +510,7 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
         </div>
 
         {(
-          <div className="border-t border-slate-200 p-3 shrink-0 relative">
+          <div className="border-t border-slate-200 p-3 pb-safe shrink-0 relative bg-white md:bg-transparent">
             {oversight && (
               <p className="text-[9px] text-purple-600 font-bold mb-2 flex items-center gap-1"><Crown className="h-3 w-3" /> Posting as Admin — this message will be highlighted for everyone in {activeTeam?.name || 'this team'}.</p>
             )}
