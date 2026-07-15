@@ -106,6 +106,15 @@ export function TrackingView({ role }: TrackingViewProps) {
 
   const handleToggle = async (email: string, enabled: boolean) => {
     await hrActions.updateTrackingSettings(email, { enabled });
+    // Keep hr_profiles.tracking_enabled in sync with this toggle. That
+    // separate flag is what Sidebar.tsx checks to decide whether to show
+    // the employee's "Timesheet Tracker" nav link (and therefore whether
+    // they ever see the agent download button / setup code on that page)
+    // — without this, flipping tracking on here left employees unable to
+    // find the download link at all, even though tracking was "on" behind
+    // the scenes.
+    const emp = employees.find(e => e.email.toLowerCase() === email.toLowerCase());
+    if (emp) await hrActions.updateProfileDetails(emp.id, { trackingEnabled: enabled });
     refetchSettings();
   };
 

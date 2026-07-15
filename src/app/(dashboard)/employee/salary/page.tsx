@@ -91,7 +91,7 @@ export default function EmployeeSalaryPage() {
             </p>
             {pendingIncrement > 0 && (
               <p className="text-[10px] text-amber-600 font-semibold mt-1">
-                +{formatMoney(pendingIncrement, userProfile?.region)} anniversary increment pending this cycle — applies to base once processed
+                +{formatMoney(pendingIncrement, userProfile?.region)} anniversary increment pending (covers any previously missed years too) — applies to base once processed
               </p>
             )}
           </CardContent>

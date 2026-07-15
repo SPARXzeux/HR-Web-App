@@ -601,18 +601,44 @@ export function getPTOAccrualDate(profile: Pick<Profile, 'joinedDate' | 'account
   return profile.accountCreationDate || profile.joinedDate;
 }
 
-export function getPendingIncrement(profile: Profile): number {
+// Counts how many anniversary "events" (same month/day as salaryStartDate,
+// one per year) have occurred on or before today, and have not yet been
+// applied to base_salary. This intentionally catches up multiple missed
+// years at once — e.g. a salaryStartDate set 4 years in the past with no
+// prior processing history returns 4, not 0 or 1 — so setting a backdated
+// salaryStartDate correctly backfills every increment that should already
+// have happened, rather than only ever firing one at a time going forward.
+//
+// Event numbering: event #1 falls on the first anniversary (start year + 1),
+// event #2 on start year + 2, etc. lastIncrementProcessedYear stores the
+// calendar year of the last event actually applied, so "events processed" =
+// lastIncrementProcessedYear - startYear (0 if never processed).
+export function getMissedIncrementEvents(profile: Profile): number {
   const anniversarySource = profile.salaryStartDate || profile.joinedDate;
   if (!anniversarySource) return 0;
   const anniversaryDate = new Date(anniversarySource);
+  if (isNaN(anniversaryDate.getTime())) return 0;
   const now = new Date();
-  const isAnniversaryMonth = now.getMonth() === anniversaryDate.getMonth();
-  const { years } = calculateTenure(anniversarySource);
-  const alreadyProcessedThisYear = profile.lastIncrementProcessedYear === now.getFullYear();
-  if (isAnniversaryMonth && years >= 1 && !alreadyProcessedThisYear) {
-    return profile.region === 'USA' ? 100 : 10000;
-  }
-  return 0;
+  if (anniversaryDate > now) return 0;
+
+  const startYear = anniversaryDate.getFullYear();
+  let eventsElapsed = now.getFullYear() - startYear;
+  const thisYearAnniversary = new Date(now.getFullYear(), anniversaryDate.getMonth(), anniversaryDate.getDate());
+  if (thisYearAnniversary > now) eventsElapsed -= 1; // this year's anniversary hasn't happened yet
+  if (eventsElapsed < 1) return 0;
+
+  const eventsProcessed = profile.lastIncrementProcessedYear ? Math.max(0, profile.lastIncrementProcessedYear - startYear) : 0;
+  return Math.max(0, eventsElapsed - eventsProcessed);
+}
+
+// Total pending increment amount, including any back-filled/missed years —
+// flat per-event amount (region-dependent), non-compounding, multiplied by
+// however many anniversary events haven't been processed yet.
+export function getPendingIncrement(profile: Profile): number {
+  const missedEvents = getMissedIncrementEvents(profile);
+  if (missedEvents <= 0) return 0;
+  const perEvent = profile.region === 'USA' ? 100 : 10000;
+  return missedEvents * perEvent;
 }
 
 export function getFinalLeavePayout(profile: Profile, leaves: LeaveApplication[]): number {
@@ -971,10 +997,25 @@ export const hrActions = {
   resetPassword: (profileId: string, newPass: string) =>
     pbUpdate('hr_profiles', profileId, { password: newPass }),
 
-  applyAnniversaryIncrement: async (profileId: string, currentBaseSalary: number, incrementAmount: number): Promise<void> => {
+  // Applies the full pending increment (including any back-filled missed
+  // years) in one shot and stamps lastIncrementProcessedYear to the calendar
+  // year of the most recent anniversary event that's now caught up — not
+  // just "this year" — so a multi-year backfill doesn't get silently
+  // re-triggered next time this runs.
+  applyAnniversaryIncrement: async (profile: Profile, currentBaseSalary: number, incrementAmount: number): Promise<void> => {
     if (incrementAmount <= 0) return;
-    await pbUpdate('hr_profiles', profileId, { base_salary: currentBaseSalary + incrementAmount });
-    await saveProfileExtras(profileId, { lastIncrementProcessedYear: new Date().getFullYear() });
+    const anniversarySource = profile.salaryStartDate || profile.joinedDate;
+    const anniversaryDate = anniversarySource ? new Date(anniversarySource) : null;
+    const now = new Date();
+    let processedThroughYear = now.getFullYear();
+    if (anniversaryDate && !isNaN(anniversaryDate.getTime())) {
+      let eventsElapsed = now.getFullYear() - anniversaryDate.getFullYear();
+      const thisYearAnniversary = new Date(now.getFullYear(), anniversaryDate.getMonth(), anniversaryDate.getDate());
+      if (thisYearAnniversary > now) eventsElapsed -= 1;
+      processedThroughYear = anniversaryDate.getFullYear() + Math.max(0, eventsElapsed);
+    }
+    await pbUpdate('hr_profiles', profile.id, { base_salary: currentBaseSalary + incrementAmount });
+    await saveProfileExtras(profile.id, { lastIncrementProcessedYear: processedThroughYear });
   },
 
   // ── Leaves ────────────────────────────────────────────────────────────

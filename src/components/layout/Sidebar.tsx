@@ -3,7 +3,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, Menu, X, FileText, MapPin, Monitor, MessageSquare } from 'lucide-react';
-import { useProfiles, useTeams, useTickets, useAllMessages, hasUnseenTicketActivity, hasUnseenMessageActivity } from '@/lib/hrData';
+import { useProfiles, useTeams, useTickets, useAllMessages, useKVByPrefix, hasUnseenTicketActivity, hasUnseenMessageActivity, TrackingSettings } from '@/lib/hrData';
 
 interface SidebarProps {
   role: 'admin' | 'hr' | 'employee' | 'team_lead';
@@ -21,6 +21,13 @@ export function Sidebar({ role }: SidebarProps) {
   const drawerRef = useRef<HTMLDivElement>(null);
   const { data: profiles } = useProfiles();
   const { data: allTeams } = useTeams();
+  // Self-healing fallback: hr_profiles.tracking_enabled (which used to be
+  // the only thing gating this nav link) can be out of sync with the real
+  // "is screen tracking actually on" flag, which lives in this KV row
+  // instead. Checking both means employees whose tracking was turned on
+  // via the Tracking Monitor page before the two flags were kept in sync
+  // still see the link, without HR/Admin needing to re-toggle anything.
+  const { data: trackingSettingsRows } = useKVByPrefix('hr_tracking_settings_prod_v1');
   // Polls every 15s via useTickets' own refetchInterval, so the dot can
   // light up without the user needing to be on the tickets page.
   const { data: allTickets } = useTickets();
@@ -36,7 +43,10 @@ export function Sidebar({ role }: SidebarProps) {
     if (email && profiles) {
       const profile = profiles.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
       setIsTeamLead(!!(profile?.isTeamLead && (profile.leadTeams?.length ?? 0) > 0));
-      setTrackingEnabled(!!profile?.trackingEnabled);
+
+      const settingsList = ((trackingSettingsRows || []).find(r => r.key === 'hr_tracking_settings_prod_v1')?.value as TrackingSettings[]) || [];
+      const mySettings = settingsList.find(s => s.employeeEmail?.toLowerCase() === email.toLowerCase());
+      setTrackingEnabled(!!profile?.trackingEnabled || !!mySettings?.enabled);
 
       // Admin is auto-a-member of every team channel (see TeamChatView),
       // so their "unseen" signature spans every team, not just ones
@@ -68,7 +78,7 @@ export function Sidebar({ role }: SidebarProps) {
         setPlatform('ios'); // default fallback
       }
     }
-  }, [profiles, allTeams, role]);
+  }, [profiles, allTeams, role, trackingSettingsRows]);
 
   // Click outside listener for mobile drawer
   useEffect(() => {

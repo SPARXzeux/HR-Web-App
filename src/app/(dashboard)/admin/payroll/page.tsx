@@ -91,7 +91,7 @@ export default function AdminPayrollPage() {
       if (record.incrementAmount > 0) {
         const emp = employees.find(e => e.id === record.employeeId);
         if (emp) {
-          await hrActions.applyAnniversaryIncrement(record.employeeId, emp.baseSalary, record.incrementAmount);
+          await hrActions.applyAnniversaryIncrement(emp, emp.baseSalary, record.incrementAmount);
         }
       }
     }

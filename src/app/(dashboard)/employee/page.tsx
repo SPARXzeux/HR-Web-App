@@ -3,8 +3,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   useProfiles, useTimesheets, useAnnouncements, useWarehouses, useLeaves, useTasks, usePayroll, useTeams,
-  hrActions, calculatePTOAccrued, getPTOAccrualDate, LeaveApplication, Profile, Task, Warehouse, TimesheetEntry,
-  displayName,
+  useKVByPrefix, hrActions, calculatePTOAccrued, getPTOAccrualDate, LeaveApplication, Profile, Task, Warehouse, TimesheetEntry,
+  TrackingSettings, displayName,
 } from '@/lib/hrData';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -41,6 +41,14 @@ export default function EmployeeDashboard() {
   const { data: allTimesheets, refetch: refetchTimesheets } = useTimesheets();
   const { data: allPayroll } = usePayroll();
   const { data: allTeams } = useTeams();
+  // Live tracking-enabled source of truth, same KV row Sidebar.tsx checks —
+  // hr_profiles.trackingEnabled can lag behind this if tracking was toggled
+  // from the Tracking Monitor page, so the Team Lead widget below checks
+  // both instead of trusting the profile flag alone.
+  const { data: trackingSettingsRows } = useKVByPrefix('hr_tracking_settings_prod_v1');
+  const trackingSettingsList = ((trackingSettingsRows || []).find(r => r.key === 'hr_tracking_settings_prod_v1')?.value as TrackingSettings[]) || [];
+  const isTrackingLiveFor = (emp: Profile) =>
+    !!emp.trackingEnabled || !!trackingSettingsList.find(s => s.employeeEmail?.toLowerCase() === emp.email?.toLowerCase())?.enabled;
 
   const router = useRouter();
   const [userProfile, setUserProfile] = useState<Profile | null>(null);
@@ -580,7 +588,7 @@ export default function EmployeeDashboard() {
                             <div className="text-[9px] text-slate-450 font-semibold truncate">{member.jobTitle || 'Staff'}</div>
                           </div>
                         </div>
-                        {member.trackingEnabled ? (
+                        {isTrackingLiveFor(member) ? (
                           <button
                             onClick={() => handleOpenReviewModal(member)}
                             className="text-[9px] font-bold text-slate-650 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1 shrink-0"
