@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useProfiles, usePayroll, Profile, PayrollRecord, formatMoney, getPendingIncrement } from '@/lib/hrData';
+import { useProfiles, usePayroll, Profile, PayrollRecord, formatMoney, getPendingIncrement, getMissedIncrementEvents, getIncrementHistory } from '@/lib/hrData';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
-import { FileText, Download, CheckCircle2, ShieldCheck, Printer } from 'lucide-react';
+import { FileText, Download, CheckCircle2, ShieldCheck, Printer, TrendingUp, Calendar } from 'lucide-react';
 
 interface Payslip {
   month: string;
@@ -24,6 +24,8 @@ export default function EmployeeSalaryPage() {
   const [userProfile, setUserProfile] = useState<Profile | null>(null);
   const [payrollRecord, setPayrollRecord] = useState<PayrollRecord | null>(null);
   const [selectedSlip, setSelectedSlip] = useState<Payslip | null>(null);
+  const [showBaseSalaryModal, setShowBaseSalaryModal] = useState(false);
+  const [showPendingIncrementModal, setShowPendingIncrementModal] = useState(false);
 
   useEffect(() => {
     const email = localStorage.getItem('user_email');
@@ -80,6 +82,10 @@ export default function EmployeeSalaryPage() {
 
   const filteredSlips: Payslip[] = currentSlip ? [currentSlip] : [];
 
+  const incrementHistory = userProfile ? getIncrementHistory(userProfile) : { originalBaseSalary: 0, events: [] };
+  const missedYears = userProfile ? getMissedIncrementEvents(userProfile) : 0;
+  const anniversarySource = userProfile ? (userProfile.salaryStartDate || userProfile.joinedDate) : '';
+
   return (
     <div className="space-y-4 md:space-y-6">
       <div>
@@ -88,23 +94,38 @@ export default function EmployeeSalaryPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
+        <Card
+          className="cursor-pointer hover:border-orange-300 hover:shadow-sm transition-all"
+          onClick={() => userProfile && setShowBaseSalaryModal(true)}
+        >
           <CardContent className="pt-6">
-            <h3 className="font-semibold text-slate-500 text-xs uppercase tracking-wider">Current Base Salary</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-500 text-xs uppercase tracking-wider">Current Base Salary</h3>
+              <span className="text-[9px] font-bold text-orange-500 uppercase tracking-wider">View breakdown →</span>
+            </div>
             <p className="text-3xl font-bold text-slate-900 mt-2">
               {formatMoney(baseSalary, userProfile?.region)}{' '}
               <span className="text-xs text-slate-500 font-normal">/ month</span>
             </p>
             {pendingIncrement > 0 && (
-              <p className="text-[10px] text-amber-600 font-semibold mt-1">
+              <p
+                className="text-[10px] text-amber-600 font-semibold mt-1 hover:underline"
+                onClick={(e) => { e.stopPropagation(); if (userProfile) setShowPendingIncrementModal(true); }}
+              >
                 +{formatMoney(pendingIncrement, userProfile?.region)} anniversary increment pending (covers any previously missed years too) — applies to base once processed
               </p>
             )}
           </CardContent>
         </Card>
-        <Card>
+        <Card
+          className={pendingIncrement > 0 ? 'cursor-pointer hover:border-orange-300 hover:shadow-sm transition-all' : ''}
+          onClick={() => { if (pendingIncrement > 0 && userProfile) setShowPendingIncrementModal(true); }}
+        >
           <CardContent className="pt-6">
-            <h3 className="font-semibold text-slate-500 text-xs uppercase tracking-wider">Next Increment Date</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-500 text-xs uppercase tracking-wider">Next Increment Date</h3>
+              {pendingIncrement > 0 && <span className="text-[9px] font-bold text-orange-500 uppercase tracking-wider">View amount →</span>}
+            </div>
             <p className="text-3xl font-bold text-slate-900 mt-2">
               {nextAnniversaryDate ? nextAnniversaryDate.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : 'N/A'}
             </p>
@@ -214,6 +235,80 @@ export default function EmployeeSalaryPage() {
           )}
         </div>
       </Card>
+
+      {/* Base Salary Breakdown Modal */}
+      <Modal isOpen={showBaseSalaryModal} onClose={() => setShowBaseSalaryModal(false)} title="Base Salary Breakdown">
+        {userProfile && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-4 text-xs bg-slate-50 p-4 rounded-lg border border-slate-200/50">
+              <div>
+                <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1"><Calendar className="h-3 w-3" /> Joining Date</p>
+                <p className="text-slate-800 font-semibold mt-0.5">{userProfile.joinedDate}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1"><Calendar className="h-3 w-3" /> Salary Track Date</p>
+                <p className="text-slate-800 font-semibold mt-0.5">{anniversarySource || '—'}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Starting Base Salary</p>
+                <p className="text-slate-800 font-semibold mt-0.5">{formatMoney(incrementHistory.originalBaseSalary, userProfile.region)}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Current Base Salary</p>
+                <p className="text-slate-900 font-bold mt-0.5">{formatMoney(userProfile.baseSalary, userProfile.region)}</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5"><TrendingUp className="h-3.5 w-3.5" /> Increment History</p>
+              <div className="border border-slate-150 rounded-lg divide-y divide-slate-100 bg-white">
+                {incrementHistory.events.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic text-center py-6">No anniversary increments have applied yet.</p>
+                ) : (
+                  incrementHistory.events.map(ev => (
+                    <div key={ev.year} className="flex justify-between items-center px-4 py-2.5 text-xs">
+                      <span className="text-slate-600 font-semibold">{ev.year} Anniversary Increment</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`font-semibold ${ev.applied ? 'text-emerald-600' : 'text-amber-600'}`}>+{formatMoney(ev.amount, userProfile.region)}</span>
+                        <Badge variant={ev.applied ? 'success' : 'warning'}>{ev.applied ? 'Applied' : 'Pending'}</Badge>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <p className="text-[9px] text-slate-400 leading-relaxed pt-1">
+                This is a best-effort reconstruction based on your salary track date and processing history, not a separately audited ledger — it assumes your base salary was never manually adjusted outside the normal increment process.
+              </p>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Pending Increment Amount Modal */}
+      <Modal isOpen={showPendingIncrementModal} onClose={() => setShowPendingIncrementModal(false)} title="Pending Anniversary Increment">
+        {userProfile && (
+          <div className="space-y-5">
+            <div className="text-center bg-amber-50 border border-amber-150 rounded-xl p-5">
+              <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">You will receive</p>
+              <p className="text-3xl font-bold text-amber-700 mt-1">+{formatMoney(pendingIncrement, userProfile.region)}</p>
+              <p className="text-[10px] text-amber-600 font-semibold mt-1">
+                Covering {missedYears} anniversary year{missedYears !== 1 ? 's' : ''} not yet applied to your base salary
+              </p>
+            </div>
+            <div className="border border-slate-150 rounded-lg divide-y divide-slate-100 bg-white">
+              {incrementHistory.events.filter(ev => !ev.applied).map(ev => (
+                <div key={ev.year} className="flex justify-between items-center px-4 py-2.5 text-xs">
+                  <span className="text-slate-600 font-semibold">{ev.year} Anniversary Increment</span>
+                  <span className="text-amber-600 font-semibold">+{formatMoney(ev.amount, userProfile.region)}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[9px] text-slate-400 leading-relaxed">
+              This amount is added to your base salary once HR/Admin processes it via Payroll — it isn't paid out automatically.
+            </p>
+          </div>
+        )}
+      </Modal>
 
       {/* Paystub Modal */}
       <Modal isOpen={!!selectedSlip} onClose={() => setSelectedSlip(null)} title="Official Salary Receipt">

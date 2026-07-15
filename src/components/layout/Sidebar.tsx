@@ -177,6 +177,7 @@ export function Sidebar({ role }: SidebarProps) {
 
   const mobileQuickLinks = getMobileQuickLinks();
   const mobileSideLinks = links.filter(link => !mobileQuickLinks.some(quick => quick.href === link.href));
+  const isChatScreen = pathname.endsWith('/chat') || pathname.endsWith('/team-chats');
 
   return (
     <>
@@ -234,87 +235,87 @@ export function Sidebar({ role }: SidebarProps) {
             Sign out
           </button>
         </div>
-      </aside>
-
-      {/* iOS vs Android Responsive Bottom Tab Bar */}
-      {platform === 'ios' ? (
-        /* iOS Style: Translucent frosted glass tab bar, thin lines, SF Symbols feel */
-        <div 
-          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/70 backdrop-blur-xl border-t border-slate-200/40 pb-safe shadow-sm flex justify-around items-center pt-2 pb-3 px-3"
-          style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif' }}
-        >
-          {mobileQuickLinks.map(item => {
-            const isActive = pathname === item.href;
-            const Icon = item.icon;
-            const showDot = (item.href.endsWith('/tickets') && hasUnseenTickets) || ((item.href.endsWith('/chat') || item.href.endsWith('/team-chats')) && hasUnseenChat);
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={`flex flex-col items-center gap-1 active:opacity-40 transition-opacity duration-75 relative ${
-                  isActive ? 'text-orange-600' : 'text-slate-400'
-                }`}
-              >
-                <span className="relative">
-                  <Icon className="h-5.5 w-5.5 shrink-0" strokeWidth={isActive ? 2.5 : 2} />
-                  {showDot && <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-rose-500 border border-white" />}
-                </span>
-                <span className="text-[9px] font-medium tracking-tight">{item.name}</span>
-              </Link>
-            );
-          })}
-          <button
-            onClick={() => setIsMobileMenuOpen(true)}
-            className={`flex flex-col items-center gap-1 active:opacity-40 transition-opacity duration-75 relative ${
-              isMobileMenuOpen ? 'text-orange-600' : 'text-slate-400'
-            }`}
+      </aside>      {/* iOS vs Android Responsive Bottom Tab Bar */}
+      {!isChatScreen && (
+        platform === 'ios' ? (
+          /* iOS Style: Translucent frosted glass tab bar, thin lines, SF Symbols feel */
+          <div 
+            className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/70 backdrop-blur-xl border-t border-slate-200/40 pb-safe shadow-sm flex justify-around items-center pt-2 pb-3 px-3"
+            style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif' }}
           >
-            <Menu className="h-5.5 w-5.5 shrink-0" strokeWidth={2} />
-            <span className="text-[9px] font-medium tracking-tight">Menu</span>
-          </button>
-        </div>
-      ) : (
-        /* Android Style: Material Design 3 Solid Tab Bar, Active Highlight Indicator Pills, MD Typography, Light Mode */
-        <div 
-          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200/80 pb-safe shadow-lg flex justify-around items-center pt-3 pb-4 px-1"
-          style={{ fontFamily: 'Roboto, "Noto Sans", sans-serif' }}
-        >
-          {mobileQuickLinks.map(item => {
-            const isActive = pathname === item.href;
-            const Icon = item.icon;
-            const showDot = (item.href.endsWith('/tickets') && hasUnseenTickets) || ((item.href.endsWith('/chat') || item.href.endsWith('/team-chats')) && hasUnseenChat);
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform duration-100 relative"
-              >
-                <div className={`relative px-5 py-1 rounded-full flex items-center justify-center transition-all ${
-                  isActive ? 'bg-orange-50 text-orange-700 shadow-sm' : 'bg-transparent text-slate-400'
-                }`}>
-                  <Icon className="h-5 w-5 shrink-0" />
-                  {showDot && <span className="absolute top-0 right-3 h-2 w-2 rounded-full bg-rose-500 border border-white" />}
-                </div>
-                <span className={`text-[10px] tracking-wide font-medium ${isActive ? 'text-orange-700 font-bold' : 'text-slate-500'}`}>
-                  {item.name}
-                </span>
-              </Link>
-            );
-          })}
-          <button
-            onClick={() => setIsMobileMenuOpen(true)}
-            className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform duration-100 relative"
+            {mobileQuickLinks.map(item => {
+              const isActive = pathname === item.href;
+              const Icon = item.icon;
+              const showDot = (item.href.endsWith('/tickets') && hasUnseenTickets) || ((item.href.endsWith('/chat') || item.href.endsWith('/team-chats')) && hasUnseenChat);
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={`flex flex-col items-center gap-1 active:opacity-40 transition-opacity duration-75 relative ${
+                    isActive ? 'text-orange-600' : 'text-slate-400'
+                  }`}
+                >
+                  <span className="relative">
+                    <Icon className="h-5.5 w-5.5 shrink-0" strokeWidth={isActive ? 2.5 : 2} />
+                    {showDot && <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-rose-500 border border-white" />}
+                  </span>
+                  <span className="text-[9px] font-medium tracking-tight">{item.name}</span>
+                </Link>
+              );
+            })}
+            <button
+              onClick={() => setIsMobileMenuOpen(true)}
+              className={`flex flex-col items-center gap-1 active:opacity-40 transition-opacity duration-75 relative ${
+                isMobileMenuOpen ? 'text-orange-600' : 'text-slate-400'
+              }`}
+            >
+              <Menu className="h-5.5 w-5.5 shrink-0" strokeWidth={2} />
+              <span className="text-[9px] font-medium tracking-tight">Menu</span>
+            </button>
+          </div>
+        ) : (
+          /* Android Style: Material Design 3 Solid Tab Bar, Active Highlight Indicator Pills, MD Typography, Light Mode */
+          <div 
+            className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200/80 pb-safe shadow-lg flex justify-around items-center pt-3 pb-4 px-1"
+            style={{ fontFamily: 'Roboto, "Noto Sans", sans-serif' }}
           >
-            <div className={`px-5 py-1 rounded-full flex items-center justify-center transition-all ${
-              isMobileMenuOpen ? 'bg-orange-50 text-orange-700 shadow-sm' : 'bg-transparent text-slate-400'
-            }`}>
-              <Menu className="h-5 w-5 shrink-0" />
-            </div>
-            <span className={`text-[10px] tracking-wide font-medium ${isMobileMenuOpen ? 'text-orange-700 font-bold' : 'text-slate-500'}`}>
-              Menu
-            </span>
-          </button>
-        </div>
+            {mobileQuickLinks.map(item => {
+              const isActive = pathname === item.href;
+              const Icon = item.icon;
+              const showDot = (item.href.endsWith('/tickets') && hasUnseenTickets) || ((item.href.endsWith('/chat') || item.href.endsWith('/team-chats')) && hasUnseenChat);
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform duration-100 relative"
+                >
+                  <div className={`relative px-5 py-1 rounded-full flex items-center justify-center transition-all ${
+                    isActive ? 'bg-orange-50 text-orange-700 shadow-sm' : 'bg-transparent text-slate-400'
+                  }`}>
+                    <Icon className="h-5 w-5 shrink-0" />
+                    {showDot && <span className="absolute top-0 right-3 h-2 w-2 rounded-full bg-rose-500 border border-white" />}
+                  </div>
+                  <span className={`text-[10px] tracking-wide font-medium ${isActive ? 'text-orange-700 font-bold' : 'text-slate-500'}`}>
+                    {item.name}
+                  </span>
+                </Link>
+              );
+            })}
+            <button
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform duration-100 relative"
+            >
+              <div className={`px-5 py-1 rounded-full flex items-center justify-center transition-all ${
+                isMobileMenuOpen ? 'bg-orange-50 text-orange-700 shadow-sm' : 'bg-transparent text-slate-400'
+              }`}>
+                <Menu className="h-5 w-5 shrink-0" />
+              </div>
+              <span className={`text-[10px] tracking-wide font-medium ${isMobileMenuOpen ? 'text-orange-700 font-bold' : 'text-slate-500'}`}>
+                Menu
+              </span>
+            </button>
+          </div>
+        )
       )}
 
       {/* Mobile Drawer (Left Slide-Out) Styled by Platform */}

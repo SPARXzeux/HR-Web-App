@@ -641,6 +641,48 @@ export function getPendingIncrement(profile: Profile): number {
   return missedEvents * perEvent;
 }
 
+export interface IncrementEvent {
+  /** Calendar year this anniversary event falls in. */
+  year: number;
+  amount: number;
+  applied: boolean;
+}
+
+// Reconstructs a year-by-year increment timeline for display purposes
+// (e.g. the Salary Ledger's Base Salary breakdown modal). IMPORTANT: the
+// system only ever stores a single flat per-event amount and a
+// "processed through" year — it does not keep a real historical ledger of
+// exactly what was applied and when. So "original starting base salary" and
+// each past year's amount are *reconstructed* by working backwards from
+// the current base_salary using today's flat rate, which is only accurate
+// if the per-event amount and region never changed and base_salary was
+// never manually edited outside the increment system in between. Treat
+// this as a best-effort breakdown, not an audited ledger.
+export function getIncrementHistory(profile: Profile): { originalBaseSalary: number; events: IncrementEvent[] } {
+  const anniversarySource = profile.salaryStartDate || profile.joinedDate;
+  const perEvent = profile.region === 'USA' ? 100 : 10000;
+  if (!anniversarySource) return { originalBaseSalary: profile.baseSalary, events: [] };
+  const anniversaryDate = new Date(anniversarySource);
+  if (isNaN(anniversaryDate.getTime())) return { originalBaseSalary: profile.baseSalary, events: [] };
+
+  const now = new Date();
+  const startYear = anniversaryDate.getFullYear();
+  let eventsElapsedToToday = now.getFullYear() - startYear;
+  const thisYearAnniversary = new Date(now.getFullYear(), anniversaryDate.getMonth(), anniversaryDate.getDate());
+  if (thisYearAnniversary > now) eventsElapsedToToday -= 1;
+  if (anniversaryDate > now) eventsElapsedToToday = 0;
+
+  const eventsProcessed = profile.lastIncrementProcessedYear ? Math.max(0, profile.lastIncrementProcessedYear - startYear) : 0;
+  const totalEvents = Math.max(eventsElapsedToToday, eventsProcessed);
+  const originalBaseSalary = profile.baseSalary - eventsProcessed * perEvent;
+
+  const events: IncrementEvent[] = [];
+  for (let n = 1; n <= totalEvents; n++) {
+    events.push({ year: startYear + n, amount: perEvent, applied: n <= eventsProcessed });
+  }
+  return { originalBaseSalary, events };
+}
+
 export function getFinalLeavePayout(profile: Profile, leaves: LeaveApplication[]): number {
   const remainingDays = getRemainingPTO(leaves, profile.fullName, getPTOAccrualDate(profile));
   const dailyRate = profile.baseSalary / WORKING_DAYS_PER_MONTH;

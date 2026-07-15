@@ -7,10 +7,12 @@ import {
   hrActions, useProfiles, useTasks, useTickets, useNotifications, useTeams, useWarehouses, usePayroll, useLeaves, useCareers, useAnnouncements,
 } from '@/lib/hrData';
 import { Avatar } from '@/components/ui/Avatar';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 
 export function TopNav() {
   const router = useRouter();
+  const pathname = usePathname();
+  const isChatScreen = pathname?.endsWith('/chat') || pathname?.endsWith('/team-chats');
   const [search, setSearch] = useState('');
   const [notifications, setNotifications] = useState<Notification[]>([]);
   // Per-user read/cleared maps live in the hr_delcargo_store KV overlay
@@ -481,19 +483,30 @@ export function TopNav() {
 
         {/* Mobile: Brand name (left side) */}
         <div className="md:hidden font-bold text-base text-orange-600 tracking-tight">
-          DelCargo HR
+          {isChatScreen ? (
+            <button
+              onClick={() => router.push(role === 'hr' ? '/hr' : (role === 'admin' ? '/admin' : '/employee'))}
+              className="flex items-center gap-1.5 text-slate-500 hover:text-slate-800 transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            </button>
+          ) : (
+            "DelCargo HR"
+          )}
         </div>
 
         {/* Right side actions */}
         <div className="flex items-center gap-1.5 md:gap-3">
 
           {/* Mobile search icon */}
-          <button
-            onClick={() => setIsMobileSearchOpen(true)}
-            className="md:hidden p-2 rounded-full text-slate-500 hover:bg-slate-100 transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center"
-          >
-            <Search className="h-5 w-5" />
-          </button>
+          {!isChatScreen && (
+            <button
+              onClick={() => setIsMobileSearchOpen(true)}
+              className="md:hidden p-2 rounded-full text-slate-500 hover:bg-slate-100 transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center"
+            >
+              <Search className="h-5 w-5" />
+            </button>
+          )}
 
           {/* Bell */}
           <div ref={bellRef} className="relative">

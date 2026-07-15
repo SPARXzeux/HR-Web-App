@@ -33,8 +33,21 @@ export default function HRPayrollPage() {
   const handleProcess = async (employeeId: string) => {
     const record = compiledPayrollData.find(r => r.employeeId === employeeId);
     if (!record) return;
+    // Fold any pending anniversary increment into the employee's real base
+    // salary BEFORE marking the record processed — this mirrors Admin's
+    // "Release Monthly Funds" flow. Without this, HR's "Complete Payout"
+    // only marked the payslip as paid; hr_profiles.base_salary and
+    // lastIncrementProcessedYear never actually updated, so the employee's
+    // dashboard kept showing the old base salary and the exact same
+    // "pending increment" forever, even though their receipt said it was
+    // already paid.
+    if (record.incrementAmount > 0) {
+      const emp = employees.find(e => e.id === employeeId);
+      if (emp) await hrActions.applyAnniversaryIncrement(emp, emp.baseSalary, record.incrementAmount);
+    }
     await hrActions.upsertPayrollRecord({ ...record, processed: true });
     setLocalEdits(prev => { const next = { ...prev }; delete next[employeeId]; return next; });
+    await refetchProfiles();
     refetchPayroll();
   };
 

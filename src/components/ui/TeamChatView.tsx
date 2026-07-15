@@ -306,10 +306,10 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
   }
 
   return (
-    <div className="flex flex-col md:flex-row gap-2 md:gap-4 h-[calc(100dvh-9rem)] md:h-[calc(100vh-9rem)]">
+    <div className="flex flex-col md:flex-row gap-2 md:gap-4 flex-1 h-full min-h-0">
       {/* Team selector — only shown when there's more than one team to pick from */}
       {teams.length > 1 && (
-        <div className="md:w-56 shrink-0 flex md:flex-col gap-2 overflow-x-auto md:overflow-visible pb-1 md:pb-0 scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0">
+        <div className="md:w-56 shrink-0 flex md:flex-col gap-2 overflow-x-auto md:overflow-visible pb-1 md:pb-0 scrollbar-hide px-1 md:px-0">
           {teams.map(t => (
             <button
               key={t.id}
@@ -325,8 +325,8 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
         </div>
       )}
 
-      <div className="flex-1 flex flex-col bg-white border border-slate-200 rounded-2xl overflow-hidden min-h-0">
-        <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50/60 flex items-center justify-between shrink-0 gap-2">
+      <div className="flex-1 flex flex-col bg-white border border-slate-200 rounded-xl md:rounded-2xl overflow-hidden min-h-0">
+        <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50/60 hidden md:flex items-center justify-between shrink-0 gap-2">
           <h3 className="font-bold text-slate-900 text-sm truncate">
             {activeTeam?.name || 'Team Chat'}
           </h3>

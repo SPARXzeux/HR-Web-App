@@ -61,6 +61,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
+  const isChatScreen = pathname?.endsWith('/chat') || pathname?.endsWith('/team-chats');
 
   const { data: allProfiles, isLoading: isProfilesLoading } = useProfiles();
 
@@ -877,8 +878,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <Sidebar role={role} />
       <div className="flex flex-col flex-1 w-full overflow-hidden">
         <TopNav />
-        <main className="flex-1 min-w-0 overflow-y-auto px-4 py-4 md:px-8 md:py-8 pb-24 md:pb-8">
-          <div className="max-w-6xl mx-auto min-w-0 w-full">
+        <main className={`flex-1 min-w-0 ${isChatScreen ? 'overflow-hidden flex flex-col p-1.5 md:px-8 md:py-8' : 'overflow-y-auto px-4 py-4 md:px-8 md:py-8 pb-24 md:pb-8'}`}>
+          <div className={`mx-auto min-w-0 w-full flex flex-col ${isChatScreen ? 'flex-1 h-full max-w-none' : 'max-w-6xl'}`}>
             {children}
           </div>
         </main>

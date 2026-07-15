@@ -8,6 +8,8 @@ import {
   getRemainingPTO,
   getFinalLeavePayout,
   getPTOAccrualDate,
+  getPendingIncrement,
+  getMissedIncrementEvents,
   useProfiles,
   useWarehouses,
   useLeaves,
@@ -43,6 +45,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
   // is opened, see the effect below.
   const [hasDownloadedArchive, setHasDownloadedArchive] = useState(false);
   const [isExportingArchive, setIsExportingArchive] = useState(false);
+  const [isApplyingIncrement, setIsApplyingIncrement] = useState(false);
 
   // Edit fields
   const [fullName, setFullName] = useState('');
@@ -271,6 +274,28 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
     onUpdate?.();
   };
 
+  // Manually folds any pending anniversary increment (including back-filled
+  // missed years) straight into base_salary, outside the normal Payroll
+  // "Complete Payout" / "Release Monthly Funds" flow. Exists both as a
+  // general convenience and as the fix path for records that were already
+  // marked "processed" on the payslip before HR's Payroll page correctly
+  // called applyAnniversaryIncrement — those are stuck showing the old base
+  // salary and the same pending amount forever otherwise.
+  const handleApplyIncrementNow = async () => {
+    const pending = getPendingIncrement(profile);
+    if (pending <= 0) return;
+    const confirmed = window.confirm(`Apply +${formatMoney(pending, profile.region)} to ${profile.fullName}'s base salary now? This updates their real base salary immediately, outside the normal payroll cycle.`);
+    if (!confirmed) return;
+    setIsApplyingIncrement(true);
+    try {
+      await hrActions.applyAnniversaryIncrement(profile, profile.baseSalary, pending);
+      await refetchProfiles();
+      onUpdate?.();
+    } finally {
+      setIsApplyingIncrement(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center md:justify-center p-0 md:p-4">
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
@@ -317,6 +342,21 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                 <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase">Base Salary</p>
                   <p className="text-xs font-semibold text-slate-700 mt-0.5 flex items-center gap-1"><DollarSign className="h-3.5 w-3.5 text-slate-400" /> {formatMoney(profile.baseSalary, profile.region)}</p>
+                  {(currentUserRole === 'admin' || currentUserRole === 'hr') && getPendingIncrement(profile) > 0 && (
+                    <div className="mt-1.5">
+                      <p className="text-[10px] text-amber-600 font-bold">
+                        +{formatMoney(getPendingIncrement(profile), profile.region)} pending ({getMissedIncrementEvents(profile)} yr{getMissedIncrementEvents(profile) > 1 ? 's' : ''})
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleApplyIncrementNow}
+                        disabled={isApplyingIncrement}
+                        className="mt-1 text-[9px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 disabled:opacity-50 px-2 py-1 rounded-md active:scale-97 transition-all"
+                      >
+                        {isApplyingIncrement ? 'Applying…' : 'Apply Increment Now'}
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase">Location / Region</p>
