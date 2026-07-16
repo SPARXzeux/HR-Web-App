@@ -866,7 +866,7 @@ class TrackerApp:
 
         tk.Label(
             frame,
-            text="This app only takes screenshots while your employer has actively turned tracking on for your account, and only while shown as “Connected — Active” below.",
+            text="This app only tracks activity while your employer has actively turned tracking on for your account, and only while shown as “Connected — Active” below.",
             font=(FONT, 9), bg=BG, fg=MUTED, wraplength=380, justify="left"
         ).pack(anchor="w", pady=(16, 0))
 
