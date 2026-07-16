@@ -56,3 +56,14 @@ repomix-output.xml
 /rewrite_db.py
 /seed_test.py
 /seed_test_employee.js
+
+# tracker-agent build output — PyInstaller/Inno Setup artifacts and the
+# icon.ico/icon.icns/icon.png generated from "Tracker Icon.png" by
+# generate_icons.py. Regenerated on every build (locally or in CI), so
+# don't need to be committed — "Tracker Icon.png" itself IS tracked.
+tracker-agent/dist/
+tracker-agent/build/
+tracker-agent/*.spec
+tracker-agent/icon.ico
+tracker-agent/icon.icns
+tracker-agent/icon.png

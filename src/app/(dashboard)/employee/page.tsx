@@ -4,13 +4,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   useProfiles, useTimesheets, useAnnouncements, useWarehouses, useLeaves, useTasks, usePayroll, useTeams,
   useKVByPrefix, hrActions, calculatePTOAccrued, getPTOAccrualDate, LeaveApplication, Profile, Task, Warehouse, TimesheetEntry,
-  TrackingSettings, displayName,
+  TrackingSettings, TrackerHeartbeat, localShiftDate, displayName,
 } from '@/lib/hrData';
+import { getSessionEmail } from '@/lib/session';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Avatar } from '@/components/ui/Avatar';
-import { Clock, CheckCircle2, ChevronRight, AlertTriangle, Briefcase, Calendar, User, Flag, Monitor, MapPin, LocateFixed } from 'lucide-react';
+import { Clock, CheckCircle2, ChevronRight, AlertTriangle, Briefcase, Calendar, User, Flag, Monitor, MapPin, LocateFixed, Wifi, WifiOff } from 'lucide-react';
 import { checkGeofence } from '@/lib/geofence';
 import { useRouter } from 'next/navigation';
 
@@ -68,6 +69,16 @@ export default function EmployeeDashboard() {
   const [geoErrorMsg, setGeoErrorMsg] = useState('');
   const [liveDistance, setLiveDistance] = useState<{ meters: number; warehouseName: string; isInside: boolean } | null>(null);
 
+  // Tracker-connection gate for manually-started shifts (Pakistan/remote
+  // employees). If HR/Admin has screen tracking enabled for this employee,
+  // they must have the desktop tracker app actually running/connected
+  // before they're allowed to hit "Start Shift" — otherwise a shift could
+  // run un-monitored simply because the employee never opened the tracker.
+  // USA employees on automatic GPS-geofence clock-in are unaffected.
+  const [trackerHeartbeat, setTrackerHeartbeat] = useState<TrackerHeartbeat | null>(null);
+  const [showTrackerRequiredModal, setShowTrackerRequiredModal] = useState(false);
+  const [checkingTracker, setCheckingTracker] = useState(false);
+
   const profileRef = useRef<Profile | null>(null);
   const warehousesRef = useRef<Warehouse[]>([]);
   const shiftActiveRef = useRef(false);
@@ -93,7 +104,7 @@ export default function EmployeeDashboard() {
   useEffect(() => {
     if (!allProfiles || !allLeaves || !allTasks || !allAnnouncements || !allWarehouses || !allTimesheets) return;
 
-    const email = localStorage.getItem('user_email');
+    const email = getSessionEmail();
     const employees = allProfiles;
     const profile = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (profile) {
@@ -125,6 +136,22 @@ export default function EmployeeDashboard() {
   useEffect(() => { profileRef.current = userProfile; }, [userProfile]);
   useEffect(() => { warehousesRef.current = warehouses; }, [warehouses]);
   useEffect(() => { shiftActiveRef.current = shiftActive; }, [shiftActive]);
+
+  // Poll the desktop tracker app's connection heartbeat for this employee —
+  // same live "is the agent actually running" signal used on the Tracker
+  // page — so the manual Start Shift gate below always reflects whether the
+  // agent is really connected right now, not just whether it was at page load.
+  useEffect(() => {
+    if (!userProfile?.email) return;
+    let cancelled = false;
+    const check = async () => {
+      const hb = await hrActions.getTrackerHeartbeat(userProfile.email);
+      if (!cancelled) setTrackerHeartbeat(hb);
+    };
+    check();
+    const interval = setInterval(check, 30000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [userProfile?.email]);
 
   // Real GPS-based geofencing — USA employees only. Automatically starts/ends
   // the shift as the employee's device enters or leaves the radius of any
@@ -499,10 +526,43 @@ export default function EmployeeDashboard() {
               ) : (
                 <div className="space-y-2">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Shift Controls</p>
+
+                  {/* Tracker-required notice — only for employees HR/Admin has
+                      enabled screen tracking for. Blocks manual Start Shift
+                      until the desktop agent is actually connected, so a
+                      shift can never run un-monitored just because the
+                      employee forgot to open the tracker. */}
+                  {userProfile && isTrackingLiveFor(userProfile) && !shiftActive && (
+                    <div className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-[10px] font-bold ${hrActions.isHeartbeatLive(trackerHeartbeat) ? 'bg-emerald-50 border-emerald-150 text-emerald-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+                      {hrActions.isHeartbeatLive(trackerHeartbeat) ? <Wifi className="h-3 w-3 shrink-0" /> : <WifiOff className="h-3 w-3 shrink-0" />}
+                      {hrActions.isHeartbeatLive(trackerHeartbeat)
+                        ? 'Tracker app connected — you can start your shift.'
+                        : 'Tracker app not connected. Open the DelCargo Tracker app before starting your shift.'}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       onClick={async () => {
                         if (!userProfile?.email) return;
+                        // Gate: if this account has screen tracking enabled,
+                        // the desktop agent must be connected first — never
+                        // silently allow a shift to start un-monitored.
+                        // Re-checked live here (not just the last 30s-old
+                        // poll) so the answer reflects reality at the exact
+                        // moment Start Shift is pressed — the agent could
+                        // have been closed seconds ago, before the next
+                        // scheduled poll would have caught it.
+                        if (isTrackingLiveFor(userProfile)) {
+                          setCheckingTracker(true);
+                          const freshHeartbeat = await hrActions.getTrackerHeartbeat(userProfile.email);
+                          setTrackerHeartbeat(freshHeartbeat);
+                          setCheckingTracker(false);
+                          if (!hrActions.isHeartbeatLive(freshHeartbeat)) {
+                            setShowTrackerRequiredModal(true);
+                            return;
+                          }
+                        }
                         setShiftActive(true);
                         setGeofenceStatus('Shift Active');
                         await hrActions.clockIn(userProfile.email);
@@ -514,10 +574,10 @@ export default function EmployeeDashboard() {
                         await hrActions.addNotification('all', 'hr', `${userProfile.fullName} started shift manually.`);
                         await hrActions.addNotification('all', 'admin', `${userProfile.fullName} started shift manually.`);
                       }}
-                      disabled={shiftActive}
+                      disabled={shiftActive || checkingTracker}
                       className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold py-2 px-3 rounded-lg text-xs transition-all active:scale-97 text-center shadow-sm"
                     >
-                      Start Shift
+                      {checkingTracker ? 'Checking tracker…' : 'Start Shift'}
                     </button>
                     <button
                       onClick={async () => {
@@ -670,6 +730,36 @@ export default function EmployeeDashboard() {
 
       </div>
 
+      {/* Tracker-required prompt — shown when Start Shift is blocked because
+          screen tracking is enabled for this employee but the desktop agent
+          isn't currently connected. */}
+      {showTrackerRequiredModal && (
+        <Modal isOpen onClose={() => setShowTrackerRequiredModal(false)} title="Tracker App Required">
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-150 p-4 rounded-xl">
+              <WifiOff className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-slate-700 font-semibold leading-relaxed">
+                Your account has screen tracking enabled by HR/Admin, so your shift can only be started once the DelCargo Tracker desktop app is installed and running. Open the app (check your system tray / menu bar if it's already installed) and try starting your shift again.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+              <button
+                onClick={() => router.push('/employee/tracker')}
+                className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
+              >
+                Go to Tracker Setup
+              </button>
+              <button
+                onClick={() => setShowTrackerRequiredModal(false)}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {/* Task Detail Modal */}
       {selectedTask && (
         <Modal isOpen onClose={() => setSelectedTask(null)} title="Task Details">
@@ -762,7 +852,7 @@ export default function EmployeeDashboard() {
                     <tbody className="divide-y divide-slate-150">
                       {reviewEntries.map((entry, idx) => (
                         <tr key={idx} className="hover:bg-slate-50/50">
-                          <td className="px-4 py-3 font-bold text-slate-700">{entry.date}</td>
+                          <td className="px-4 py-3 font-bold text-slate-700">{localShiftDate(entry.clockIn, entry.date)}</td>
                           <td className="px-4 py-3 text-slate-600 font-medium font-mono text-[10px]">{entry.clockIn ? new Date(entry.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                           <td className="px-4 py-3 text-slate-600 font-medium font-mono text-[10px]">{entry.clockOut ? new Date(entry.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                           <td className="px-4 py-3 text-right font-bold text-slate-900">{entry.duration || '—'}</td>
@@ -786,7 +876,7 @@ export default function EmployeeDashboard() {
                   {reviewEntries.map((entry, idx) => (
                     <div key={idx} className="bg-white border border-slate-200 rounded-xl p-3 space-y-2 shadow-sm">
                       <div className="flex items-center justify-between">
-                        <p className="text-xs font-bold text-slate-900">{entry.date}</p>
+                        <p className="text-xs font-bold text-slate-900">{localShiftDate(entry.clockIn, entry.date)}</p>
                         <Badge variant={entry.status === 'in_progress' ? 'warning' : 'success'}>
                           {entry.status === 'in_progress' ? 'On Shift' : 'Completed'}
                         </Badge>

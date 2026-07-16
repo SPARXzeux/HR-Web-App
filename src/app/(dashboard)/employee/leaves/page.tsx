@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useProfiles, useLeaves, hrActions, calculatePTOAccrued, calculateTenure, getPTOAccrualDate, LeaveApplication, Profile, formatMoney } from '@/lib/hrData';
+import { getSessionEmail } from '@/lib/session';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
@@ -29,7 +30,7 @@ export default function EmployeeLeavesPage() {
   const [simRollover, setSimRollover] = useState(0);
 
   useEffect(() => {
-    const email = localStorage.getItem('user_email');
+    const email = getSessionEmail();
     if (!email || !allProfiles || !allLeaves) return;
     const profile = allProfiles.find(e => e.email && e.email.toLowerCase() === email.toLowerCase());
     if (profile) {

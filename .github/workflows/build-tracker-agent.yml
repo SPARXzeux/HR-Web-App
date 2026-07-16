@@ -27,7 +27,9 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
-      - run: pyinstaller --onefile --windowed --name "DelCargo Tracker" agent_gui.py
+      - name: Generate icon.ico / icon.png from "Tracker Icon.png"
+        run: python generate_icons.py
+      - run: pyinstaller --onefile --windowed --name "DelCargo Tracker" --icon "icon.ico" --add-data "icon.png;." agent_gui.py
       - name: Compile Inno Setup Installer
         run: iscc setup.iss
       - uses: actions/upload-artifact@v4
@@ -46,7 +48,9 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
-      - run: pyinstaller --onefile --windowed --name "DelCargo Tracker" agent_gui.py
+      - name: Generate icon.icns / icon.png from "Tracker Icon.png"
+        run: python3 generate_icons.py
+      - run: pyinstaller --onefile --windowed --name "DelCargo Tracker" --icon "icon.icns" --add-data "icon.png:." agent_gui.py
       - name: Zip the .app bundle
         run: cd dist && zip -r "DelCargo-Tracker-Mac.zip" "DelCargo Tracker.app"
       - uses: actions/upload-artifact@v4

@@ -29,6 +29,23 @@ interface TrackingViewProps {
 
 const AGENT_SCRIPT_PATH = '/delcargo_tracker_agent.py';
 
+// Local (viewer's own browser timezone) YYYY-MM-DD — NOT
+// `new Date().toISOString().split('T')[0]`, which is the UTC calendar date.
+// The Daily view's date input and computeWindow() below both treat this
+// string as a *local* midnight-to-midnight day (`new Date(`${day}T00:00:00`)`
+// has no "Z", so JS parses it in the browser's local timezone). Defaulting
+// to the UTC date instead is a real mismatch for any viewer west of UTC —
+// e.g. a US-based (UTC-5) admin opening this in the evening already has
+// tomorrow's UTC date, so "Today" silently pointed at a day that hadn't
+// happened yet and showed no data at all. This keeps the default/max always
+// in sync with what the viewer would actually call "today".
+const localDateString = (d: Date = new Date()): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
   // Team Leads get read-only access to their own teammates' tracking data
   // (screenshots, mouse inactivity) — they can never see/change tracking
@@ -46,7 +63,7 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
   const [viewerRange, setViewerRange] = useState<'day' | 'week' | 'month'>('day');
   // Which calendar day to show when viewerRange === 'day' — defaults to
   // today, but HR/Admin can pick any past day to see that shift's activity.
-  const [viewerDay, setViewerDay] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [viewerDay, setViewerDay] = useState<string>(() => localDateString());
   const [viewerShots, setViewerShots] = useState<Screenshot[]>([]);
   const [viewerLoading, setViewerLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -64,7 +81,7 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
   // (not just the compact summary embedded in the Screenshots modal).
   const [mouseEmp, setMouseEmp] = useState<Profile | null>(null);
   const [mouseRange, setMouseRange] = useState<'day' | 'week' | 'month'>('day');
-  const [mouseDay, setMouseDay] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [mouseDay, setMouseDay] = useState<string>(() => localDateString());
   const [mouseLogs, setMouseLogs] = useState<InactivityLog[]>([]);
   const [mouseLoading, setMouseLoading] = useState(false);
 
@@ -185,7 +202,7 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
   const handleOpenViewer = async (emp: Profile) => {
     setViewerEmp(emp);
     setViewerRange('day');
-    const today = new Date().toISOString().split('T')[0];
+    const today = localDateString();
     setViewerDay(today);
     await loadViewerData(emp.email, 'day', today);
   };
@@ -235,8 +252,13 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
   const totalInactiveSeconds = viewerInactivity.reduce((sum, l) => sum + l.durationSeconds, 0);
 
   const formatDuration = (seconds: number): string => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.round((seconds % 3600) / 60);
+    // Round to whole minutes FIRST, then split into hours/minutes — rounding
+    // each part independently (previous version) could carry a rounded-up
+    // minutes remainder past 60 (e.g. 3599s showed as "0h 60m" instead of
+    // "1h 0m").
+    const totalMinutes = Math.round(seconds / 60);
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
     if (h > 0) return `${h}h ${m}m`;
     return `${m}m`;
   };
@@ -245,7 +267,7 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
   const handleOpenMouseView = async (emp: Profile) => {
     setMouseEmp(emp);
     setMouseRange('day');
-    const today = new Date().toISOString().split('T')[0];
+    const today = localDateString();
     setMouseDay(today);
     await loadMouseData(emp.email, 'day', today);
   };
@@ -314,8 +336,16 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
       (groups[key] = groups[key] || []).push(log);
     });
     return Object.entries(groups)
-      .map(([day, logs]) => ({ day, logs, totalSeconds: logs.reduce((s, l) => s + l.durationSeconds, 0) }))
-      .sort((a, b) => new Date(b.logs[0].startAt).getTime() - new Date(a.logs[0].startAt).getTime());
+      .map(([day, logs]) => ({
+        // mouseLogs arrives newest-first (PocketBase sort=-start_at); sort
+        // each day's own entries back into chronological (earliest-first)
+        // order so the "Start/End" breakdown table below reads top-to-bottom
+        // like an actual timeline instead of newest-first.
+        day,
+        logs: [...logs].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()),
+        totalSeconds: logs.reduce((s, l) => s + l.durationSeconds, 0),
+      }))
+      .sort((a, b) => new Date(b.logs[b.logs.length - 1].startAt).getTime() - new Date(a.logs[a.logs.length - 1].startAt).getTime());
   };
 
   const openLightbox = (index: number) => {
@@ -768,7 +798,7 @@ AGENT_TOKEN=${settings.agentToken}`}
                   <input
                     type="date"
                     value={viewerDay}
-                    max={new Date().toISOString().split('T')[0]}
+                    max={localDateString()}
                     onChange={e => handleDayChange(e.target.value)}
                     className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-orange-500"
                   />
@@ -872,7 +902,7 @@ AGENT_TOKEN=${settings.agentToken}`}
                   <input
                     type="date"
                     value={mouseDay}
-                    max={new Date().toISOString().split('T')[0]}
+                    max={localDateString()}
                     onChange={e => handleMouseDayChange(e.target.value)}
                     className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-orange-500"
                   />

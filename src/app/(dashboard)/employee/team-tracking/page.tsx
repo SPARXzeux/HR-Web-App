@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useProfiles, Profile } from '@/lib/hrData';
+import { getSessionEmail } from '@/lib/session';
 import { TrackingView } from '@/components/ui/TrackingView';
 import { Users } from 'lucide-react';
 
@@ -16,7 +17,7 @@ export default function TeamLeadTrackingPage() {
   const [userEmail, setUserEmail] = useState('');
 
   useEffect(() => {
-    const email = localStorage.getItem('user_email') || '';
+    const email = getSessionEmail() || '';
     setUserEmail(email);
     const profile = allProfiles.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (profile) setUserProfile(profile);

@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { hrActions, Profile, useProfiles, useTeams } from '@/lib/hrData';
+import { getSessionEmail } from '@/lib/session';
 import { UserPlus, CheckCircle2, AlertCircle, FileText, ShieldCheck, XCircle, ClipboardCheck } from 'lucide-react';
 
 export default function HROnboardingPage() {
@@ -28,7 +29,7 @@ export default function HROnboardingPage() {
     setIsReviewSubmitting(true);
     setReviewError('');
     try {
-      const reviewer = localStorage.getItem('user_email') || '';
+      const reviewer = getSessionEmail() || '';
       await hrActions.approveOnboarding(emp, reviewer);
       await refetchProfiles();
       setReviewingEmp(null);
@@ -48,7 +49,7 @@ export default function HROnboardingPage() {
     setIsReviewSubmitting(true);
     setReviewError('');
     try {
-      const reviewer = localStorage.getItem('user_email') || '';
+      const reviewer = getSessionEmail() || '';
       await hrActions.rejectOnboarding(emp, reviewer, rejectReason.trim());
       await refetchProfiles();
       setReviewingEmp(null);

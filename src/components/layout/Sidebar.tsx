@@ -3,7 +3,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, Menu, X, FileText, MapPin, Monitor, MessageSquare } from 'lucide-react';
-import { useProfiles, useTeams, useTickets, useAllMessages, useKVByPrefix, hasUnseenTicketActivity, hasUnseenMessageActivity, TrackingSettings } from '@/lib/hrData';
+import { hrActions, useProfiles, useTeams, useTickets, useAllMessages, useKVByPrefix, hasUnseenTicketActivity, hasUnseenMessageActivity, TrackingSettings } from '@/lib/hrData';
+import { getSessionEmail, clearSession } from '@/lib/session';
 
 interface SidebarProps {
   role: 'admin' | 'hr' | 'employee' | 'team_lead';
@@ -38,7 +39,7 @@ export function Sidebar({ role }: SidebarProps) {
   const hasUnseenChat = hasUnseenMessageActivity(allMessages || [], myTeamIds, role, userEmail);
 
   useEffect(() => {
-    const email = localStorage.getItem('user_email');
+    const email = getSessionEmail();
     if (email) setUserEmail(email);
     if (email && profiles) {
       const profile = profiles.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
@@ -52,7 +53,10 @@ export function Sidebar({ role }: SidebarProps) {
       // so their "unseen" signature spans every team, not just ones
       // they're formally on. Everyone else: the specific teams they're a
       // member of or lead, resolved to ids via hr_teams.
-      if (role === 'admin') {
+      if (role === 'admin' || role === 'hr') {
+        // HR now has the same "every team" Team Chats/Documents oversight
+        // as Admin (see hr/team-chats/page.tsx) — without this they'd never
+        // show as unread since hr_profiles.teams is normally empty for HR.
         setMyTeamIds('all');
       } else if (profile && allTeams) {
         const names = new Set([...(profile.teams || []), ...(profile.leadTeams || [])]);
@@ -93,9 +97,9 @@ export function Sidebar({ role }: SidebarProps) {
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [isMobileMenuOpen]);
 
-  const handleSignOut = () => {
-    localStorage.removeItem('user_role');
-    localStorage.removeItem('user_email');
+  const handleSignOut = async () => {
+    await hrActions.performLogout(userEmail, role);
+    clearSession();
     router.push('/auth');
   };
 
@@ -123,6 +127,7 @@ export function Sidebar({ role }: SidebarProps) {
     { name: 'Master Reports', href: '/hr/reports', icon: FileText },
     { name: 'Screen Tracking', href: '/hr/tracking', icon: Monitor },
     { name: 'Support Tickets', href: '/hr/tickets', icon: HelpCircle },
+    { name: 'Team Chats', href: '/hr/team-chats', icon: MessageSquare },
   ];
 
   const employeeItems = [

@@ -9,6 +9,7 @@ import {
   User, Mail, Briefcase, Calendar, ShieldCheck, KeyRound, CheckCircle2, AlertCircle, Edit2, Camera
 } from 'lucide-react';
 import { useProfiles, hrActions } from '@/lib/hrData';
+import { getSessionEmail } from '@/lib/session';
 
 export default function AdminProfilePage() {
   const { data: employees = [], refetch: refetchProfiles } = useProfiles();
@@ -37,7 +38,7 @@ export default function AdminProfilePage() {
 
   const [email, setEmail] = useState<string | null>(null);
   useEffect(() => {
-    setEmail(localStorage.getItem('user_email'));
+    setEmail(getSessionEmail());
   }, []);
 
   const profile = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase()) || null;

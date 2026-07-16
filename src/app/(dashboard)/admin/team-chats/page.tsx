@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useProfiles, useTeams, useAllMessages, markMessageActivitySeen } from '@/lib/hrData';
+import { getSessionEmail } from '@/lib/session';
 import { TeamChatView } from '@/components/ui/TeamChatView';
 
 export default function AdminTeamChatsPage() {
@@ -11,7 +12,7 @@ export default function AdminTeamChatsPage() {
   const [adminEmail, setAdminEmail] = useState('');
 
   useEffect(() => {
-    setAdminEmail(localStorage.getItem('user_email') || '');
+    setAdminEmail(getSessionEmail() || '');
   }, []);
 
   // Viewing this page clears the sidebar's unseen-chat dot for Admin —

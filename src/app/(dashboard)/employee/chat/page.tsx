@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useProfiles, useTeams, useAllMessages, markMessageActivitySeen, Profile } from '@/lib/hrData';
+import { getSessionEmail } from '@/lib/session';
 import { TeamChatView } from '@/components/ui/TeamChatView';
 
 export default function EmployeeTeamChatPage() {
@@ -12,7 +13,7 @@ export default function EmployeeTeamChatPage() {
   const [userEmail, setUserEmail] = useState('');
 
   useEffect(() => {
-    const email = localStorage.getItem('user_email') || '';
+    const email = getSessionEmail() || '';
     setUserEmail(email);
     const profile = allProfiles.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (profile) setUserProfile(profile);

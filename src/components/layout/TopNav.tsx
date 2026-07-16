@@ -8,6 +8,7 @@ import {
 } from '@/lib/hrData';
 import { Avatar } from '@/components/ui/Avatar';
 import { useRouter, usePathname } from 'next/navigation';
+import { getSessionEmail, getSessionRole, clearSession } from '@/lib/session';
 
 export function TopNav() {
   const router = useRouter();
@@ -82,8 +83,8 @@ export function TopNav() {
   }, []);
 
   useEffect(() => {
-    const savedRole = localStorage.getItem('user_role');
-    const savedEmail = localStorage.getItem('user_email');
+    const savedRole = getSessionRole();
+    const savedEmail = getSessionEmail();
     setRole(savedRole);
     setEmail(savedEmail);
 
@@ -249,8 +250,8 @@ export function TopNav() {
     // This app authenticates against hr_profiles directly (see auth/page.tsx)
     // rather than PocketBase's built-in auth collection, so there is no
     // pb.authStore session to clear here — just drop the local session markers.
-    localStorage.removeItem('user_role');
-    localStorage.removeItem('user_email');
+    await hrActions.performLogout(email || '', role);
+    clearSession();
     router.push('/auth');
   };
 

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useProfiles, useTasks, Task, Profile, displayName } from '@/lib/hrData';
+import { getSessionEmail } from '@/lib/session';
 import { TaskBoard } from '@/components/ui/TaskBoard';
 import { Badge } from '@/components/ui/Badge';
 import { Users } from 'lucide-react';
@@ -14,7 +15,7 @@ export default function TeamLeadTasksPage() {
   const [teamFilter, setTeamFilter] = useState<'all' | 'my' | string>('all');
 
   useEffect(() => {
-    const email = localStorage.getItem('user_email');
+    const email = getSessionEmail();
     const employees = allProfiles;
     const profile = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (profile) {

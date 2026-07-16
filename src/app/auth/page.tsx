@@ -1,22 +1,44 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { useRouter } from 'next/navigation';
-import { useProfiles } from '@/lib/hrData';
-import { ArrowLeft, Eye, EyeOff, Mail } from 'lucide-react';
+import { hrActions, useProfiles } from '@/lib/hrData';
+import { setSession, generateSessionToken, getDeviceLabel } from '@/lib/session';
+import { ArrowLeft, Eye, EyeOff, Mail, AlertTriangle } from 'lucide-react';
 
 export default function AuthPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [isForgotOpen, setIsForgotOpen] = useState(false);
+  // Shown post-login (blocking navigation until acknowledged) when this
+  // account's last shift was auto-ended by logging out — see
+  // hrActions.performLogout in hrData.ts, which sets the localStorage flag
+  // this checks for.
+  const [shiftStoppedNotice, setShiftStoppedNotice] = useState(false);
+  const [pendingDashRoute, setPendingDashRoute] = useState<string | null>(null);
   const router = useRouter();
   const { refetch: refetchProfiles } = useProfiles();
+
+  // Shown once after (dashboard)/layout.tsx force-logs-out a session it
+  // detected was superseded by a login elsewhere (see the single-session
+  // heartbeat effect there). Uses a one-shot sessionStorage flag rather than
+  // a URL query param so this page doesn't need a Suspense boundary for
+  // useSearchParams under this app's static export build.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.sessionStorage.getItem('session_superseded') === '1') {
+      window.sessionStorage.removeItem('session_superseded');
+      setNotice('You were logged out because this account was signed in from another device.');
+    }
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,10 +79,44 @@ export default function AuthPage() {
       }
 
       if (role) {
-        localStorage.setItem('user_role', role);
-        localStorage.setItem('user_email', cleanEmail);
+        // Single-active-session enforcement — Employee/Team Lead accounts
+        // only. Admin/HR are exempt and may sign in from multiple places at
+        // once. Checked here, right before committing the login, using a
+        // fresh read so this can't be bypassed by a stale in-memory value.
+        if (role !== 'admin' && role !== 'hr') {
+          const existingSession = await hrActions.getUserSession(cleanEmail);
+          if (hrActions.isUserSessionLive(existingSession)) {
+            setError(
+              `This account is already signed in${existingSession?.deviceLabel ? ` on ${existingSession.deviceLabel}` : ' elsewhere'}. ` +
+              'Please log out there first before signing in here.'
+            );
+            setLoading(false);
+            return;
+          }
+        }
+
+        const sessionToken = generateSessionToken();
+        setSession(cleanEmail, role, rememberMe, sessionToken);
+        if (role !== 'admin' && role !== 'hr') {
+          await hrActions.claimUserSession(cleanEmail, sessionToken, getDeviceLabel());
+        }
         // team_lead users share the employee dashboard
         const dashRoute = role === 'team_lead' ? 'employee' : role;
+
+        // If their last logout auto-ended an in-progress shift, hold here
+        // and make sure they actually see that before landing on the
+        // dashboard, rather than it only showing up as an easy-to-miss
+        // notification-bell badge.
+        const stoppedFlagKey = `shift_auto_stopped_${cleanEmail}`;
+        const wasStopped = typeof window !== 'undefined' && window.localStorage.getItem(stoppedFlagKey) === '1';
+        if (wasStopped) {
+          window.localStorage.removeItem(stoppedFlagKey);
+          setPendingDashRoute(dashRoute);
+          setShiftStoppedNotice(true);
+          setLoading(false);
+          return;
+        }
+
         router.push(`/${dashRoute}`);
       } else {
         setError('Invalid email or password.');
@@ -115,6 +171,11 @@ export default function AuthPage() {
             <p className="text-xs text-slate-500 mt-1 font-semibold">Sign in to your HR Operations account</p>
           </CardHeader>
           <CardContent className="p-0">
+            {notice && !error && (
+              <div className="bg-amber-50 text-amber-700 p-3 rounded-lg text-sm font-semibold mb-4 border border-amber-100">
+                {notice}
+              </div>
+            )}
             {error && (
               <div className="bg-rose-50 text-rose-600 p-3 rounded-lg text-sm font-semibold mb-4 border border-rose-100">
                 {error}
@@ -154,7 +215,16 @@ export default function AuthPage() {
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-                <div className="text-right">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-slate-300 text-orange-600 focus:ring-orange-500 focus:ring-offset-0"
+                    />
+                    Remember me
+                  </label>
                   <button
                     type="button"
                     onClick={() => setIsForgotOpen(true)}
@@ -164,7 +234,7 @@ export default function AuthPage() {
                   </button>
                 </div>
               </div>
-              <button 
+              <button
                 type="submit" 
                 disabled={loading}
                 className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-xl transition-all shadow-md shadow-orange-600/10 mt-4 disabled:opacity-70 flex justify-center items-center active:scale-97 text-xs uppercase tracking-wider"
@@ -199,6 +269,28 @@ export default function AuthPage() {
               className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
             >
               Close
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={shiftStoppedNotice} onClose={() => {}} title="Shift Ended On Logout">
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 bg-amber-50 border border-amber-100 p-4 rounded-xl">
+            <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-xs text-slate-700 font-semibold leading-relaxed">
+              Your shift was still active when you last logged out, so it was automatically ended at that time. If you're continuing work, start a new shift from your dashboard.
+            </p>
+          </div>
+          <div className="flex justify-end pt-2 border-t border-slate-200">
+            <button
+              onClick={() => {
+                setShiftStoppedNotice(false);
+                if (pendingDashRoute) router.push(`/${pendingDashRoute}`);
+              }}
+              className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
+            >
+              Continue to Dashboard
             </button>
           </div>
         </div>

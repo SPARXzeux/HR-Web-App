@@ -5,6 +5,7 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { TopNav } from '@/components/layout/TopNav';
 import { useRouter, usePathname } from 'next/navigation';
 import { Profile, hrActions, useProfiles } from '@/lib/hrData';
+import { getSessionEmail, getSessionRole, getSessionToken, clearSession } from '@/lib/session';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { AvatarCropperModal } from '@/components/ui/AvatarCropperModal';
@@ -79,8 +80,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [pathname, profile, isProfilesLoading, router]);
 
   useEffect(() => {
-      const savedRole = localStorage.getItem('user_role') as 'admin' | 'hr' | 'employee' | null;
-      const savedEmail = localStorage.getItem('user_email');
+      const savedRole = getSessionRole() as 'admin' | 'hr' | 'employee' | null;
+      const savedEmail = getSessionEmail();
       
       if (!savedRole || !savedEmail) {
         router.push('/auth');
@@ -104,6 +105,30 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
       }
   }, [router, allProfiles, isProfilesLoading]);
+
+  // Single-active-session enforcement — Employee/Team Lead accounts only
+  // (Admin/HR are exempt, see auth/page.tsx). Periodically "touches" this
+  // tab's claimed session slot; if another login has since superseded it
+  // (touchUserSession returns false), force a logout here rather than
+  // leaving two tabs/browsers quietly signed in as the same employee.
+  useEffect(() => {
+    if (!email || !role || role === 'admin' || role === 'hr') return;
+    const token = getSessionToken();
+    if (!token) return; // e.g. a session that predates this feature — nothing to enforce yet
+
+    let cancelled = false;
+    const check = async () => {
+      const stillOwner = await hrActions.touchUserSession(email, token);
+      if (!stillOwner && !cancelled) {
+        clearSession();
+        try { window.sessionStorage.setItem('session_superseded', '1'); } catch { /* ignore */ }
+        router.push('/auth');
+      }
+    };
+    check();
+    const interval = setInterval(check, 30000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [email, role, router]);
 
   const handleConsentAccept = () => {
     if (email) {
@@ -863,7 +888,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           )}
           <button
-            onClick={() => { localStorage.removeItem('user_role'); localStorage.removeItem('user_email'); router.push('/auth'); }}
+            onClick={async () => {
+              await hrActions.performLogout(email || '', role);
+              clearSession();
+              router.push('/auth');
+            }}
             className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97"
           >
             Log Out

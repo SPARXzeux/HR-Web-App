@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { Profile, formatMoney, TimesheetEntry, useProfiles, useTimesheets } from '@/lib/hrData';
+import { Profile, formatMoney, TimesheetEntry, localShiftDate, useProfiles, useTimesheets } from '@/lib/hrData';
+import { getSessionEmail } from '@/lib/session';
 import { FileText, Search, Filter, ShieldCheck, Download, Monitor, Clock, CheckCircle2, TrendingUp, Calendar } from 'lucide-react';
 import { UserProfileModal } from '@/components/ui/UserProfileModal';
 import { DocumentsModal } from '@/components/ui/DocumentsModal';
@@ -35,7 +36,7 @@ export default function ReportsPage() {
   };
 
   useEffect(() => {
-    const email = localStorage.getItem('user_email');
+    const email = getSessionEmail();
     if (email) setCurrentUserEmail(email);
   }, []);
 
@@ -55,14 +56,19 @@ export default function ReportsPage() {
     return entry.date?.includes(dateFilter);
   });
 
-  // Summary stats for the modal
+  // Summary stats for the modal. Computed directly from each entry's real
+  // clockIn/clockOut timestamps (not by re-parsing the stored `duration`
+  // string with a regex) — a shift that crosses midnight still has a
+  // perfectly ordinary millisecond difference between two real Date
+  // objects, so this is unaffected by the calendar date rolling over.
+  // Still-open shifts count their elapsed time up to now, matching the live
+  // ticker shown elsewhere instead of being silently excluded from the total.
   const totalHours = filteredReviewEntries.reduce((acc, e) => {
-    if (!e.duration) return acc;
-    const match = e.duration.match(/(\d+)h\s*(\d+)?m?/);
-    if (match) {
-      return acc + (parseInt(match[1] || '0') * 60) + parseInt(match[2] || '0');
-    }
-    return acc;
+    if (!e.clockIn) return acc;
+    const start = new Date(e.clockIn).getTime();
+    const end = e.clockOut ? new Date(e.clockOut).getTime() : Date.now();
+    const minutes = Math.max(0, Math.round((end - start) / 60000));
+    return acc + minutes;
   }, 0);
   const completedShifts = filteredReviewEntries.filter(e => e.status === 'completed').length;
   const openShifts = filteredReviewEntries.filter(e => e.status === 'in_progress').length;
@@ -325,7 +331,7 @@ export default function ReportsPage() {
               <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-center">
                 <Clock className="h-4 w-4 text-blue-500 mx-auto mb-1" />
                 <p className="text-lg font-bold text-blue-900">{Math.floor(totalHours / 60)}h {totalHours % 60}m</p>
-                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Total Time</p>
+                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Total Time {dateFilter ? '(Filtered)' : `(All ${filteredReviewEntries.length} Shifts)`}</p>
               </div>
               <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-center">
                 <TrendingUp className="h-4 w-4 text-emerald-500 mx-auto mb-1" />
@@ -380,7 +386,7 @@ export default function ReportsPage() {
                   <tbody className="divide-y divide-slate-100">
                     {filteredReviewEntries.map((entry) => (
                       <tr key={entry.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-4 py-3 font-bold text-slate-700">{entry.date || '—'}</td>
+                        <td className="px-4 py-3 font-bold text-slate-700">{localShiftDate(entry.clockIn, entry.date)}</td>
                         <td className="px-4 py-3 font-mono text-slate-500 text-[10px]">{entry.clockIn ? new Date(entry.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                         <td className="px-4 py-3 font-mono text-slate-500 text-[10px]">{entry.clockOut ? new Date(entry.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                         <td className="px-4 py-3 text-right font-bold text-slate-900">{entry.duration || '—'}</td>

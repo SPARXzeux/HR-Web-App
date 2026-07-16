@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useProfiles, usePayroll, Profile, PayrollRecord, formatMoney, getPendingIncrement, getMissedIncrementEvents, getIncrementHistory } from '@/lib/hrData';
+import { getSessionEmail } from '@/lib/session';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
@@ -28,7 +29,7 @@ export default function EmployeeSalaryPage() {
   const [showPendingIncrementModal, setShowPendingIncrementModal] = useState(false);
 
   useEffect(() => {
-    const email = localStorage.getItem('user_email');
+    const email = getSessionEmail();
     if (!email || !allProfiles || !allPayroll) return;
     const profile = allProfiles.find(e => e.email && e.email.toLowerCase() === email.toLowerCase());
     if (profile) {

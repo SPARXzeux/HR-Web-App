@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Bell, X, ShieldAlert } from 'lucide-react';
 import { pb } from '@/lib/pocketbase';
+import { getSessionEmail, getSessionRole } from '@/lib/session';
 
 interface ToastMsg {
   id: string;
@@ -41,8 +42,8 @@ export function ToastNotification() {
         // or the 15s polling backstop would pick this up).
         queryClient.invalidateQueries({ queryKey: ['hr_notifications'] });
 
-        const savedRole = localStorage.getItem('user_role');
-        const savedEmail = localStorage.getItem('user_email');
+        const savedRole = getSessionRole();
+        const savedEmail = getSessionEmail();
         const isForMe =
           notif.recipient_email === savedEmail ||
           (notif.recipient_role === savedRole && notif.recipient_email === 'all');

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Profile, useProfiles, hrActions } from '@/lib/hrData';
+import { getSessionEmail } from '@/lib/session';
 import { PasswordInput } from '@/components/ui/PasswordInput';
 import { AvatarCropperModal } from '@/components/ui/AvatarCropperModal';
 import {
@@ -29,7 +30,7 @@ export default function HRProfilePage() {
   const [resetSuccess, setResetSuccess] = useState('');
 
   useEffect(() => {
-    const email = localStorage.getItem('user_email');
+    const email = getSessionEmail();
     if (email) {
       const p = employees.find((e: Profile) => e.email && e.email.toLowerCase() === email.toLowerCase());
       if (p) setProfile(p as any);
@@ -85,7 +86,7 @@ export default function HRProfilePage() {
       return;
     }
 
-    const email = localStorage.getItem('user_email');
+    const email = getSessionEmail();
     if (email && profile?.id) {
       try {
         await hrActions.resetPassword(profile.id, newPass);

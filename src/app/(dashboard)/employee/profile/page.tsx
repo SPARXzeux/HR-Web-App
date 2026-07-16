@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useProfiles, hrActions, Profile, formatMoney } from '@/lib/hrData';
+import { getSessionEmail } from '@/lib/session';
 import { compressImageToWebP, validatePdfSize, fileToDataUrl, MAX_DOCUMENT_IMAGE_BYTES } from '@/lib/imageCompressor';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
@@ -48,7 +49,7 @@ export default function EmployeeProfilePage() {
   const [bankSuccess, setBankSuccess] = useState('');
 
   useEffect(() => {
-    const email = localStorage.getItem('user_email');
+    const email = getSessionEmail();
     if (!email || !allProfiles) return;
     const p = allProfiles.find(e => e.email && e.email.toLowerCase() === email.toLowerCase());
     if (p) setProfile(p);
@@ -189,7 +190,7 @@ export default function EmployeeProfilePage() {
       return;
     }
 
-    const email = localStorage.getItem('user_email');
+    const email = getSessionEmail();
     if (!email || !profile?.id) return;
 
     try {

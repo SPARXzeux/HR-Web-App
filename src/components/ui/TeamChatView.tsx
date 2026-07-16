@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Team, Profile, Message, useMessages, hrActions, displayName } from '@/lib/hrData';
+import { Team, Profile, Message, useMessages, useTeamDocuments, hrActions, displayName } from '@/lib/hrData';
 import { Avatar } from './Avatar';
-import { Send, Paperclip, FileText, Download, ShieldCheck, Loader2, Crown, Search, SlidersHorizontal, X, Megaphone } from 'lucide-react';
+import { TeamDocumentsPanel } from './TeamDocumentsPanel';
+import { Send, Paperclip, FileText, Download, ShieldCheck, Loader2, Crown, Search, SlidersHorizontal, X, Megaphone, MessageCircle, FolderOpen } from 'lucide-react';
 
 interface TeamChatViewProps {
   teams: Team[];
@@ -66,27 +67,49 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Highlights "@Display Name" occurrences in message text. Matches against
-// whoever is CURRENTLY in the team (see mentionCandidates below), so this
-// stays correct even if someone's Alias changes after the message was
-// sent — same "resolve live, don't trust the snapshot" approach as
-// senderLabel. Mentions of someone no longer on the team just render as
-// plain text, which is fine — the message itself is never altered.
-function renderMessageText(text: string, mentionLabels: string[], onColoredBubble: boolean): React.ReactNode {
+// Highlights "@Display Name" mentions AND "#Document Title" tags in message
+// text. Doc tags are matched against whichever documents currently exist
+// for this team (same "resolve live, don't trust the snapshot" approach as
+// mentions) and render as clickable links straight to the file — that's
+// the "tag a document to ask questions about it" feature: typing #Title in
+// chat both highlights it and opens the doc for anyone reading the thread.
+function renderMessageText(
+  text: string,
+  mentionLabels: string[],
+  docTags: { title: string; url: string }[],
+  onColoredBubble: boolean
+): React.ReactNode {
   if (!text) return null;
-  if (mentionLabels.length === 0) return text;
   const mentionSet = new Set(mentionLabels.map(l => `@${l}`));
-  const alternation = [...mentionLabels].sort((a, b) => b.length - a.length).map(escapeRegExp).join('|');
-  const re = new RegExp(`(@(?:${alternation}))`, 'g');
+  const docByTag = new Map(docTags.map(d => [`#${d.title}`, d.url]));
+  if (mentionSet.size === 0 && docByTag.size === 0) return text;
+
+  const mentionAlt = [...mentionLabels].sort((a, b) => b.length - a.length).map(escapeRegExp);
+  const docAlt = docTags.map(d => d.title).sort((a, b) => b.length - a.length).map(escapeRegExp);
+  const patterns = [
+    ...(mentionAlt.length ? [`@(?:${mentionAlt.join('|')})`] : []),
+    ...(docAlt.length ? [`#(?:${docAlt.join('|')})`] : []),
+  ];
+  const re = new RegExp(`(${patterns.join('|')})`, 'g');
   const parts = text.split(re);
   const mentionClass = onColoredBubble
     ? 'font-bold bg-white/25 rounded px-1'
     : 'font-bold text-orange-700 bg-orange-100 rounded px-1';
-  return parts.map((part, i) =>
-    mentionSet.has(part)
-      ? <span key={i} className={mentionClass}>{part}</span>
-      : <React.Fragment key={i}>{part}</React.Fragment>
-  );
+  const docClass = onColoredBubble
+    ? 'font-bold bg-white/25 rounded px-1 underline underline-offset-2 cursor-pointer'
+    : 'font-bold text-sky-700 bg-sky-100 rounded px-1 underline underline-offset-2 cursor-pointer';
+  return parts.map((part, i) => {
+    if (mentionSet.has(part)) return <span key={i} className={mentionClass}>{part}</span>;
+    const docUrl = docByTag.get(part);
+    if (docUrl) {
+      return (
+        <a key={i} href={docUrl} target="_blank" rel="noreferrer" className={docClass}>
+          {part}
+        </a>
+      );
+    }
+    return <React.Fragment key={i}>{part}</React.Fragment>;
+  });
 }
 
 export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProfiles, oversight = false }: TeamChatViewProps) {
@@ -102,6 +125,13 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
   // Profiles picked from the dropdown this compose session, so on send we
   // know exactly who to notify — far more reliable than re-parsing text.
   const [mentionedProfiles, setMentionedProfiles] = useState<Map<string, Profile>>(new Map());
+  // "#" document-tag autocomplete — same idea as @mention above, but for
+  // referencing a Team Document instead of a person. Mirrors `mention`'s
+  // shape (query + where the "#" trigger sits in `draft`).
+  const [docTag, setDocTag] = useState<{ query: string; start: number } | null>(null);
+  // Which panel is showing: the chat thread, or the Team Documents library
+  // for the active team.
+  const [activePanel, setActivePanel] = useState<'chat' | 'documents'>('chat');
   // Composer's "send as Announcement" toggle.
   const [draftIsAnnouncement, setDraftIsAnnouncement] = useState(false);
   // Search & filter panel.
@@ -121,6 +151,8 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
   }, [teams, activeTeamId]);
 
   const { data: messages = [], isLoading } = useMessages(activeTeamId);
+  const { data: teamDocuments = [] } = useTeamDocuments(activeTeamId);
+  const docTagList = teamDocuments.map(d => ({ title: d.title, url: d.fileUrl }));
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -138,6 +170,7 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
   useEffect(() => {
     setMention(null);
     setMentionedProfiles(new Map());
+    setDocTag(null);
   }, [activeTeamId]);
 
   const emailToProfile = new Map(allProfiles.map(p => [p.email.toLowerCase(), p]));
@@ -163,6 +196,13 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
   const announcements = messages.filter(m => m.isAnnouncement);
 
   const activeTeam = teams.find(t => t.id === activeTeamId);
+  // Who can upload/delete Team Documents for the active team: Admin and HR
+  // always, a Team Lead only for a team they actually lead (not just any
+  // team they happen to be shown, and not a regular member).
+  const canManageDocuments =
+    currentUserRole === 'admin' ||
+    currentUserRole === 'hr' ||
+    (currentUserRole === 'team_lead' && !!activeTeam?.leadEmail && activeTeam.leadEmail.toLowerCase() === currentUserEmail.toLowerCase());
   // Who can be @mentioned in this channel: everyone currently on the team,
   // plus every Admin (they can post — and therefore be mentioned — in any
   // team's chat even without being a formal member). Deliberately includes
@@ -212,6 +252,14 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
         .slice(0, 6)
     : [];
 
+  // Filtered dropdown suggestions for the current "#query" — documents in
+  // this team whose title starts with (or contains) what's typed.
+  const docTagSuggestions = docTag
+    ? teamDocuments
+        .filter(d => d.title.toLowerCase().includes(docTag.query.toLowerCase()))
+        .slice(0, 6)
+    : [];
+
   const handleDraftChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     const cursor = e.target.selectionStart ?? value.length;
@@ -219,12 +267,23 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
 
     const upToCursor = value.slice(0, cursor);
     const atIndex = upToCursor.lastIndexOf('@');
-    if (atIndex === -1) { setMention(null); return; }
-    const between = upToCursor.slice(atIndex + 1, cursor);
-    // Bail out once the "@" trigger is followed by whitespace — that's a
-    // finished word, not an in-progress mention anymore.
-    if (/\s/.test(between)) { setMention(null); return; }
-    setMention({ query: between, start: atIndex });
+    const hashIndex = upToCursor.lastIndexOf('#');
+    // Whichever trigger char sits closer to the cursor wins — lets someone
+    // switch from typing a mention to a doc tag (or vice versa) without the
+    // stale trigger's dropdown lingering.
+    const triggerIndex = Math.max(atIndex, hashIndex);
+    if (triggerIndex === -1) { setMention(null); setDocTag(null); return; }
+    const between = upToCursor.slice(triggerIndex + 1, cursor);
+    // Bail out once the trigger is followed by whitespace — that's a
+    // finished word, not an in-progress mention/tag anymore.
+    if (/\s/.test(between)) { setMention(null); setDocTag(null); return; }
+    if (triggerIndex === atIndex) {
+      setMention({ query: between, start: atIndex });
+      setDocTag(null);
+    } else {
+      setDocTag({ query: between, start: hashIndex });
+      setMention(null);
+    }
   };
 
   const pickMention = (profile: Profile) => {
@@ -241,6 +300,25 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
 
     // Restore focus and put the cursor right after the inserted mention so
     // the person can keep typing without having to click back in.
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      const pos = before.length + inserted.length;
+      el.setSelectionRange(pos, pos);
+    });
+  };
+
+  const pickDocTag = (doc: { title: string }) => {
+    if (!docTag) return;
+    const cursor = textareaRef.current?.selectionStart ?? draft.length;
+    const before = draft.slice(0, docTag.start);
+    const after = draft.slice(cursor);
+    const inserted = `#${doc.title} `;
+    const newValue = `${before}${inserted}${after}`;
+    setDraft(newValue);
+    setDocTag(null);
+
     requestAnimationFrame(() => {
       const el = textareaRef.current;
       if (!el) return;
@@ -273,6 +351,7 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
       setPendingFile(null);
       setMentionedProfiles(new Map());
       setMention(null);
+      setDocTag(null);
       setDraftIsAnnouncement(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
 
@@ -332,7 +411,26 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
           </h3>
           <div className="flex items-center gap-1.5 shrink-0">
             {oversight && <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mr-1 hidden sm:inline">Viewing every channel</span>}
-            {announcements.length > 0 && (
+            {/* Chat / Team Documents tab toggle */}
+            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 mr-1">
+              <button
+                onClick={() => setActivePanel('chat')}
+                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md transition-all ${
+                  activePanel === 'chat' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <MessageCircle className="h-3 w-3" /> Chat
+              </button>
+              <button
+                onClick={() => setActivePanel('documents')}
+                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md transition-all ${
+                  activePanel === 'documents' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <FolderOpen className="h-3 w-3" /> Documents{teamDocuments.length > 0 ? ` (${teamDocuments.length})` : ''}
+              </button>
+            </div>
+            {activePanel === 'chat' && announcements.length > 0 && (
               <button
                 onClick={() => setShowAnnouncements(v => !v)}
                 className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1.5 rounded-lg transition-all ${
@@ -342,19 +440,31 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
                 <Megaphone className="h-3 w-3" /> {announcements.length}
               </button>
             )}
-            <button
-              onClick={() => setShowFilters(v => !v)}
-              className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1.5 rounded-lg transition-all ${
-                showFilters || hasActiveFilters ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-              }`}
-            >
-              <SlidersHorizontal className="h-3 w-3" /> {hasActiveFilters ? `Filtered (${filteredMessages.length})` : 'Filter'}
-            </button>
+            {activePanel === 'chat' && (
+              <button
+                onClick={() => setShowFilters(v => !v)}
+                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1.5 rounded-lg transition-all ${
+                  showFilters || hasActiveFilters ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                }`}
+              >
+                <SlidersHorizontal className="h-3 w-3" /> {hasActiveFilters ? `Filtered (${filteredMessages.length})` : 'Filter'}
+              </button>
+            )}
           </div>
         </div>
 
+        {activePanel === 'documents' && (
+          <TeamDocumentsPanel
+            team={activeTeam || null}
+            currentUserEmail={currentUserEmail}
+            currentUserRole={currentUserRole}
+            currentUserName={emailToProfile.get(currentUserEmail.toLowerCase())?.fullName || currentUserEmail}
+            canManage={canManageDocuments}
+          />
+        )}
+
         {/* Pinned Announcements */}
-        {showAnnouncements && announcements.length > 0 && (
+        {activePanel === 'chat' && showAnnouncements && announcements.length > 0 && (
           <div className="border-b border-amber-200 bg-amber-50/60 max-h-40 overflow-y-auto shrink-0">
             {announcements.slice().reverse().map(a => (
               <div key={a.id} className="px-4 py-2 border-b border-amber-100 last:border-b-0 text-xs">
@@ -368,7 +478,7 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
         )}
 
         {/* Search & Filter panel */}
-        {showFilters && (
+        {activePanel === 'chat' && showFilters && (
           <div className="border-b border-slate-200 bg-slate-50/80 px-4 py-3 shrink-0 space-y-2.5">
             <div className="relative">
               <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -413,6 +523,7 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
           </div>
         )}
 
+        {activePanel === 'chat' && (
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0">
           {isLoading && <p className="text-xs text-slate-400 text-center font-semibold py-6">Loading messages…</p>}
           {!isLoading && messages.length === 0 && (
@@ -443,7 +554,7 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
                   </div>
                   {m.text && (
                     <p className="text-xs font-semibold text-slate-800 whitespace-pre-wrap break-words">
-                      {renderMessageText(m.text, mentionLabels, false)}
+                      {renderMessageText(m.text, mentionLabels, docTagList, false)}
                     </p>
                   )}
                   {m.attachmentUrl && (
@@ -481,7 +592,7 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
                   }`}>
                     {m.text && (
                       <p className="whitespace-pre-wrap break-words">
-                        {renderMessageText(m.text, mentionLabels, isAdminSender || isSelf)}
+                        {renderMessageText(m.text, mentionLabels, docTagList, isAdminSender || isSelf)}
                       </p>
                     )}
                     {m.attachmentUrl && (
@@ -508,8 +619,9 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
             );
           })}
         </div>
+        )}
 
-        {(
+        {activePanel === 'chat' && (
           <div className="border-t border-slate-200 p-3 pb-safe shrink-0 relative bg-white md:bg-transparent">
             {oversight && (
               <p className="text-[9px] text-purple-600 font-bold mb-2 flex items-center gap-1"><Crown className="h-3 w-3" /> Posting as Admin — this message will be highlighted for everyone in {activeTeam?.name || 'this team'}.</p>
@@ -543,6 +655,28 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
               </div>
             )}
 
+            {/* "#" document-tag suggestion dropdown */}
+            {docTag && docTagSuggestions.length > 0 && (
+              <div className="absolute bottom-full left-3 mb-1 w-64 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden z-10">
+                {docTagSuggestions.map(d => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onMouseDown={e => { e.preventDefault(); pickDocTag(d); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-sky-50 transition-colors"
+                  >
+                    <FileText className="h-3.5 w-3.5 text-sky-600 shrink-0" />
+                    <span className="text-xs font-bold text-slate-800 truncate">{d.title}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {docTag && docTagSuggestions.length === 0 && teamDocuments.length === 0 && (
+              <div className="absolute bottom-full left-3 mb-1 w-64 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden z-10 px-3 py-2">
+                <span className="text-[10px] text-slate-400 font-semibold">No documents in this team yet.</span>
+              </div>
+            )}
+
             <div className="flex items-end gap-2">
               <label className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 cursor-pointer transition-all shrink-0">
                 <Paperclip className="h-4 w-4" />
@@ -573,12 +707,22 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
                     setMention(null);
                     return;
                   }
+                  if (docTag && docTagSuggestions.length > 0 && (e.key === 'Enter' || e.key === 'Tab')) {
+                    e.preventDefault();
+                    pickDocTag(docTagSuggestions[0]);
+                    return;
+                  }
+                  if (docTag && e.key === 'Escape') {
+                    e.preventDefault();
+                    setDocTag(null);
+                    return;
+                  }
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     handleSend();
                   }
                 }}
-                placeholder={draftIsAnnouncement ? 'Write your announcement…' : 'Message your team… (type @ to mention someone)'}
+                placeholder={draftIsAnnouncement ? 'Write your announcement…' : 'Message your team… (@ to mention, # to tag a document)'}
                 rows={1}
                 className="flex-1 bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-xs outline-none focus:border-orange-500 font-medium resize-none max-h-24"
               />

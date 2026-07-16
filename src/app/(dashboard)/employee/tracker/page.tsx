@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useProfiles, useTimesheets, hrActions, Profile, TimesheetEntry, TrackingSettings, TrackerHeartbeat } from '@/lib/hrData';
+import { useProfiles, useTimesheets, hrActions, Profile, TimesheetEntry, TrackingSettings, TrackerHeartbeat, localShiftDate } from '@/lib/hrData';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { encodeSetupCode, getPocketBaseConfig, TRACKER_DOWNLOAD_WINDOWS_URL, TRACKER_DOWNLOAD_MAC_URL, detectOS } from '@/lib/trackerSetup';
+import { getSessionEmail } from '@/lib/session';
 import { Timer, Monitor, ShieldAlert, MapPin, Download, Copy, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 
 export default function TrackerPage() {
@@ -27,7 +28,7 @@ export default function TrackerPage() {
   }, []);
 
   useEffect(() => {
-    const email = localStorage.getItem('user_email');
+    const email = getSessionEmail();
     const employees = allProfiles;
     const userProfile = employees.find(e => e.email && email && e.email.toLowerCase() === email.toLowerCase());
     if (userProfile) {
@@ -204,7 +205,10 @@ export default function TrackerPage() {
             </div>
             <CardContent className="p-5 space-y-3 font-sans">
               <p className="text-[10px] text-slate-450 leading-relaxed font-semibold">
-                Install the free DelCargo Tracker app once — it runs quietly in the background (system tray) and only captures periodic screenshots while HR/Admin has tracking enabled for you and you&apos;re on a manually-started shift. Keyboard/mouse activity monitoring is not implemented — only periodic screenshots.
+                Install the free DelCargo Tracker app once — it runs quietly in the background (system tray) and only captures periodic screenshots and stretches of mouse inactivity while HR/Admin has tracking enabled for you and you&apos;re on a manually-started shift.
+              </p>
+              <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-150 rounded-lg px-3 py-2 leading-relaxed font-bold">
+                While tracking is active please avoid personal browsing, messages, or accounts on this device while on shift.
               </p>
 
               {/* Live "is the desktop app actually installed & reachable" indicator —
@@ -321,7 +325,7 @@ export default function TrackerPage() {
                   <tbody className="divide-y divide-slate-200">
                     {timesheetEntries.map((entry) => (
                       <tr key={entry.id} className="hover:bg-slate-55/30 transition-colors">
-                        <td className="px-5 py-4 font-bold text-slate-800">{entry.date}</td>
+                        <td className="px-5 py-4 font-bold text-slate-800">{localShiftDate(entry.clockIn, entry.date)}</td>
                         <td className="px-5 py-4 text-slate-550 font-medium font-mono">{new Date(entry.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
                         <td className="px-5 py-4 text-slate-550 font-medium font-mono">{entry.clockOut ? new Date(entry.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                         <td className="px-5 py-4 text-right font-bold text-slate-900">{entry.duration || '—'}</td>
@@ -345,7 +349,7 @@ export default function TrackerPage() {
                 {timesheetEntries.map((entry) => (
                   <div key={entry.id} className="bg-white border border-slate-200 rounded-xl p-3 space-y-2 shadow-sm">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs font-bold text-slate-900">{entry.date}</p>
+                      <p className="text-xs font-bold text-slate-900">{localShiftDate(entry.clockIn, entry.date)}</p>
                       <Badge variant={entry.status === 'in_progress' ? 'warning' : 'success'}>
                         {entry.status === 'in_progress' ? 'On Shift' : 'Completed'}
                       </Badge>

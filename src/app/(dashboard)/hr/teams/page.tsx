@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { hrActions, Profile, Team, useProfiles, useTeams, useWarehouses } from '@/lib/hrData';
+import { getSessionEmail } from '@/lib/session';
 import { Users, Trash2, Plus, AlertTriangle, CheckCircle2, UserCog, Star, Edit, Trash, Sparkles } from 'lucide-react';
 import { UserProfileModal } from '@/components/ui/UserProfileModal';
 
@@ -64,7 +65,7 @@ export default function HRTeamsPage() {
   const [cleaningWarehouses, setCleaningWarehouses] = useState(false);
 
   useEffect(() => {
-    const email = localStorage.getItem('user_email');
+    const email = getSessionEmail();
     if (email) setCurrentUserEmail(email);
 
     const handleSearch = (e: Event) => {

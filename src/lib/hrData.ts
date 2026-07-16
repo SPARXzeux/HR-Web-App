@@ -215,6 +215,20 @@ export interface TrackerHeartbeat {
 }
 export const TRACKER_HEARTBEAT_STALE_MS = 3 * 60 * 1000;
 
+// Single-active-session enforcement for Employee (and Team Lead, who shares
+// the Employee dashboard) accounts only — Admin/HR are exempt and may be
+// signed in from multiple browsers/devices at once (see auth/page.tsx).
+// Mirrors the tracker agent's own "claim + heartbeat + supersede" pattern
+// above (TrackerHeartbeat) rather than inventing a second mechanism.
+export interface UserSession {
+  email: string; sessionToken: string; deviceLabel?: string; loggedInAt: string; lastSeenAt: string;
+}
+// If a session hasn't heartbeated in this long, it's treated as abandoned
+// (browser/tab closed without hitting Log Out) and a new login elsewhere is
+// allowed to claim the slot rather than locking the employee out forever.
+export const USER_SESSION_STALE_MS = 90 * 1000;
+const userSessionKeyFor = (email: string) => `user_session_${(email || '').toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
 // `imageUrl` points at either a real PocketBase file URL (hr_screenshots
 // records — the current format, set by the tracker agents) or a data: URL
 // (legacy screenshot_<id> rows still sitting in hr_delcargo_store from
@@ -271,6 +285,19 @@ export interface Message {
   id: string; teamId: string; senderEmail: string; senderName: string;
   text?: string; attachmentUrl?: string; attachmentName?: string; attachmentSize?: number;
   isAnnouncement?: boolean; timestamp: string;
+}
+
+// Team Documents — per-team onboarding/instructional file library shown
+// alongside Team Chat (see create_team_documents_collection.py). Upload is
+// UI-restricted to Admin/HR/Team Lead; every team member (including ones
+// added later) can view. uploadedByName/Role are snapshots for fallback
+// display only — the UI resolves the live profile first, same pattern as
+// Message.senderName.
+export interface TeamDocument {
+  id: string; teamId: string; title: string; description?: string;
+  fileUrl: string; fileName: string; fileSize?: number;
+  uploadedByEmail: string; uploadedByName: string; uploadedByRole?: string;
+  timestamp: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -405,6 +432,21 @@ function toMessage(m: any): Message {
     timestamp: m.created,
   };
 }
+function toTeamDocument(d: any): TeamDocument {
+  return {
+    id: d.id,
+    teamId: d.team_id,
+    title: d.title,
+    description: d.description || undefined,
+    fileUrl: d.file ? pb.files.getURL(d, d.file) : '',
+    fileName: d.file_name || d.file || 'file',
+    fileSize: typeof d.file_size === 'number' ? d.file_size : undefined,
+    uploadedByEmail: d.uploaded_by_email,
+    uploadedByName: d.uploaded_by_name,
+    uploadedByRole: d.uploaded_by_role || undefined,
+    timestamp: d.created,
+  };
+}
 function toTimesheet(t: any): TimesheetEntry {
   const clockOut = t.clock_out || undefined;
   return {
@@ -514,6 +556,21 @@ export function useAllMessages() {
   return useQuery({
     queryKey: ['hr_messages_all'],
     queryFn: async () => (await pbList('hr_messages', { sort: '-created' })).map(toMessage),
+    refetchInterval: 15000,
+  });
+}
+// Team Documents — one library per team (see hr_team_documents /
+// create_team_documents_collection.py). Polled like useMessages rather than
+// realtime-subscribed, same proxy-through-Next.js reasoning.
+export function useTeamDocuments(teamId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['hr_team_documents', teamId],
+    queryFn: async () => {
+      if (!teamId) return [];
+      const rows = await pbList('hr_team_documents', { filter: `team_id = "${teamId}"`, sort: '-created' });
+      return rows.map(toTeamDocument);
+    },
+    enabled: !!teamId,
     refetchInterval: 15000,
   });
 }
@@ -696,6 +753,29 @@ function formatDurationBetween(startISO: string, endISO: string): string {
   const ms = new Date(endISO).getTime() - new Date(startISO).getTime();
   const totalMinutes = Math.max(0, Math.round(ms / 60000));
   return `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`;
+}
+
+// A TimesheetEntry's `date` field is fixed to whatever UTC calendar date it
+// happened to be when clockIn() wrote the record (see clockIn() below) —
+// it's a plain "YYYY-MM-DD" string, not a real timestamp, so it never
+// re-renders relative to whoever's actually looking at it. A shift that
+// starts late at night in Pakistan can land on a different calendar day
+// once converted to a US viewer's own local time, so any "Date" column
+// shown in the UI should derive that date fresh from the real clockIn
+// timestamp — via the browser's own local timezone (same as
+// toLocaleTimeString elsewhere) — rather than trusting the stored field.
+// Falls back to the stored `date` if clockIn is ever missing/unparseable.
+export function localShiftDate(clockInISO: string | undefined | null, fallbackDate?: string): string {
+  if (clockInISO) {
+    const d = new Date(clockInISO);
+    if (!isNaN(d.getTime())) {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+  }
+  return fallbackDate || '—';
 }
 
 // ---------------------------------------------------------------------------
@@ -1237,6 +1317,31 @@ export const hrActions = {
     }
   },
 
+  // ── Team Documents (hr_team_documents — see migration_data/create_team_documents_collection.py) ──
+  // Per-team onboarding/instructional file library. Upload is UI-restricted
+  // to Admin/HR/Team Lead (enforced in TeamDocumentsPanel.tsx, not the DB —
+  // same open-rules posture as every other hr_ collection right now).
+  uploadTeamDocument: async (
+    teamId: string, title: string, description: string, file: File,
+    uploaderEmail: string, uploaderName: string, uploaderRole: string
+  ): Promise<void> => {
+    const form = new FormData();
+    form.append('team_id', teamId);
+    form.append('title', title.trim());
+    if (description.trim()) form.append('description', description.trim());
+    form.append('file', file);
+    form.append('file_name', file.name);
+    form.append('file_size', String(file.size));
+    form.append('uploaded_by_email', uploaderEmail);
+    form.append('uploaded_by_name', uploaderName);
+    form.append('uploaded_by_role', uploaderRole);
+    await pb.collection('hr_team_documents').create(form);
+  },
+
+  deleteTeamDocument: async (id: string): Promise<void> => {
+    await pbDelete('hr_team_documents', id);
+  },
+
   // ── Payroll ───────────────────────────────────────────────────────────
   // Computes the current payroll view for a set of employees (pure, no
   // writes) — mirrors old db.getPayroll()'s calculation. Callers decide
@@ -1311,6 +1416,76 @@ export const hrActions = {
     (await pbGetKVByPrefix('tracker_heartbeat_')).map(row => row.value as TrackerHeartbeat),
   isHeartbeatLive: (hb: TrackerHeartbeat | null): boolean =>
     !!hb?.lastSeenAt && (Date.now() - new Date(hb.lastSeenAt).getTime()) < TRACKER_HEARTBEAT_STALE_MS,
+
+  // ── Single-session enforcement (Employee/Team Lead only) ────────────────
+  getUserSession: async (email: string): Promise<UserSession | null> => pbGetKV(userSessionKeyFor(email)),
+  isUserSessionLive: (s: UserSession | null): boolean =>
+    !!s?.lastSeenAt && (Date.now() - new Date(s.lastSeenAt).getTime()) < USER_SESSION_STALE_MS,
+  // Unconditionally claims the session slot for this email. Callers must
+  // first check getUserSession/isUserSessionLive and block the login
+  // attempt themselves if another session is still live — this just
+  // performs the actual claim once that check has passed.
+  claimUserSession: async (email: string, sessionToken: string, deviceLabel: string): Promise<void> => {
+    const now = new Date().toISOString();
+    await pbSetKV(userSessionKeyFor(email), { email, sessionToken, deviceLabel, loggedInAt: now, lastSeenAt: now });
+  },
+  // Called periodically while a dashboard session is open. Returns false if
+  // a different device/tab has since claimed the slot (this session went
+  // stale and someone else logged in) — the caller should force a logout
+  // when this happens.
+  touchUserSession: async (email: string, sessionToken: string): Promise<boolean> => {
+    const existing = (await pbGetKV(userSessionKeyFor(email))) as UserSession | null;
+    if (existing && existing.sessionToken !== sessionToken) return false;
+    await pbSetKV(userSessionKeyFor(email), {
+      email, sessionToken,
+      deviceLabel: existing?.deviceLabel,
+      loggedInAt: existing?.loggedInAt || new Date().toISOString(),
+      lastSeenAt: new Date().toISOString(),
+    });
+    return true;
+  },
+  clearUserSession: async (email: string): Promise<void> => {
+    await pbDeleteKVByKeys([userSessionKeyFor(email)]);
+  },
+  // Frees the session slot on explicit logout — skipped for Admin/HR, who
+  // never claim one in the first place.
+  logoutSession: async (email: string, role: string | null): Promise<void> => {
+    if (!email || role === 'admin' || role === 'hr') return;
+    try { await hrActions.clearUserSession(email); } catch { /* best-effort */ }
+  },
+
+  // Single entry point for every "Log Out" button in the app (Sidebar,
+  // TopNav, the onboarding-pending gate screen). For Employee/Team Lead
+  // accounts this also auto-ends any currently open shift — logging out
+  // shouldn't leave a shift silently running with nobody at the desk — and
+  // frees the single-session slot so the employee (or someone else) can log
+  // back in immediately elsewhere. Returns whether a shift was actually
+  // stopped, so the caller can show a heads-up on next login.
+  performLogout: async (email: string, role: string | null): Promise<{ shiftStopped: boolean }> => {
+    let shiftStopped = false;
+    if (email && role !== 'admin' && role !== 'hr') {
+      try {
+        const open = await hrActions.getOpenShift(email);
+        if (open) {
+          await hrActions.clockOut(email);
+          shiftStopped = true;
+          await hrActions.addNotification(email, 'employee', 'Your shift was automatically ended because you logged out.');
+          await hrActions.addNotification('all', 'hr', `${email} logged out while on shift — their shift was ended automatically.`);
+          await hrActions.addNotification('all', 'admin', `${email} logged out while on shift — their shift was ended automatically.`);
+          // Durable (localStorage, not the per-tab session storage used for
+          // the "signed in elsewhere" notice) flag read by auth/page.tsx the
+          // next time this exact email logs back in — even if that's after
+          // fully closing the browser — so the employee gets a clear heads-up
+          // that their shift didn't just keep running unattended.
+          if (typeof window !== 'undefined') {
+            try { window.localStorage.setItem(`shift_auto_stopped_${email.toLowerCase()}`, '1'); } catch { /* ignore */ }
+          }
+        }
+      } catch { /* best-effort — never block logout on this */ }
+    }
+    await hrActions.logoutSession(email, role);
+    return { shiftStopped };
+  },
   getScreenshots: async (filters?: { employeeEmail?: string; sinceISO?: string; untilISO?: string }): Promise<Screenshot[]> => {
     // Current source: real hr_screenshots collection (PocketBase file field).
     // PocketBase's `=` filter operator is case-sensitive (SQLite BINARY

@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { useProfiles, useTickets, hrActions, Ticket, Profile, markTicketActivitySeen } from '@/lib/hrData';
+import { getSessionEmail } from '@/lib/session';
 import { HelpCircle, Plus, Send, Lock, RotateCcw, User, Mail, Calendar, Briefcase, Users, Eye, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface TicketsViewProps {
@@ -48,7 +49,7 @@ export function TicketsView({ role }: TicketsViewProps) {
   const { data: allTickets, refetch: refetchTickets } = useTickets();
 
   useEffect(() => {
-    const email = localStorage.getItem('user_email') || '';
+    const email = getSessionEmail() || '';
     setCurrentEmail(email);
     
     if (allProfiles) {

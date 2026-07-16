@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { Profile, formatMoney, TimesheetEntry, hrActions, useProfiles, useWarehouses, useTimesheets } from '@/lib/hrData';
+import { Profile, formatMoney, TimesheetEntry, hrActions, localShiftDate, useProfiles, useWarehouses, useTimesheets } from '@/lib/hrData';
+import { getSessionEmail } from '@/lib/session';
 import { FileText, Search, Filter, ShieldCheck, Download, MapPin, Edit2, Monitor } from 'lucide-react';
 import { UserProfileModal } from '@/components/ui/UserProfileModal';
 import { DocumentsModal } from '@/components/ui/DocumentsModal';
@@ -37,7 +38,7 @@ export default function ReportsPage() {
   const [selectedDocsEmp, setSelectedDocsEmp] = useState<Profile | null>(null);
 
   useEffect(() => {
-    const email = localStorage.getItem('user_email');
+    const email = getSessionEmail();
     if (email) setCurrentUserEmail(email);
   }, []);
 
@@ -465,7 +466,7 @@ export default function ReportsPage() {
                     <tbody className="divide-y divide-slate-150">
                       {reviewEntries.map((entry) => (
                         <tr key={entry.id} className="hover:bg-slate-50/50">
-                          <td className="px-4 py-3 font-bold text-slate-700">{entry.date}</td>
+                          <td className="px-4 py-3 font-bold text-slate-700">{localShiftDate(entry.clockIn, entry.date)}</td>
                           <td className="px-4 py-3 text-slate-600 font-medium font-mono text-[10px]">{entry.clockIn ? new Date(entry.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                           <td className="px-4 py-3 text-slate-600 font-medium font-mono text-[10px]">{entry.clockOut ? new Date(entry.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                           <td className="px-4 py-3 text-right font-bold text-slate-900">{entry.duration || '—'}</td>
@@ -489,7 +490,7 @@ export default function ReportsPage() {
                   {reviewEntries.map((entry) => (
                     <div key={entry.id} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex flex-col gap-2">
                       <div className="flex justify-between items-center">
-                        <span className="font-bold text-slate-700 text-xs">{entry.date}</span>
+                        <span className="font-bold text-slate-700 text-xs">{localShiftDate(entry.clockIn, entry.date)}</span>
                         <Badge variant={entry.status === 'in_progress' ? 'warning' : 'success'} className="text-[9px]">
                           {entry.status === 'in_progress' ? 'On Shift' : 'Completed'}
                         </Badge>
