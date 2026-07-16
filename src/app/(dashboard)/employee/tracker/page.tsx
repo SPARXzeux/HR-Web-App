@@ -205,7 +205,7 @@ export default function TrackerPage() {
             </div>
             <CardContent className="p-5 space-y-3 font-sans">
               <p className="text-[10px] text-slate-450 leading-relaxed font-semibold">
-                Install the free DelCargo Tracker app once — it runs quietly in the background (system tray) and only captures periodic screenshots and stretches of mouse inactivity while HR/Admin has tracking enabled for you and you&apos;re on a manually-started shift.
+                Install the free DelCargo Tracker app once — it runs quietly in the background (system tray) and only tracks activity while HR/Admin has tracking enabled for you and you&apos;re on a manually-started shift.
               </p>
               <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-150 rounded-lg px-3 py-2 leading-relaxed font-bold">
                 While tracking is active please avoid personal browsing, messages, or accounts on this device while on shift.
