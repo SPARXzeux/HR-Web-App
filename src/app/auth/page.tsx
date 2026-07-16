@@ -16,6 +16,11 @@ export default function AuthPage() {
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // True only when `error` is specifically the "already signed in
+  // elsewhere" block — controls whether the "Log out from everywhere and
+  // sign in here" button shows up under the error message. Any other error
+  // (wrong password, offboarded, etc.) leaves this false.
+  const [sessionConflict, setSessionConflict] = useState(false);
   const [notice, setNotice] = useState('');
   const [isForgotOpen, setIsForgotOpen] = useState(false);
   // Shown post-login (blocking navigation until acknowledged) when this
@@ -40,10 +45,14 @@ export default function AuthPage() {
     }
   }, []);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // `force` skips the single-session live-check and unconditionally claims
+  // the session slot instead — used by the "Log out from everywhere and
+  // sign in here" button, which calls this directly (not via the form
+  // submit) after the normal attempt already hit a conflict.
+  const attemptLogin = async (force: boolean) => {
     setLoading(true);
     setError('');
+    setSessionConflict(false);
 
     try {
       let role: 'admin' | 'hr' | 'employee' | 'team_lead' | null = null;
@@ -83,13 +92,14 @@ export default function AuthPage() {
         // only. Admin/HR are exempt and may sign in from multiple places at
         // once. Checked here, right before committing the login, using a
         // fresh read so this can't be bypassed by a stale in-memory value.
-        if (role !== 'admin' && role !== 'hr') {
+        if (role !== 'admin' && role !== 'hr' && !force) {
           const existingSession = await hrActions.getUserSession(cleanEmail);
           if (hrActions.isUserSessionLive(existingSession)) {
             setError(
               `This account is already signed in${existingSession?.deviceLabel ? ` on ${existingSession.deviceLabel}` : ' elsewhere'}. ` +
-              'Please log out there first before signing in here.'
+              'Please log out there first before signing in here, or log out from everywhere below.'
             );
+            setSessionConflict(true);
             setLoading(false);
             return;
           }
@@ -128,6 +138,21 @@ export default function AuthPage() {
       setLoading(false);
     }
   };
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    attemptLogin(false);
+  };
+
+  // "Log out from everywhere and sign in here" — re-runs the exact same
+  // login attempt but skips the live-session check, so claimUserSession
+  // (further down in attemptLogin) unconditionally overwrites the other
+  // device's session slot. That device's own heartbeat (see the
+  // single-session effect in (dashboard)/layout.tsx) then finds its token
+  // no longer matches and force-logs it out with the "signed in from
+  // another device" notice next time it checks in — same mechanism, just
+  // triggered deliberately instead of by a competing login.
+  const handleForceLoginEverywhere = () => attemptLogin(true);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4 font-sans animate-in fade-in duration-200">
@@ -178,7 +203,17 @@ export default function AuthPage() {
             )}
             {error && (
               <div className="bg-rose-50 text-rose-600 p-3 rounded-lg text-sm font-semibold mb-4 border border-rose-100">
-                {error}
+                <p>{error}</p>
+                {sessionConflict && (
+                  <button
+                    type="button"
+                    onClick={handleForceLoginEverywhere}
+                    disabled={loading}
+                    className="mt-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-60 px-3 py-1.5 rounded-lg transition-all"
+                  >
+                    {loading ? 'Logging out everywhere…' : 'Log out from everywhere and sign in here'}
+                  </button>
+                )}
               </div>
             )}
 
