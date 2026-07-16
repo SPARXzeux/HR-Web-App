@@ -53,6 +53,7 @@ import json
 import os
 import platform
 import re
+import socket
 import sys
 import threading
 import time
@@ -276,6 +277,36 @@ def decode_setup_code(code):
     return url.rstrip("/"), token
 
 
+# ───────────────────────── single-instance lock ─────────────────────────────
+# Prevents a second copy of the app from opening (e.g. double-clicking the
+# installer shortcut twice, or autostart launching it while it's already
+# running from a previous login). Implemented as a bind on a localhost-only
+# TCP port rather than a PID/lock file — a lock file can be left behind (and
+# wrongly treated as "still running") after a crash or forced kill, whereas
+# an OS-level socket bind is automatically released the instant the process
+# actually exits, crash or not.
+
+SINGLE_INSTANCE_PORT = 47231  # arbitrary local-only port, used purely as a lock — never listens for real traffic
+_single_instance_socket = None  # kept alive for the process lifetime so the OS never releases the port early
+
+
+def acquire_single_instance_lock():
+    """Returns True if this is the only running instance (and claims the
+    lock for the rest of the process's life). Returns False if another
+    instance already holds it."""
+    global _single_instance_socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+        s.bind(("127.0.0.1", SINGLE_INSTANCE_PORT))
+        s.listen(1)
+    except OSError:
+        s.close()
+        return False
+    _single_instance_socket = s
+    return True
+
+
 # ─────────────────────────── local config storage ───────────────────────────
 
 def load_config():
@@ -437,6 +468,45 @@ def check_active_shift(base_url, _unused_key, employee_email):
     return any((it.get("employee_id") or "").lower() == employee_email.lower() for it in items)
 
 
+def _format_duration_between(start_iso, end_iso):
+    """Mirrors formatDurationBetween() in src/lib/hrData.ts ("{h}h {m}m") so
+    a shift auto-ended from here looks identical to one ended from the web
+    app."""
+    try:
+        start = datetime.fromisoformat((start_iso or "").replace("Z", "+00:00"))
+        end = datetime.fromisoformat((end_iso or "").replace("Z", "+00:00"))
+        total_minutes = max(0, round((end - start).total_seconds() / 60))
+        return f"{total_minutes // 60}h {total_minutes % 60}m"
+    except Exception:
+        return ""
+
+
+def auto_clock_out(base_url, employee_email):
+    """Ends (clocks out) this employee's currently open shift, if any —
+    used when the tracker app is quit while tracking is required for an
+    active shift, so a closed tracker can never leave a shift silently
+    un-monitored. Mirrors hrActions.clockOut() in src/lib/hrData.ts."""
+    if not employee_email:
+        return False
+    url = f"{base_url}/api/collections/hr_timesheets/records"
+    params = {"filter": f'(employee_id="{employee_email}" && clock_out="")', "perPage": 1}
+    resp = requests.get(url, params=params, timeout=15)
+    resp.raise_for_status()
+    items = resp.json().get("items", [])
+    if not items:
+        return False
+    record = items[0]
+    now_iso = datetime.now(timezone.utc).isoformat()
+    patch_url = f"{base_url}/api/collections/hr_timesheets/records/{record['id']}"
+    payload = {
+        "clock_out": now_iso,
+        "duration": _format_duration_between(record.get("clock_in"), now_iso),
+    }
+    resp = requests.patch(patch_url, headers=JSON_HEADERS, data=json.dumps(payload), timeout=20)
+    resp.raise_for_status()
+    return True
+
+
 # ─────────────────────── connection heartbeat / single-device claim ─────────
 #
 # Lets the web dashboard show a live "app is connected" indicator, and makes
@@ -487,6 +557,23 @@ def upsert_heartbeat(base_url, _unused_key, employee_email, device_id, device_la
         "lastSeenAt": now,
     }
     pb_set_kv(base_url, key, value)
+
+
+def clear_heartbeat(base_url, employee_email):
+    """Removes this employee's heartbeat row entirely (rather than just
+    letting it go stale) when the app quits. Without this, the web
+    dashboard's "is the tracker connected" checks — including the Start
+    Shift gate on the Employee dashboard (see isHeartbeatLive/hrData.ts) —
+    would keep reporting the agent as connected for up to
+    TRACKER_HEARTBEAT_STALE_MS (3 minutes) after it was actually closed,
+    since nothing had told the server it went away."""
+    key = heartbeat_key_for(employee_email)
+    record_id, _ = pb_get_kv(base_url, key)
+    if not record_id:
+        return
+    url = f"{base_url}/api/collections/{PB_COLLECTION}/records/{record_id}"
+    resp = requests.delete(url, timeout=15)
+    resp.raise_for_status()
 
 
 def capture_and_encode():
@@ -632,6 +719,16 @@ class TrackerApp:
         self.stop_event = threading.Event()
         self.worker = None
         self.inactivity_worker = None
+        self.realtime_worker = None
+        # Set by the realtime subscription (see _realtime_loop) the instant
+        # this employee's hr_timesheets row changes on the web dashboard —
+        # lets _worker_loop's between-capture sleep wake up and re-check
+        # shift/tracking status immediately instead of waiting out the rest
+        # of SETTINGS_POLL_SECONDS. Purely a latency optimization: if the
+        # realtime channel never connects (e.g. blocked by a firewall), the
+        # regular poll in _worker_loop still catches every change on its own
+        # within SETTINGS_POLL_SECONDS, same as before this existed.
+        self.wake_event = threading.Event()
         self.tray_icon = None
         # Set when we should (re)claim the device slot on the worker loop's
         # next pass: a brand new connect, an upgrade from an older install
@@ -690,6 +787,12 @@ class TrackerApp:
         style.configure("TCheckbutton", background=BG, foreground=INK, font=(FONT, 9, "bold"))
         style.configure("Card.TCheckbutton", background=CARD_BG, foreground=INK, font=(FONT, 9, "bold"))
         style.map("Card.TCheckbutton", background=[("active", CARD_BG)])
+        # ttk.Checkbutton doesn't accept -wraplength as a constructor kwarg
+        # (unlike tk.Label) — it has to be set on the style instead, or Tcl
+        # raises "unknown option -wraplength". Used for the consent
+        # checkbox's longer text on the setup screen.
+        style.configure("Wrap.Card.TCheckbutton", background=CARD_BG, foreground=INK, font=(FONT, 9, "bold"), wraplength=350)
+        style.map("Wrap.Card.TCheckbutton", background=[("active", CARD_BG)])
 
     def _brand_header(self, parent, subtitle=None):
         """Wordmark header matching the web dashboard's "DelCargo HR" mark
@@ -734,6 +837,21 @@ class TrackerApp:
         except Exception:
             pass
 
+        # Monitoring consent — must be explicitly checked before Connect will
+        # do anything (enforced in _handle_connect, not just visually).
+        # Re-shown (and re-required) every time this screen is reached,
+        # including "Use a Different Setup Code", so switching accounts on a
+        # shared machine can't silently carry over someone else's consent.
+        consent_card = Card(frame, padding=14)
+        consent_card.pack(fill="x", pady=(0, 6))
+        self.consent_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            consent_card.inner,
+            text="While tracking is active please Avoid Personal Browsing, Messages or accounts on this device while on shift",
+            variable=self.consent_var,
+            style="Wrap.Card.TCheckbutton",
+        ).pack(anchor="w")
+
         self.setup_error_var = tk.StringVar()
         tk.Label(frame, textvariable=self.setup_error_var, fg=DANGER, bg=BG,
                  font=(FONT, 9, "bold"), wraplength=380, justify="left").pack(anchor="w", pady=(10, 10))
@@ -753,6 +871,10 @@ class TrackerApp:
         ).pack(anchor="w", pady=(16, 0))
 
     def _handle_connect(self):
+        if not self.consent_var.get():
+            self.setup_error_var.set("Please check the monitoring consent box above before connecting.")
+            return
+
         raw = self.code_entry.get("1.0", "end").strip()
         try:
             url, token = decode_setup_code(raw)
@@ -796,6 +918,8 @@ class TrackerApp:
                     "autostart": False,
                     "device_id": uuid.uuid4().hex,
                     "device_label": get_device_label(),
+                    "consent_accepted": True,
+                    "consent_at": datetime.now(timezone.utc).isoformat(),
                 }
                 save_config(self.cfg)
                 # This is a brand new connection — claim the device slot
@@ -895,6 +1019,15 @@ class TrackerApp:
         if not messagebox.askyesno(APP_NAME, "Disconnect this computer from screen tracking? You'll need a new setup code from HR/Admin to reconnect."):
             return
         self.stop_event.set()
+        # Same reasoning as quit_app(): tell the server this device is gone
+        # right now rather than leaving the web dashboard's "connected"
+        # indicator (and the Start Shift gate) stale for up to
+        # TRACKER_HEARTBEAT_STALE_MS after disconnecting.
+        if self.cfg:
+            try:
+                clear_heartbeat(self.cfg["url"], self.cfg.get("employee_email"))
+            except Exception as e:
+                print(f"[warn] Clearing heartbeat on disconnect failed: {e}")
         clear_config()
         if self.cfg.get("autostart"):
             set_autostart(False)
@@ -922,11 +1055,16 @@ class TrackerApp:
             self.worker.join(timeout=2)
         if self.inactivity_worker and self.inactivity_worker.is_alive():
             self.inactivity_worker.join(timeout=2)
+        if self.realtime_worker and self.realtime_worker.is_alive():
+            self.realtime_worker.join(timeout=2)
         self.stop_event = threading.Event()
+        self.wake_event.clear()
         self.worker = threading.Thread(target=self._worker_loop, args=(self.cfg, self.stop_event), daemon=True)
         self.worker.start()
         self.inactivity_worker = threading.Thread(target=self._inactivity_loop, args=(self.cfg, self.stop_event), daemon=True)
         self.inactivity_worker.start()
+        self.realtime_worker = threading.Thread(target=self._realtime_loop, args=(self.cfg, self.stop_event), daemon=True)
+        self.realtime_worker.start()
 
     def _checkin(self, cfg):
         """Claims (first run / reconnect) or refreshes this device's
@@ -1067,9 +1205,117 @@ class TrackerApp:
             remaining = interval_minutes * 60 if enabled else SETTINGS_POLL_SECONDS
             waited = 0
             while waited < remaining and not stop_event.is_set():
-                chunk = min(SETTINGS_POLL_SECONDS, remaining - waited)
+                # Ticks in short (1s) increments — rather than one big
+                # SETTINGS_POLL_SECONDS sleep — so a realtime wake_event
+                # signal (a shift just started/ended on the web dashboard,
+                # see _realtime_loop) is noticed within about a second
+                # instead of waiting out the rest of this interval.
+                if self.wake_event.is_set():
+                    self.wake_event.clear()
+                    break
+                chunk = min(1.0, remaining - waited)
                 stop_event.wait(chunk)
                 waited += chunk
+
+    def _realtime_loop(self, cfg, stop_event):
+        """Keeps a live PocketBase realtime (SSE) subscription open on the
+        hr_timesheets collection so a shift started/ended from the web
+        dashboard reaches this agent almost immediately — instead of only
+        being noticed on the next SETTINGS_POLL_SECONDS poll in
+        _worker_loop — closing the gap between the real clock-in/out time
+        and when the agent actually starts/stops capturing.
+
+        This is a pure latency optimization layered on top of the existing
+        poll, not a replacement for it: if this never manages to connect
+        (corporate firewall blocking SSE, PocketBase temporarily down,
+        etc.), _worker_loop's regular poll still catches every shift change
+        on its own, exactly as it did before this existed — so failures
+        here are logged and retried with backoff, never fatal or
+        user-facing.
+
+        Protocol (PocketBase realtime): GET /api/realtime opens an SSE
+        stream; the first event ("PB_CONNECT") carries a clientId. POSTing
+        {"clientId": ..., "subscriptions": ["hr_timesheets"]} back to the
+        same endpoint then subscribes it to every create/update/delete on
+        that collection network-wide — filtered down to just this
+        employee's own row here, client-side, by comparing employee_id.
+        """
+        base_url = cfg["url"]
+        employee_email = (cfg.get("employee_email") or "").strip().lower()
+        backoff = 3
+
+        while not stop_event.is_set():
+            resp = None
+            try:
+                resp = requests.get(
+                    f"{base_url}/api/realtime",
+                    headers={"Accept": "text/event-stream"},
+                    stream=True,
+                    timeout=(10, 90),
+                )
+                resp.raise_for_status()
+
+                client_id = None
+                event_name = None
+                for raw_line in resp.iter_lines(decode_unicode=True):
+                    if stop_event.is_set():
+                        break
+                    if raw_line is None:
+                        continue
+                    line = raw_line.strip()
+                    if not line:
+                        event_name = None  # blank line ends one SSE event block
+                        continue
+                    if line.startswith(":"):
+                        continue  # keep-alive comment — nothing to do
+                    if line.startswith("event:"):
+                        event_name = line[len("event:"):].strip()
+                        continue
+                    if not line.startswith("data:"):
+                        continue
+
+                    payload = line[len("data:"):].strip()
+                    try:
+                        data = json.loads(payload)
+                    except Exception:
+                        continue
+
+                    if event_name == "PB_CONNECT" and client_id is None:
+                        client_id = data.get("clientId")
+                        if client_id:
+                            try:
+                                sub_resp = requests.post(
+                                    f"{base_url}/api/realtime",
+                                    headers=JSON_HEADERS,
+                                    data=json.dumps({"clientId": client_id, "subscriptions": ["hr_timesheets"]}),
+                                    timeout=15,
+                                )
+                                sub_resp.raise_for_status()
+                                backoff = 3  # clean connect + subscribe — reset backoff for next time
+                            except Exception as e:
+                                print(f"[info] Realtime subscribe request failed, will retry: {e}")
+                    elif event_name == "hr_timesheets":
+                        record = data.get("record") or {}
+                        # employee_id on hr_timesheets stores the employee's
+                        # email (see check_active_shift) — matches this
+                        # agent's own connected email regardless of which
+                        # employee's shift change triggered the event.
+                        record_email = (record.get("employee_id") or "").strip().lower()
+                        if record_email and record_email == employee_email:
+                            self.wake_event.set()
+            except Exception as e:
+                print(f"[info] Realtime connection unavailable ({e}); relying on regular polling.")
+            finally:
+                if resp is not None:
+                    try:
+                        resp.close()
+                    except Exception:
+                        pass
+
+            if stop_event.is_set():
+                break
+            stop_event.wait(backoff)
+            backoff = min(backoff * 2, 30)
 
     def _inactivity_loop(self, cfg, stop_event):
         """Samples the cursor position every MOUSE_POLL_SECONDS. Whenever the
@@ -1169,9 +1415,11 @@ class TrackerApp:
                 self.detail_var.set(s["last_error"])
             elif s.get("enabled"):
                 self.status_var.set("🟢 Tracking Active")
-                last = s.get("last_capture")
-                last_str = self._format_time(last) if last else "not yet"
-                self.detail_var.set(f"Interval: every {s.get('interval') or '?'} min\nLast capture: {last_str}")
+                # Deliberately doesn't show the capture interval or last-capture
+                # time to the employee — that level of detail about exactly
+                # when/how often screenshots are taken is HR/Admin-facing only
+                # (see TrackingView.tsx), not something surfaced in this app.
+                self.detail_var.set("Your screen activity is being monitored for this shift, per your employer's tracking policy.")
             elif s.get("enabled_by_hr") and not s.get("shift_active"):
                 self.status_var.set("⏸ Tracking Paused")
                 self.detail_var.set("Waiting for your shift to start.\nTracking will automatically resume when you clock in.")
@@ -1225,6 +1473,41 @@ class TrackerApp:
             self.quit_app()
 
     def quit_app(self):
+        # If a shift is currently active and being tracked, quitting the app
+        # outright (not just minimizing to tray) would otherwise leave that
+        # shift running with no agent reporting screenshots/inactivity at
+        # all. Rather than let that happen silently, warn the employee and
+        # auto-end (clock out) the shift as part of quitting — matches
+        # ending it manually from the web dashboard.
+        with self.state_lock:
+            shift_active = bool(self.state.get("shift_active"))
+            enabled_by_hr = bool(self.state.get("enabled_by_hr"))
+            employee_email = self.state.get("employee_email") or (self.cfg or {}).get("employee_email")
+
+        if self.cfg and shift_active and enabled_by_hr:
+            proceed = messagebox.askyesno(
+                APP_NAME,
+                "Your shift is currently active and being tracked.\n\n"
+                "Quitting this app now will automatically end (clock out) your shift, "
+                "so it's never left running un-monitored.\n\n"
+                "Quit and end your shift now?",
+            )
+            if not proceed:
+                return
+            try:
+                auto_clock_out(self.cfg["url"], employee_email)
+            except Exception as e:
+                print(f"[warn] Auto clock-out on quit failed: {e}")
+
+        # Tell the server this device is gone right now, rather than letting
+        # the web dashboard keep showing "connected" until the last
+        # heartbeat ages past its staleness window (see clear_heartbeat).
+        if self.cfg:
+            try:
+                clear_heartbeat(self.cfg["url"], employee_email)
+            except Exception as e:
+                print(f"[warn] Clearing heartbeat on quit failed: {e}")
+
         self.stop_event.set()
         if self.tray_icon:
             try:
@@ -1238,7 +1521,11 @@ class TrackerApp:
             self.root.after(0, self.show_window)
 
         def on_quit(icon, item):
-            icon.stop()
+            # Don't stop the tray icon here — quit_app() may prompt to
+            # confirm ending an active tracked shift and return early on
+            # "No", in which case the app (and its tray icon) should keep
+            # running normally. quit_app() itself stops the tray icon once
+            # it actually decides to exit.
             self.root.after(0, self.quit_app)
 
         menu = pystray.Menu(
@@ -1250,6 +1537,20 @@ class TrackerApp:
 
 
 def main():
+    if not acquire_single_instance_lock():
+        # Another copy is already running — surface a clear popup instead of
+        # silently opening a second window (which would run a second,
+        # redundant capture/heartbeat loop and fight the first instance for
+        # the device-connection slot).
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showwarning(
+            APP_NAME,
+            f"{APP_NAME} is already running.\n\n" + tray_location_hint(),
+        )
+        root.destroy()
+        sys.exit(0)
+
     root = tk.Tk()
     TrackerApp(root)
     root.mainloop()
