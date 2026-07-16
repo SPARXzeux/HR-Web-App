@@ -507,6 +507,31 @@ def auto_clock_out(base_url, employee_email):
     return True
 
 
+def shift_stop_signal_key_for(email):
+    return "shift_stop_signal_" + re.sub(r"[^a-z0-9]", "_", (email or "").lower())
+
+
+def notify_shift_auto_stopped(base_url, employee_email, reason="tracker_closed"):
+    """Writes a one-shot "your shift was just auto-ended" signal the web
+    dashboard polls for (see shiftStopSignalKeyFor/getShiftStopSignal in
+    hrData.ts). Called right after a successful auto_clock_out() so the
+    Employee dashboard — if it happens to be open in a browser somewhere —
+    can pop up an explanation immediately, instead of the employee only
+    finding out at their next login (see the existing shift_auto_stopped_*
+    localStorage flag, which still covers the "wasn't looking at the
+    dashboard right now" case)."""
+    if not employee_email:
+        return
+    try:
+        pb_set_kv(base_url, shift_stop_signal_key_for(employee_email), {
+            "employeeEmail": employee_email,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "reason": reason,
+        })
+    except Exception as e:
+        print(f"[warn] Writing shift-stop signal failed: {e}")
+
+
 # ─────────────────────── connection heartbeat / single-device claim ─────────
 #
 # Lets the web dashboard show a live "app is connected" indicator, and makes
@@ -1495,7 +1520,8 @@ class TrackerApp:
             if not proceed:
                 return
             try:
-                auto_clock_out(self.cfg["url"], employee_email)
+                if auto_clock_out(self.cfg["url"], employee_email):
+                    notify_shift_auto_stopped(self.cfg["url"], employee_email, reason="tracker_closed")
             except Exception as e:
                 print(f"[warn] Auto clock-out on quit failed: {e}")
 

@@ -78,6 +78,13 @@ export default function EmployeeDashboard() {
   const [trackerHeartbeat, setTrackerHeartbeat] = useState<TrackerHeartbeat | null>(null);
   const [showTrackerRequiredModal, setShowTrackerRequiredModal] = useState(false);
   const [checkingTracker, setCheckingTracker] = useState(false);
+  // Popped up the moment the desktop tracker app tells the server it just
+  // auto-ended this employee's shift because it was closed mid-shift (see
+  // notify_shift_auto_stopped in agent_gui.py / getShiftStopSignal in
+  // hrData.ts) — as opposed to the shift_auto_stopped_<email> localStorage
+  // flag, which only surfaces this at the *next login*. This one shows
+  // immediately if the dashboard happens to already be open in a browser.
+  const [shiftStopModal, setShiftStopModal] = useState(false);
 
   const profileRef = useRef<Profile | null>(null);
   const warehousesRef = useRef<Warehouse[]>([]);
@@ -150,6 +157,33 @@ export default function EmployeeDashboard() {
     };
     check();
     const interval = setInterval(check, 30000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [userProfile?.email]);
+
+  // Poll for a "tracker was just closed mid-shift" signal from the desktop
+  // agent. Polls faster than the heartbeat check above (10s) since the
+  // whole point is to feel immediate — the employee closed the app, so
+  // they're looking right at their screen when it happens.
+  useEffect(() => {
+    if (!userProfile?.email) return;
+    let cancelled = false;
+    const ackKey = `shift_stop_ack_${userProfile.email.toLowerCase()}`;
+    const check = async () => {
+      const signal = await hrActions.getShiftStopSignal(userProfile.email);
+      if (cancelled || !signal?.timestamp) return;
+      if (window.localStorage.getItem(ackKey) === signal.timestamp) return; // already shown
+      window.localStorage.setItem(ackKey, signal.timestamp);
+      // Only pop up if this tab still thought the shift was active — avoids
+      // surfacing a stale signal for a shift that was already ended some
+      // other way long before this tab loaded.
+      if (shiftActiveRef.current) {
+        setShiftActive(false);
+        await refetchTimesheets();
+        setShiftStopModal(true);
+      }
+    };
+    check();
+    const interval = setInterval(check, 10000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [userProfile?.email]);
 
@@ -751,6 +785,36 @@ export default function EmployeeDashboard() {
               </button>
               <button
                 onClick={() => setShowTrackerRequiredModal(false)}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Tracker-closed-mid-shift notice — see the shift-stop-signal polling
+          effect above. Blocking (no backdrop-click dismiss expected) since
+          this is important enough that it shouldn't be missed by accident. */}
+      {shiftStopModal && (
+        <Modal isOpen onClose={() => setShiftStopModal(false)} title="Tracker Closed — Shift Ended">
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-150 p-4 rounded-xl">
+              <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-slate-700 font-semibold leading-relaxed">
+                The DelCargo Tracker app on your computer was closed while your shift was active, so your shift has been automatically ended. If this wasn't intentional, reopen the tracker app and start a new shift to resume being tracked.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+              <button
+                onClick={() => router.push('/employee/tracker')}
+                className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
+              >
+                Go to Tracker Setup
+              </button>
+              <button
+                onClick={() => setShiftStopModal(false)}
                 className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
               >
                 Close

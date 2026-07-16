@@ -215,6 +215,18 @@ export interface TrackerHeartbeat {
 }
 export const TRACKER_HEARTBEAT_STALE_MS = 3 * 60 * 1000;
 
+// One-shot "your shift was just auto-ended by the desktop tracker" signal
+// (see notify_shift_auto_stopped in tracker-agent/agent_gui.py, written
+// right after quitting the app auto-clocks someone out). The Employee
+// dashboard polls for this so it can pop up an explanation immediately if
+// it's open in a browser somewhere, on top of (not instead of) the existing
+// shift_auto_stopped_<email> localStorage flag that already covers the
+// "wasn't looking at the dashboard right now" case at next login.
+export interface ShiftStopSignal {
+  employeeEmail: string; timestamp: string; reason: 'tracker_closed' | string;
+}
+const shiftStopSignalKeyFor = (email: string) => `shift_stop_signal_${(email || '').toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
 // Single-active-session enforcement for Employee (and Team Lead, who shares
 // the Employee dashboard) accounts only — Admin/HR are exempt and may be
 // signed in from multiple browsers/devices at once (see auth/page.tsx).
@@ -1414,6 +1426,14 @@ export const hrActions = {
     pbGetKV(`tracker_heartbeat_${email.toLowerCase().replace(/[^a-z0-9]/g, '_')}`),
   getAllTrackerHeartbeats: async (): Promise<TrackerHeartbeat[]> =>
     (await pbGetKVByPrefix('tracker_heartbeat_')).map(row => row.value as TrackerHeartbeat),
+  // See ShiftStopSignal above — the tracker agent writes this the instant it
+  // auto-clocks someone out from quitting. Never deleted server-side (the
+  // agent just overwrites it on the next occurrence); the caller is
+  // responsible for tracking which timestamp it's already shown a popup for
+  // (see the localStorage check in employee/page.tsx) so the same signal
+  // doesn't re-trigger the modal on every poll.
+  getShiftStopSignal: (email: string): Promise<ShiftStopSignal | null> =>
+    pbGetKV(shiftStopSignalKeyFor(email)),
   isHeartbeatLive: (hb: TrackerHeartbeat | null): boolean =>
     !!hb?.lastSeenAt && (Date.now() - new Date(hb.lastSeenAt).getTime()) < TRACKER_HEARTBEAT_STALE_MS,
 
