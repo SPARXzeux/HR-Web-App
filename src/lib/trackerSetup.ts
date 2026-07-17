@@ -31,6 +31,17 @@ export function detectOS(): 'windows' | 'mac' | 'other' {
   return 'other';
 }
 
+/** True when this code is running inside the Capacitor-wrapped native
+ * mobile app (Android/iOS — see capacitor.config.ts), as opposed to a
+ * regular desktop/mobile web browser. Same detection PocketBase's own
+ * client uses (src/lib/pocketbase.ts) to pick its API URL — kept as a
+ * separate export here since it's also needed for UI-only decisions
+ * (e.g. blocking manual shift start when screen tracking is required,
+ * since the desktop tracker agent can never run on a phone). */
+export function isNativeMobileApp(): boolean {
+  return typeof window !== 'undefined' && !!(window as any).Capacitor?.isNativePlatform?.();
+}
+
 /** The PocketBase server URL used by both the web app and tracker agents. */
 export const POCKETBASE_URL = 'http://157.230.7.89';
 

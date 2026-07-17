@@ -4,7 +4,57 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Team, Profile, Message, useMessages, useTeamDocuments, hrActions, displayName } from '@/lib/hrData';
 import { Avatar } from './Avatar';
 import { TeamDocumentsPanel } from './TeamDocumentsPanel';
-import { Send, Paperclip, FileText, Download, ShieldCheck, Loader2, Crown, Search, SlidersHorizontal, X, Megaphone, MessageCircle, FolderOpen } from 'lucide-react';
+import { Send, Paperclip, FileText, Download, ShieldCheck, Loader2, Crown, Search, SlidersHorizontal, X, Megaphone, MessageCircle, FolderOpen, Smile } from 'lucide-react';
+
+// Curated, no-dependency emoji set for the composer's emoji picker — avoids
+// pulling in an emoji-picker package (and its bundle size / build-tool
+// dependency) just for this. Grouped loosely so the picker doesn't read as
+// a random wall of glyphs; browsers/OSes render these as native emoji, no
+// image assets needed.
+const EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
+  { label: 'Smileys', emojis: ['😀', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '😉', '😊', '😇', '🙃', '😍', '🥰', '😘', '😜', '🤔', '🤨', '😐', '😑', '😴', '🥱', '😷', '🤒'] },
+  { label: 'Gestures', emojis: ['👍', '👎', '👏', '🙌', '🙏', '💪', '🤝', '✌️', '🤞', '👌', '👋', '🤙', '✋'] },
+  { label: 'Hearts', emojis: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '💯', '✨', '🔥', '⭐'] },
+  { label: 'Work', emojis: ['✅', '❌', '⚠️', '📌', '📎', '📅', '⏰', '💼', '📈', '📉', '💰', '🎯', '🚀', '🛠️', '📝', '📦', '🚚', '☕'] },
+  { label: 'Reactions', emojis: ['🎉', '👀', '💡', '🙌', '😢', '😡', '😮', '🤝', '👏', '🥳'] },
+];
+
+function EmojiPicker({ onPick, onClose }: { onPick: (emoji: string) => void; onClose: () => void }) {
+  // Only Escape is handled here. Outside-click is handled one level up by
+  // the toggle button's own wrapper (see emojiWrapperRef below) — doing it
+  // here too would race with the toggle button's onClick: mousedown closes
+  // the picker first, then the button's click re-opens it, so the button
+  // would appear to do nothing when clicked while the picker is open.
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [onClose]);
+
+  return (
+    <div
+      className="absolute bottom-full right-0 mb-1 w-64 max-h-72 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg z-20 p-2.5 space-y-2"
+    >
+      {EMOJI_GROUPS.map(group => (
+        <div key={group.label}>
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider px-0.5 mb-1">{group.label}</p>
+          <div className="grid grid-cols-8 gap-0.5">
+            {group.emojis.map(emoji => (
+              <button
+                key={emoji}
+                type="button"
+                onMouseDown={e => { e.preventDefault(); onPick(emoji); }}
+                className="text-lg leading-none p-1 rounded-lg hover:bg-slate-100 transition-colors active:scale-90"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 interface TeamChatViewProps {
   teams: Team[];
@@ -142,9 +192,26 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
   const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilter>('all');
   const [sizeFilter, setSizeFilter] = useState<SizeFilter>('all');
   const [showAnnouncements, setShowAnnouncements] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const emojiWrapperRef = useRef<HTMLDivElement>(null);
+
+  // Closes the emoji picker on an outside click. Lives up here (wrapping
+  // both the toggle button and the panel) rather than inside EmojiPicker
+  // itself so a click on the toggle button isn't treated as "outside" —
+  // see the comment on EmojiPicker above.
+  useEffect(() => {
+    if (!showEmojiPicker) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (emojiWrapperRef.current && !emojiWrapperRef.current.contains(e.target as Node)) {
+        setShowEmojiPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [showEmojiPicker]);
 
   useEffect(() => {
     if (!activeTeamId && teams.length > 0) setActiveTeamId(teams[0].id);
@@ -171,6 +238,7 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
     setMention(null);
     setMentionedProfiles(new Map());
     setDocTag(null);
+    setShowEmojiPicker(false);
   }, [activeTeamId]);
 
   const emailToProfile = new Map(allProfiles.map(p => [p.email.toLowerCase(), p]));
@@ -328,9 +396,30 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
     });
   };
 
+  // Plain insertion at the current cursor position — unlike pickMention/
+  // pickDocTag this isn't replacing a "@query"/"#query" trigger, just
+  // dropping the emoji in wherever the cursor currently is.
+  const insertEmoji = (emoji: string) => {
+    const cursor = textareaRef.current?.selectionStart ?? draft.length;
+    const before = draft.slice(0, cursor);
+    const after = draft.slice(cursor);
+    const newValue = `${before}${emoji}${after}`;
+    setDraft(newValue);
+    setShowEmojiPicker(false);
+
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      const pos = before.length + emoji.length;
+      el.setSelectionRange(pos, pos);
+    });
+  };
+
   const handleSend = async () => {
     if (!activeTeamId || sending) return;
     if (!draft.trim() && !pendingFile) return;
+    setShowEmojiPicker(false);
     const senderProfile = emailToProfile.get(currentUserEmail.toLowerCase());
     const teamLabel = activeTeam?.name || 'Team Chat';
     const draftAtSend = draft;
@@ -692,6 +781,21 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
               >
                 <Megaphone className="h-4 w-4" />
               </button>
+              <div ref={emojiWrapperRef} className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowEmojiPicker(v => !v)}
+                  title="Insert emoji"
+                  className={`p-2.5 rounded-xl transition-all ${
+                    showEmojiPicker ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-500'
+                  }`}
+                >
+                  <Smile className="h-4 w-4" />
+                </button>
+                {showEmojiPicker && (
+                  <EmojiPicker onPick={insertEmoji} onClose={() => setShowEmojiPicker(false)} />
+                )}
+              </div>
               <textarea
                 ref={textareaRef}
                 value={draft}

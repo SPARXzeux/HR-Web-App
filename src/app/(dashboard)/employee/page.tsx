@@ -11,7 +11,8 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Avatar } from '@/components/ui/Avatar';
-import { Clock, CheckCircle2, ChevronRight, AlertTriangle, Briefcase, Calendar, User, Flag, Monitor, MapPin, LocateFixed, Wifi, WifiOff } from 'lucide-react';
+import { Clock, CheckCircle2, ChevronRight, AlertTriangle, Briefcase, Calendar, User, Flag, Monitor, MapPin, LocateFixed, Wifi, WifiOff, Smartphone } from 'lucide-react';
+import { isNativeMobileApp } from '@/lib/trackerSetup';
 import { checkGeofence } from '@/lib/geofence';
 import { useRouter } from 'next/navigation';
 
@@ -77,7 +78,14 @@ export default function EmployeeDashboard() {
   // USA employees on automatic GPS-geofence clock-in are unaffected.
   const [trackerHeartbeat, setTrackerHeartbeat] = useState<TrackerHeartbeat | null>(null);
   const [showTrackerRequiredModal, setShowTrackerRequiredModal] = useState(false);
+  const [showMobileBlockedModal, setShowMobileBlockedModal] = useState(false);
   const [checkingTracker, setCheckingTracker] = useState(false);
+  // The desktop tracker agent (screenshots/activity monitoring) can only
+  // ever run on a Windows/Mac desktop — never inside the Capacitor-wrapped
+  // native mobile app. So if HR/Admin has screen tracking enabled for this
+  // employee, a shift must not be startable from the mobile app at all,
+  // regardless of tracker-connection state — there's no desktop to connect.
+  const isMobileApp = isNativeMobileApp();
   // Popped up the moment the desktop tracker app tells the server it just
   // auto-ended this employee's shift because it was closed mid-shift (see
   // notify_shift_auto_stopped in agent_gui.py / getShiftStopSignal in
@@ -331,8 +339,8 @@ export default function EmployeeDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+
         {/* Left Column (8 cols): Stats, Tasks, Leaves */}
         <div className="lg:col-span-8 space-y-6">
           
@@ -561,12 +569,24 @@ export default function EmployeeDashboard() {
                 <div className="space-y-2">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Shift Controls</p>
 
+                  {/* Mobile-app block — takes priority over the tracker-connection
+                      notice below. Screen tracking requires the desktop agent,
+                      which can never run inside the native mobile app, so a
+                      tracked employee must switch to a desktop browser (or the
+                      desktop tracker app) to start their shift at all. */}
+                  {userProfile && isTrackingLiveFor(userProfile) && isMobileApp && !shiftActive && (
+                    <div className="flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-[10px] font-bold bg-rose-50 border-rose-150 text-rose-700">
+                      <Smartphone className="h-3 w-3 shrink-0" />
+                      Screen tracking is enabled for your account — shifts can only be started from a desktop computer, not the mobile app.
+                    </div>
+                  )}
+
                   {/* Tracker-required notice — only for employees HR/Admin has
                       enabled screen tracking for. Blocks manual Start Shift
                       until the desktop agent is actually connected, so a
                       shift can never run un-monitored just because the
                       employee forgot to open the tracker. */}
-                  {userProfile && isTrackingLiveFor(userProfile) && !shiftActive && (
+                  {userProfile && isTrackingLiveFor(userProfile) && !isMobileApp && !shiftActive && (
                     <div className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-[10px] font-bold ${hrActions.isHeartbeatLive(trackerHeartbeat) ? 'bg-emerald-50 border-emerald-150 text-emerald-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
                       {hrActions.isHeartbeatLive(trackerHeartbeat) ? <Wifi className="h-3 w-3 shrink-0" /> : <WifiOff className="h-3 w-3 shrink-0" />}
                       {hrActions.isHeartbeatLive(trackerHeartbeat)
@@ -579,7 +599,14 @@ export default function EmployeeDashboard() {
                     <button
                       onClick={async () => {
                         if (!userProfile?.email) return;
-                        // Gate: if this account has screen tracking enabled,
+                        // Gate 1: screen tracking + mobile app is a hard block —
+                        // there's no desktop agent to connect to on a phone, so
+                        // never even attempt the tracker-connection check below.
+                        if (isTrackingLiveFor(userProfile) && isMobileApp) {
+                          setShowMobileBlockedModal(true);
+                          return;
+                        }
+                        // Gate 2: if this account has screen tracking enabled,
                         // the desktop agent must be connected first — never
                         // silently allow a shift to start un-monitored.
                         // Re-checked live here (not just the last 30s-old
@@ -608,7 +635,7 @@ export default function EmployeeDashboard() {
                         await hrActions.addNotification('all', 'hr', `${userProfile.fullName} started shift manually.`);
                         await hrActions.addNotification('all', 'admin', `${userProfile.fullName} started shift manually.`);
                       }}
-                      disabled={shiftActive || checkingTracker}
+                      disabled={shiftActive || checkingTracker || (!!userProfile && isTrackingLiveFor(userProfile) && isMobileApp)}
                       className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold py-2 px-3 rounded-lg text-xs transition-all active:scale-97 text-center shadow-sm"
                     >
                       {checkingTracker ? 'Checking tracker…' : 'Start Shift'}
@@ -763,6 +790,30 @@ export default function EmployeeDashboard() {
         </div>
 
       </div>
+
+      {/* Mobile-blocked prompt — shown when Start Shift is blocked because
+          screen tracking is enabled for this employee and they're on the
+          native mobile app, which has no desktop agent to run the tracker. */}
+      {showMobileBlockedModal && (
+        <Modal isOpen onClose={() => setShowMobileBlockedModal(false)} title="Desktop Required for This Shift">
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 bg-rose-50 border border-rose-150 p-4 rounded-xl">
+              <Smartphone className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-slate-700 font-semibold leading-relaxed">
+                Your account has screen tracking enabled by HR/Admin. Since the DelCargo Tracker app only runs on Windows/Mac, shifts for tracked accounts can&apos;t be started from the mobile app. Please start your shift from a desktop computer with the tracker app installed and running.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+              <button
+                onClick={() => setShowMobileBlockedModal(false)}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Tracker-required prompt — shown when Start Shift is blocked because
           screen tracking is enabled for this employee but the desktop agent

@@ -6,7 +6,37 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { useProfiles, useTickets, hrActions, Ticket, Profile, markTicketActivitySeen } from '@/lib/hrData';
 import { getSessionEmail } from '@/lib/session';
-import { HelpCircle, Plus, Send, Lock, RotateCcw, User, Mail, Calendar, Briefcase, Users, Eye, CheckCircle2, AlertCircle } from 'lucide-react';
+import { compressImageToWebP, validatePdfSize, fileToDataUrl, MAX_DOCUMENT_IMAGE_BYTES } from '@/lib/imageCompressor';
+import { HelpCircle, Plus, Send, Lock, RotateCcw, User, Mail, Calendar, Briefcase, Users, Eye, CheckCircle2, AlertCircle, Paperclip, X, FileText, Download } from 'lucide-react';
+
+// Converts an uploaded attachment File to a storable data URL: images are
+// compressed to WebP (max 3 MB), PDFs are stored as-is after a size check
+// (max 5 MB) — mirrors the same helper in employee/profile/page.tsx, since
+// hr_tickets has no dedicated file field to upload to (see the TicketReply
+// comment in hrData.ts).
+async function fileToStoredAttachment(file: File): Promise<{ data: string; error: string | null }> {
+  if (file.type === 'application/pdf') {
+    const err = validatePdfSize(file);
+    if (err) return { data: '', error: err };
+    return { data: await fileToDataUrl(file), error: null };
+  }
+  if (file.type.startsWith('image/')) {
+    const data = await compressImageToWebP(file, 0.8, MAX_DOCUMENT_IMAGE_BYTES);
+    return { data, error: null };
+  }
+  return { data: '', error: 'Only image files or PDFs are supported.' };
+}
+
+function isImageAttachment(name?: string): boolean {
+  return /\.(png|jpe?g|gif|webp|bmp)$/i.test(name || '');
+}
+
+function formatBytes(bytes?: number): string {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 interface TicketsViewProps {
   role: 'admin' | 'hr' | 'employee' | 'team_lead';
@@ -28,6 +58,16 @@ export function TicketsView({ role }: TicketsViewProps) {
   const [desc, setDesc] = useState('');
   const [replyMsg, setReplyMsg] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Attachments
+  const [newTicketFile, setNewTicketFile] = useState<File | null>(null);
+  const [newTicketFileError, setNewTicketFileError] = useState('');
+  const [replyFile, setReplyFile] = useState<File | null>(null);
+  const [replyFileError, setReplyFileError] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
+  const newTicketFileInputRef = useRef<HTMLInputElement>(null);
+  const replyFileInputRef = useRef<HTMLInputElement>(null);
+  const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -71,16 +111,64 @@ export function TicketsView({ role }: TicketsViewProps) {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [selectedTicket?.replies]);
 
+  // Best-effort sweep for attachments on tickets closed 15+ days ago — see
+  // checkTicketAttachmentRetention in hrData.ts. There's no server cron in
+  // this app, so this only runs when someone actually opens the Tickets
+  // page (same pattern as checkScreenshotRetention elsewhere); a 15-day
+  // window doesn't need a tight polling interval, so this just runs once
+  // per page visit and refetches so a just-scrubbed attachment disappears
+  // from view immediately.
+  useEffect(() => {
+    hrActions.checkTicketAttachmentRetention().then(() => refetchTickets());
+  }, []);
+
+  const handleNewTicketFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setNewTicketFileError('');
+    setNewTicketFile(file);
+  };
+
+  const handleReplyFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setReplyFileError('');
+    setReplyFile(file);
+  };
+
   const handleOpenTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !desc || !userProfile) return;
+    setNewTicketFileError('');
 
-    await hrActions.createTicket({
+    let attachment: { data: string; error: string | null } | null = null;
+    if (newTicketFile) {
+      attachment = await fileToStoredAttachment(newTicketFile);
+      if (attachment.error) { setNewTicketFileError(attachment.error); return; }
+    }
+
+    const created = await hrActions.createTicket({
       employeeName: userProfile.fullName,
       employeeEmail: userProfile.email,
       title,
       description: desc,
     });
+
+    // hr_tickets has no attachment column, so a file selected at filing time
+    // is attached as an immediate follow-up reply on the freshly created
+    // ticket instead (see createTicket's comment in hrData.ts).
+    if (attachment && !attachment.error) {
+      await hrActions.addTicketReply(created, {
+        senderName: userProfile.fullName,
+        senderRole: role,
+        message: '',
+        attachmentName: newTicketFile!.name,
+        attachmentUrl: attachment.data,
+        attachmentSize: newTicketFile!.size,
+      });
+    }
 
     refetchTickets();
     setSuccess('Support ticket opened successfully!');
@@ -88,24 +176,46 @@ export function TicketsView({ role }: TicketsViewProps) {
       setIsNewOpen(false);
       setTitle('');
       setDesc('');
+      setNewTicketFile(null);
       setSuccess('');
     }, 1200);
   };
 
-  const handleSendReply = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!replyMsg.trim() || !selectedTicket) return;
+  // Shared by both the form's onSubmit and the textarea's Enter-to-send
+  // keydown handler, so neither has to fake up a synthetic FormEvent.
+  const sendReply = async () => {
+    if ((!replyMsg.trim() && !replyFile) || !selectedTicket || sendingReply) return;
+    setReplyFileError('');
 
     const senderName = userProfile?.fullName || (role === 'hr' ? 'HR Manager' : role === 'admin' ? 'System Admin' : currentEmail.split('@')[0]);
 
-    await hrActions.addTicketReply(selectedTicket, {
-      senderName,
-      senderRole: role,
-      message: replyMsg.trim(),
-    });
+    setSendingReply(true);
+    try {
+      let attachmentFields: { attachmentName?: string; attachmentUrl?: string; attachmentSize?: number } = {};
+      if (replyFile) {
+        const { data, error } = await fileToStoredAttachment(replyFile);
+        if (error) { setReplyFileError(error); return; }
+        attachmentFields = { attachmentName: replyFile.name, attachmentUrl: data, attachmentSize: replyFile.size };
+      }
 
-    refetchTickets();
-    setReplyMsg('');
+      await hrActions.addTicketReply(selectedTicket, {
+        senderName,
+        senderRole: role,
+        message: replyMsg.trim(),
+        ...attachmentFields,
+      });
+
+      refetchTickets();
+      setReplyMsg('');
+      setReplyFile(null);
+    } finally {
+      setSendingReply(false);
+    }
+  };
+
+  const handleSendReply = (e: React.FormEvent) => {
+    e.preventDefault();
+    sendReply();
   };
 
   const handleCloseTicket = async (id: string) => {
@@ -306,10 +416,27 @@ export function TicketsView({ role }: TicketsViewProps) {
                         }`}>
                           {rep.senderName} ({rep.senderRole.toUpperCase()}) {isAdminViewer && isHrSender && '★'}
                         </p>
-                        <p className="font-medium leading-relaxed">{rep.message}</p>
+                        {rep.message && <p className="font-medium leading-relaxed">{rep.message}</p>}
+                        {rep.attachmentUrl && (
+                          isImageAttachment(rep.attachmentName) ? (
+                            <a href={rep.attachmentUrl} target="_blank" rel="noreferrer" className={rep.message ? 'block mt-2' : 'block'}>
+                              <img src={rep.attachmentUrl} alt={rep.attachmentName || 'attachment'} className="rounded-lg max-h-56 object-cover" />
+                            </a>
+                          ) : (
+                            <a
+                              href={rep.attachmentUrl}
+                              download={rep.attachmentName}
+                              className={`flex items-center gap-1.5 text-[11px] font-bold underline ${rep.message ? 'mt-2' : ''} ${isSenderSelf ? 'text-orange-100' : 'text-amber-700'}`}
+                            >
+                              <FileText className="h-3.5 w-3.5 shrink-0" /> {rep.attachmentName || 'Attachment'}
+                              {rep.attachmentSize !== undefined && <span className="font-semibold opacity-80">({formatBytes(rep.attachmentSize)})</span>}
+                              <Download className="h-3 w-3 shrink-0" />
+                            </a>
+                          )
+                        )}
                         <span className={`block text-[9px] mt-1 text-right ${
-                          isSenderSelf 
-                            ? 'text-orange-200' 
+                          isSenderSelf
+                            ? 'text-orange-200'
                             : isAdminViewer && isHrSender
                               ? 'text-orange-700/80'
                               : 'text-slate-400'
@@ -326,29 +453,63 @@ export function TicketsView({ role }: TicketsViewProps) {
               {/* Chat input bar */}
               <div className="p-4 border-t border-slate-200 bg-white">
                 {isClosed ? (
-                  <div className="text-xs text-slate-400 font-semibold italic text-center py-2 bg-slate-50 border border-slate-100 rounded-lg flex items-center justify-center gap-1">
-                    <Lock className="h-3.5 w-3.5" /> This support ticket is closed and read-only.
+                  <div className="text-xs text-slate-400 font-semibold italic text-center py-2 bg-slate-50 border border-slate-100 rounded-lg flex items-center justify-center gap-1 flex-wrap">
+                    <Lock className="h-3.5 w-3.5 shrink-0" /> This support ticket is closed and read-only.
+                    {selectedTicket.replies.some(r => r.attachmentUrl) && (
+                      <span className="text-slate-400">Any attached files will be automatically deleted 15 days after closing.</span>
+                    )}
                   </div>
                 ) : isAdmin ? (
                   <div className="text-xs text-slate-400 font-semibold italic text-center py-2 bg-slate-50 border border-slate-100 rounded-lg">
                     🔒 Admins can only view logs and history. Replies are disabled.
                   </div>
                 ) : (
-                  <form onSubmit={handleSendReply} className="flex gap-2">
-                    <input
-                      type="text"
-                      value={replyMsg}
-                      onChange={e => setReplyMsg(e.target.value)}
-                      placeholder="Type your support message..."
-                      className="flex-1 bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs focus:border-orange-500 outline-none text-slate-900"
-                    />
-                    <button
-                      type="submit"
-                      disabled={!replyMsg.trim()}
-                      className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-semibold p-2.5 rounded-lg active:scale-97 transition-all flex items-center justify-center shadow-sm"
-                    >
-                      <Send className="h-4 w-4" />
-                    </button>
+                  <form onSubmit={handleSendReply} className="space-y-2">
+                    {replyFileError && (
+                      <div className="p-2 text-[10px] bg-rose-50 text-rose-600 border border-rose-100 rounded-lg font-semibold flex items-center gap-1.5">
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />{replyFileError}
+                      </div>
+                    )}
+                    {replyFile && (
+                      <div className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-[10px] font-semibold text-slate-600">
+                        <span className="flex items-center gap-1.5 truncate"><FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" /> {replyFile.name}</span>
+                        <button type="button" onClick={() => setReplyFile(null)} className="text-slate-400 hover:text-rose-600 shrink-0">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                    <div className="flex gap-2 items-end">
+                      <button
+                        type="button"
+                        onClick={() => replyFileInputRef.current?.click()}
+                        title="Attach a file"
+                        className="p-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 transition-all active:scale-95 shrink-0"
+                      >
+                        <Paperclip className="h-4 w-4" />
+                      </button>
+                      <input ref={replyFileInputRef} type="file" accept="image/*,application/pdf" onChange={handleReplyFileChange} className="hidden" />
+                      <textarea
+                        ref={replyTextareaRef}
+                        value={replyMsg}
+                        onChange={e => setReplyMsg(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            sendReply();
+                          }
+                        }}
+                        placeholder="Type your support message... (Shift+Enter for a new line)"
+                        rows={1}
+                        className="flex-1 bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs focus:border-orange-500 outline-none text-slate-900 resize-none max-h-28"
+                      />
+                      <button
+                        type="submit"
+                        disabled={(!replyMsg.trim() && !replyFile) || sendingReply}
+                        className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-semibold p-2.5 rounded-lg active:scale-97 transition-all flex items-center justify-center shadow-sm shrink-0"
+                      >
+                        <Send className="h-4 w-4" />
+                      </button>
+                    </div>
                   </form>
                 )}
               </div>
@@ -362,7 +523,7 @@ export function TicketsView({ role }: TicketsViewProps) {
       </div>
 
       {/* New ticket modal */}
-      <Modal isOpen={isNewOpen} onClose={() => setIsNewOpen(false)} title="File Support Ticket">
+      <Modal isOpen={isNewOpen} onClose={() => { setIsNewOpen(false); setNewTicketFile(null); setNewTicketFileError(''); }} title="File Support Ticket">
         <form onSubmit={handleOpenTicket} className="space-y-4">
           {success && (
             <div className="p-3 text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg font-semibold flex items-center gap-1.5">
@@ -380,8 +541,34 @@ export function TicketsView({ role }: TicketsViewProps) {
             <textarea required rows={4} value={desc} onChange={e => setDesc(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900 resize-none" placeholder="Explain the situation in details so HR can assist you..." />
           </div>
 
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Attachment (optional)</label>
+            {newTicketFileError && (
+              <div className="p-2 text-[10px] bg-rose-50 text-rose-600 border border-rose-100 rounded-lg font-semibold flex items-center gap-1.5">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />{newTicketFileError}
+              </div>
+            )}
+            {newTicketFile ? (
+              <div className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600">
+                <span className="flex items-center gap-1.5 truncate"><FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" /> {newTicketFile.name}</span>
+                <button type="button" onClick={() => setNewTicketFile(null)} className="text-slate-400 hover:text-rose-600 shrink-0">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => newTicketFileInputRef.current?.click()}
+                className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold bg-slate-50 hover:bg-slate-100 text-slate-600 px-3 py-2.5 rounded-lg transition-all border border-dashed border-slate-250 active:scale-97"
+              >
+                <Paperclip className="h-3.5 w-3.5" /> Attach a screenshot or document
+              </button>
+            )}
+            <input ref={newTicketFileInputRef} type="file" accept="image/*,application/pdf" onChange={handleNewTicketFileChange} className="hidden" />
+          </div>
+
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-            <button type="button" onClick={() => setIsNewOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
+            <button type="button" onClick={() => { setIsNewOpen(false); setNewTicketFile(null); setNewTicketFileError(''); }} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
             <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">File Ticket</button>
           </div>
         </form>

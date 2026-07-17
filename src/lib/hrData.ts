@@ -135,6 +135,11 @@ export interface Profile {
     hrClearance: boolean;
     notes?: string;
     finalLeavePayout?: number;
+    // Only meaningful when this employee had a companyPhone on file — the
+    // company-allocated number must be handed back before offboarding
+    // completes (see confirmOffboard in UserProfileModal.tsx, which blocks
+    // submission on this when applicable).
+    companyNumberReturned?: boolean;
   };
   lastIncrementProcessedYear?: number;
   cvFileName?: string;
@@ -156,6 +161,13 @@ export interface Profile {
   approvalReviewedBy?: string;
   approvalReviewedAt?: string;
   approvalRejectionReason?: string;
+  // Contact numbers — overlay-only (no hr_profiles columns), self-service
+  // edited from the employee's own Profile page (see employee/profile/page.tsx),
+  // same pattern as bank details. personalPhone is the employee's own number;
+  // companyPhone is only set if the company has issued them a separate
+  // work/SIM number (optional).
+  personalPhone?: string;
+  companyPhone?: string;
 }
 
 // Team members and team leads only ever see the Alias (or the real name as
@@ -275,8 +287,20 @@ export interface CareerApplication {
   coverLetter: string; submittedAt: string; status: CareerApplicationStatus;
 }
 
+// hr_tickets has no dedicated file-type column (see SCHEMA_REFERENCE.md —
+// only employee_email/employee_name/subject/description/status/priority/
+// category/assigned_to/resolution/replies exist), so unlike Team Chat
+// (hr_messages.attachment, a real PocketBase file field) there's no server
+// endpoint to upload a binary to for tickets. `replies` is itself a real
+// JSON column though, so attachments here are embedded directly as base64
+// data: URLs inside the reply object — same trick already used for CV/
+// passport/identity documents elsewhere in this app. attachmentUrl is
+// therefore always a data: URL, never a real file URL; keep attachments
+// small (see MAX_DOCUMENT_IMAGE_BYTES / MAX_DOCUMENT_PDF_BYTES in
+// imageCompressor.ts) since the whole ticket round-trips on every read/write.
 export interface TicketReply {
   id: string; senderName: string; senderRole: 'employee' | 'hr' | 'admin' | 'team_lead'; message: string; timestamp: string;
+  attachmentName?: string; attachmentUrl?: string; attachmentSize?: number;
 }
 export interface Ticket {
   id: string; employeeName: string; employeeEmail: string; title: string; description: string;
@@ -389,7 +413,7 @@ const OVERLAY_KEYS: (keyof Profile)[] = [
   'offboarded', 'offboardDate', 'offboardingStatus', 'lastIncrementProcessedYear',
   'cvFileName', 'cvFileData', 'identityDocs', 'passportFileName', 'passportFileData',
   'accountCreationDate', 'alias', 'approvalStatus', 'approvalReviewedBy',
-  'approvalReviewedAt', 'approvalRejectionReason',
+  'approvalReviewedAt', 'approvalRejectionReason', 'personalPhone', 'companyPhone',
 ];
 
 function toWarehouse(w: any): Warehouse {
@@ -1267,8 +1291,13 @@ export const hrActions = {
     pbUpdate('hr_career_applications', id, { status }),
 
   // ── Tickets ───────────────────────────────────────────────────────────
-  createTicket: async (ticket: { employeeName: string; employeeEmail: string; title: string; description: string }): Promise<void> => {
-    await pbCreate('hr_tickets', {
+  // Returns the created Ticket (previously void) so callers can immediately
+  // attach a file to it via addTicketReply — hr_tickets itself has no file
+  // column, only `replies` does (see TicketReply comment above), so a
+  // ticket-creation-time attachment has to be added as a follow-up reply
+  // rather than a field on the ticket record itself.
+  createTicket: async (ticket: { employeeName: string; employeeEmail: string; title: string; description: string }): Promise<Ticket> => {
+    const created = await pbCreate('hr_tickets', {
       employee_email: ticket.employeeEmail, employee_name: ticket.employeeName, subject: ticket.title,
       description: ticket.description, status: 'open', priority: 'medium', category: 'general', assigned_to: '', resolution: '', replies: [],
     });
@@ -1276,6 +1305,7 @@ export const hrActions = {
     // notified 'hr', same gap as leave requests.
     await hrActions.addNotification('all', 'hr', `New support ticket opened: "${ticket.title}" by ${ticket.employeeName}.`);
     await hrActions.addNotification('all', 'admin', `New support ticket opened: "${ticket.title}" by ${ticket.employeeName}.`);
+    return toTicket(created);
   },
   addTicketReply: async (ticket: Ticket, reply: Omit<TicketReply, 'id' | 'timestamp'>): Promise<void> => {
     const newReply: TicketReply = { ...reply, id: `rep_${Date.now()}`, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
@@ -1292,6 +1322,51 @@ export const hrActions = {
     await hrActions.addNotification(ticket.employeeEmail, 'employee', `Support ticket "${ticket.title}" was marked as ${status}.`);
     await hrActions.addNotification('all', 'hr', `Support ticket "${ticket.title}" is now ${status}.`);
     await hrActions.addNotification('all', 'admin', `Support ticket "${ticket.title}" is now ${status}.`);
+    // Starts/clears the 15-day attachment-deletion timer (see
+    // checkTicketAttachmentRetention below) — hr_tickets has no closedAt
+    // column of its own, so this is tracked in the KV store the same way
+    // tracking settings/heartbeats are. Re-opening clears the timer so a
+    // ticket closed-then-reopened-then-closed-again gets a fresh 15 days
+    // rather than deleting attachments early based on the first close.
+    const closedAtMap = ((await pbGetKV('hr_ticket_closed_at_v1')) as Record<string, string>) || {};
+    if (status === 'closed') closedAtMap[ticket.id] = new Date().toISOString();
+    else delete closedAtMap[ticket.id];
+    await pbSetKV('hr_ticket_closed_at_v1', closedAtMap);
+  },
+  // Best-effort, client-triggered (no server cron in this app — see
+  // checkScreenshotRetention above for the same pattern) sweep that deletes
+  // any file attachments left on a ticket's replies once the ticket has
+  // been closed for 15+ days. Only strips the attachment fields —
+  // messages/replies themselves stay intact, so the conversation history
+  // remains readable, just without the (potentially sensitive) files.
+  // Called from TicketsView.tsx whenever the Tickets page is open.
+  checkTicketAttachmentRetention: async (): Promise<void> => {
+    const TICKET_ATTACHMENT_RETENTION_MS = 15 * 24 * 60 * 60 * 1000;
+    const closedAtMap = ((await pbGetKV('hr_ticket_closed_at_v1')) as Record<string, string>) || {};
+    const dueIds = Object.keys(closedAtMap).filter(id => {
+      const closedAt = new Date(closedAtMap[id]).getTime();
+      return !isNaN(closedAt) && (Date.now() - closedAt) >= TICKET_ATTACHMENT_RETENTION_MS;
+    });
+    if (dueIds.length === 0) return;
+
+    const tickets = (await pbList('hr_tickets', { filter: dueIds.map(id => `id = "${id}"`).join(' || ') })).map(toTicket);
+    let mapChanged = false;
+    for (const ticket of tickets) {
+      const hasAttachments = ticket.replies.some(r => !!r.attachmentUrl);
+      if (hasAttachments) {
+        const scrubbedReplies = ticket.replies.map(r => {
+          if (!r.attachmentUrl) return r;
+          const { attachmentUrl, attachmentName, attachmentSize, ...rest } = r;
+          return rest as TicketReply;
+        });
+        await pbUpdate('hr_tickets', ticket.id, { replies: scrubbedReplies });
+      }
+      // Whether or not there was anything to scrub (e.g. already cleaned up
+      // by another tab), this ticket is done — stop tracking it.
+      delete closedAtMap[ticket.id];
+      mapChanged = true;
+    }
+    if (mapChanged) await pbSetKV('hr_ticket_closed_at_v1', closedAtMap);
   },
 
   // ── Teams (real hr_teams: name + leadEmail + members + warehouseId) ────

@@ -19,7 +19,7 @@ import {
 import { Badge } from './Badge';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Avatar } from './Avatar';
-import { X, User, Mail, Shield, ShieldAlert, Key, DollarSign, Calendar, MapPin, Landmark, Briefcase, FileText, CheckSquare, Square, Trash2, Download } from 'lucide-react';
+import { X, User, Mail, Shield, ShieldAlert, Key, DollarSign, Calendar, MapPin, Landmark, Briefcase, FileText, CheckSquare, Square, Trash2, Download, Phone } from 'lucide-react';
 
 interface UserProfileModalProps {
   isOpen: boolean;
@@ -68,6 +68,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
   const [itClearance, setItClearance] = useState(false);
   const [financeClearance, setFinanceClearance] = useState(false);
   const [hrClearance, setHrClearance] = useState(false);
+  const [companyNumberReturned, setCompanyNumberReturned] = useState(false);
   const [notes, setNotes] = useState('');
 
   const { data: allProfiles, refetch: refetchProfiles } = useProfiles();
@@ -103,11 +104,13 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
           setItClearance(match.offboardingStatus.itClearance);
           setFinanceClearance(match.offboardingStatus.financeClearance);
           setHrClearance(match.offboardingStatus.hrClearance);
+          setCompanyNumberReturned(!!match.offboardingStatus.companyNumberReturned);
           setNotes(match.offboardingStatus.notes || '');
         } else {
           setItClearance(false);
           setFinanceClearance(false);
           setHrClearance(false);
+          setCompanyNumberReturned(false);
           setNotes('');
         }
       }
@@ -184,8 +187,16 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
     onUpdate?.();
   };
 
+  // A company-allocated number is company property — if this employee has
+  // one on file (profile.companyPhone), it must be confirmed returned
+  // before offboarding can proceed. No companyPhone on file means nothing
+  // to return, so the checklist item doesn't block in that case.
+  const companyNumberReturnRequired = !!profile.companyPhone;
+  const canSubmitOffboard = !companyNumberReturnRequired || companyNumberReturned;
+
   const handleOffboardSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canSubmitOffboard) return;
     // Don't mutate yet — require explicit confirmation first
     setShowOffboardConfirm(true);
   };
@@ -210,6 +221,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
         itClearance,
         financeClearance,
         hrClearance,
+        companyNumberReturned,
         notes,
         finalLeavePayout
       }
@@ -336,6 +348,14 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                   <p className="text-xs font-semibold text-slate-700 mt-0.5 flex items-center gap-1"><Mail className="h-3.5 w-3.5 text-slate-400" /> {profile.email}</p>
                 </div>
                 <div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase">Own Number</p>
+                  <p className="text-xs font-semibold text-slate-700 mt-0.5 flex items-center gap-1"><Phone className="h-3.5 w-3.5 text-slate-400" /> {profile.personalPhone || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase">Company Allocated Number</p>
+                  <p className="text-xs font-semibold text-slate-700 mt-0.5 flex items-center gap-1"><Phone className="h-3.5 w-3.5 text-slate-400" /> {profile.companyPhone || 'Not applicable'}</p>
+                </div>
+                <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase">System Role</p>
                   <p className="text-xs font-semibold text-slate-700 mt-0.5 flex items-center gap-1"><Shield className="h-3.5 w-3.5 text-slate-400" /> {profile.role}</p>
                 </div>
@@ -459,6 +479,11 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                     <p className="flex items-center gap-1.5">
                       {profile.offboardingStatus.hrClearance ? '🟢' : '🔴'} HR Official Signoff
                     </p>
+                    {profile.companyPhone && (
+                      <p className="flex items-center gap-1.5">
+                        {profile.offboardingStatus.companyNumberReturned ? '🟢' : '🔴'} Company Number ({profile.companyPhone}) Returned
+                      </p>
+                    )}
                     {profile.offboardingStatus.finalLeavePayout !== undefined && (
                       <p className="flex items-center gap-1.5 mt-1 pt-1.5 border-t border-rose-200/50">
                         💰 Final PTO/Sick Payout: <span className="font-bold">{formatMoney(profile.offboardingStatus.finalLeavePayout, profile.region)}</span>
@@ -702,7 +727,27 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                   />
                   3. HR Resignation clearance signed off
                 </label>
+
+                {companyNumberReturnRequired ? (
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={companyNumberReturned}
+                      onChange={e => setCompanyNumberReturned(e.target.checked)}
+                      className="rounded border-slate-350 text-orange-655 focus:ring-orange-500"
+                    />
+                    4. Company-Allocated Number ({profile.companyPhone}) Returned <span className="text-rose-600">*Required</span>
+                  </label>
+                ) : (
+                  <p className="text-[10px] text-slate-400 italic pl-0.5">4. No company-allocated number on file — nothing to return.</p>
+                )}
               </div>
+
+              {companyNumberReturnRequired && !companyNumberReturned && (
+                <p className="text-[10px] text-rose-600 font-semibold bg-rose-50 border border-rose-150 rounded-lg px-3 py-2 leading-relaxed">
+                  This employee has a company-allocated number on file. Confirm it&apos;s been returned before offboarding can be completed.
+                </p>
+              )}
 
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-500 uppercase">Offboarding Notes / Reason</label>
@@ -719,7 +764,11 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                 <button type="button" onClick={() => setIsOffboarding(false)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs">
                   Cancel
                 </button>
-                <button type="submit" className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 rounded-xl text-xs">
+                <button
+                  type="submit"
+                  disabled={!canSubmitOffboard}
+                  className="flex-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-xl text-xs"
+                >
                   Deactivate & Offboard
                 </button>
               </div>

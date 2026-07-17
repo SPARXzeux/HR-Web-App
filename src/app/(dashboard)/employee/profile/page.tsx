@@ -10,7 +10,7 @@ import { PasswordInput } from '@/components/ui/PasswordInput';
 import { AvatarCropperModal } from '@/components/ui/AvatarCropperModal';
 import {
   User, Mail, Briefcase, Calendar, Users, ShieldCheck,
-  KeyRound, CheckCircle2, AlertCircle, Star, Landmark, Pencil, Camera, FileText, Upload
+  KeyRound, CheckCircle2, AlertCircle, Star, Landmark, Pencil, Camera, FileText, Upload, Phone
 } from 'lucide-react';
 
 export default function EmployeeProfilePage() {
@@ -47,6 +47,13 @@ export default function EmployeeProfilePage() {
   const [ibanInput, setIbanInput] = useState('');
   const [bankError, setBankError] = useState('');
   const [bankSuccess, setBankSuccess] = useState('');
+
+  // Contact numbers self-service edit
+  const [isPhoneEditOpen, setIsPhoneEditOpen] = useState(false);
+  const [personalPhoneInput, setPersonalPhoneInput] = useState('');
+  const [companyPhoneInput, setCompanyPhoneInput] = useState('');
+  const [phoneError, setPhoneError] = useState('');
+  const [phoneSuccess, setPhoneSuccess] = useState('');
 
   useEffect(() => {
     const email = getSessionEmail();
@@ -207,6 +214,43 @@ export default function EmployeeProfilePage() {
     } catch (err) {
       console.error(err);
       setBankError('Failed to save bank details.');
+    }
+  };
+
+  const openPhoneEdit = () => {
+    if (!profile) return;
+    setPersonalPhoneInput(profile.personalPhone || '');
+    setCompanyPhoneInput(profile.companyPhone || '');
+    setPhoneError('');
+    setPhoneSuccess('');
+    setIsPhoneEditOpen(true);
+  };
+
+  const handlePhoneSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPhoneError('');
+    setPhoneSuccess('');
+
+    if (!personalPhoneInput.trim()) {
+      setPhoneError('Please enter your own phone number.');
+      return;
+    }
+
+    if (!profile?.id) return;
+
+    try {
+      await hrActions.updateProfileDetails(profile.id, {
+        personalPhone: personalPhoneInput.trim(),
+        companyPhone: companyPhoneInput.trim(),
+      });
+      const { data: refreshed } = await refetchProfiles();
+      const updatedProfile = refreshed?.find(p => p.id === profile.id);
+      if (updatedProfile) setProfile(updatedProfile);
+      setPhoneSuccess('Contact numbers updated successfully!');
+      setTimeout(() => { setIsPhoneEditOpen(false); setPhoneSuccess(''); }, 1000);
+    } catch (err) {
+      console.error(err);
+      setPhoneError('Failed to save contact numbers.');
     }
   };
 
@@ -429,6 +473,45 @@ export default function EmployeeProfilePage() {
         )}
       </Card>
 
+      {/* Contact Numbers section */}
+      <Card className="border border-slate-200 p-0 overflow-hidden">
+        <div className="px-6 pt-5 pb-2 border-b border-slate-100 flex items-center justify-between">
+          <h3 className="font-bold text-slate-900 text-sm">Contact Numbers</h3>
+          <button
+            onClick={openPhoneEdit}
+            className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition-all border border-slate-200 active:scale-97"
+          >
+            <Pencil className="h-3.5 w-3.5" /> Edit
+          </button>
+        </div>
+        {profile.personalPhone || profile.companyPhone ? (
+          <div className="divide-y divide-slate-100">
+            <div className="flex items-center gap-4 px-6 py-4">
+              <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                <Phone className="h-4 w-4 text-slate-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Own Number</p>
+                <p className="text-sm font-semibold text-slate-900 mt-0.5 truncate">{profile.personalPhone || '—'}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 px-6 py-4">
+              <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                <Phone className="h-4 w-4 text-slate-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Company Allocated Number</p>
+                <p className="text-sm font-semibold text-slate-900 mt-0.5 truncate">{profile.companyPhone || 'Not applicable'}</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="px-6 py-6 text-center">
+            <p className="text-xs text-slate-400 italic font-semibold">No contact numbers on file yet. Add your own number (and a company-allocated one, if you have one).</p>
+          </div>
+        )}
+      </Card>
+
       {/* Documents section */}
       <Card className="border border-slate-200 p-0 overflow-hidden">
         <div className="px-6 pt-5 pb-2 border-b border-slate-100">
@@ -638,6 +721,52 @@ export default function EmployeeProfilePage() {
           <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-200">
             <button type="button" onClick={() => setIsBankEditOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
             <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Save Bank Details</button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Contact Numbers Edit Modal */}
+      <Modal isOpen={isPhoneEditOpen} onClose={() => { setIsPhoneEditOpen(false); setPhoneError(''); setPhoneSuccess(''); }} title="Edit Contact Numbers">
+        <form onSubmit={handlePhoneSubmit} className="space-y-4">
+          {phoneError && (
+            <div className="p-3 text-xs bg-rose-50 text-rose-600 border border-rose-100 rounded-lg font-semibold flex items-center gap-1.5">
+              <AlertCircle className="h-4 w-4" />{phoneError}
+            </div>
+          )}
+          {phoneSuccess && (
+            <div className="p-3 text-xs bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-lg font-semibold flex items-center gap-1.5">
+              <CheckCircle2 className="h-4 w-4" />{phoneSuccess}
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Own Number</label>
+            <input
+              type="tel"
+              value={personalPhoneInput}
+              onChange={e => setPersonalPhoneInput(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900"
+              placeholder="e.g. +92 300 1234567"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Company Allocated Number (if applicable)</label>
+            <input
+              type="tel"
+              value={companyPhoneInput}
+              onChange={e => setCompanyPhoneInput(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900"
+              placeholder="Leave blank if none issued"
+            />
+          </div>
+
+          <p className="text-[10px] text-slate-400 leading-relaxed">
+            Changes to your contact numbers are saved immediately and visible to HR/Admin.
+          </p>
+
+          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-200">
+            <button type="button" onClick={() => setIsPhoneEditOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
+            <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Save Contact Numbers</button>
           </div>
         </form>
       </Modal>
