@@ -1334,6 +1334,12 @@ export const hrActions = {
     });
     if (changed) await pbSetKV('hr_announcement_reads_v1', readMap);
   },
+  // Both HR and Admin can post announcements (see admin/page.tsx and
+  // hr/page.tsx's Post Announcement forms), and both already see the same
+  // shared "Recent Announcements" feed regardless of who posted — so
+  // deletion follows the same trust model: either role can delete any
+  // announcement, not just ones they personally posted.
+  deleteAnnouncement: (id: string) => pbDelete('hr_announcements', id),
 
   // ── Tasks ─────────────────────────────────────────────────────────────
   addTask: async (task: Omit<Task, 'id'>): Promise<void> => {

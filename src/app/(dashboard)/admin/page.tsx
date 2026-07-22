@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { OrgCalendar } from '@/components/ui/OrgCalendar';
 import { TaskModal } from '@/components/ui/TaskModal';
-import { DollarSign, TrendingUp, Users, Clock, ClipboardList, CheckCircle2, AlertTriangle, PlusCircle, Loader2 } from 'lucide-react';
+import { DollarSign, TrendingUp, Users, Clock, ClipboardList, CheckCircle2, AlertTriangle, PlusCircle, Loader2, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useProfiles, useLeaves, useTasks, useAnnouncements, useWarehouses, usePayroll, hrActions, formatMoney, Profile, displayName } from '@/lib/hrData';
 
@@ -35,6 +35,7 @@ export default function AdminDashboard() {
   const [annSelectedWarehouses, setAnnSelectedWarehouses] = useState<string[]>([]);
   const [annSuccess, setAnnSuccess] = useState('');
   const [isPostingAnnouncement, setIsPostingAnnouncement] = useState(false);
+  const [deletingAnnId, setDeletingAnnId] = useState<string | null>(null);
   const [processingLeaveId, setProcessingLeaveId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -64,6 +65,18 @@ export default function AdminDashboard() {
       }, 1200);
     } finally {
       setIsPostingAnnouncement(false);
+    }
+  };
+
+  const handleDeleteAnnouncement = async (id: string) => {
+    if (deletingAnnId) return;
+    if (!window.confirm('Delete this announcement? This cannot be undone, and it will disappear from every employee\'s dashboard immediately.')) return;
+    setDeletingAnnId(id);
+    try {
+      await hrActions.deleteAnnouncement(id);
+      refetchAnnouncements();
+    } finally {
+      setDeletingAnnId(null);
     }
   };
 
@@ -324,11 +337,21 @@ export default function AdminDashboard() {
                   <h4 className="font-bold text-slate-900 text-sm">{ann.title}</h4>
                   <p className="text-xs text-slate-500 mt-1 leading-relaxed whitespace-pre-wrap break-words">{ann.content}</p>
                 </div>
-                <Badge variant={ann.target === 'all' ? 'default' : 'warning'} className="self-start shrink-0">
-                  Target: {Array.isArray(ann.target)
-                    ? `Warehouses (${ann.target.map((tId: string) => warehouses.find(w => w.id === tId)?.name || tId).join(', ')})`
-                    : ann.target.toUpperCase()}
-                </Badge>
+                <div className="flex items-center gap-2 self-start shrink-0">
+                  <Badge variant={ann.target === 'all' ? 'default' : 'warning'}>
+                    Target: {Array.isArray(ann.target)
+                      ? `Warehouses (${ann.target.map((tId: string) => warehouses.find(w => w.id === tId)?.name || tId).join(', ')})`
+                      : ann.target.toUpperCase()}
+                  </Badge>
+                  <button
+                    onClick={() => handleDeleteAnnouncement(ann.id)}
+                    disabled={deletingAnnId === ann.id}
+                    title="Delete announcement"
+                    className="h-6 w-6 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-50"
+                  >
+                    {deletingAnnId === ann.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
               </div>
               <div className="flex justify-between items-center text-[10px] text-slate-400 font-bold mt-3 pt-2 border-t border-slate-100">
                 <span>By {ann.createdBy}</span>
