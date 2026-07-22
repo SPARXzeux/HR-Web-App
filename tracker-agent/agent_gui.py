@@ -54,10 +54,13 @@ import os
 import platform
 import re
 import socket
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
+import webbrowser
 from datetime import datetime, timedelta, timezone
 
 import tkinter as tk
@@ -86,6 +89,20 @@ APP_NAME = "DelCargo Tracker"
 APP_DIR = os.path.join(os.path.expanduser("~"), ".delcargo_tracker")
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 
+# ── Auto-update ───────────────────────────────────────────────────────────
+# Bump APP_VERSION and push a matching "tracker-agent-vX.Y" git tag (see
+# tracker-agent/README.md and .github/workflows/build-tracker-agent.yml)
+# together whenever a new build is released — this string (compared
+# component-by-component via _parse_version below, not as plain text) is
+# the only thing the update check trusts against the tag GitHub reports as
+# latest.
+APP_VERSION = "1.5"
+GITHUB_REPO = "SPARXzeux/HR-Web-App"
+GITHUB_LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+GITHUB_RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases/latest"
+GITHUB_WINDOWS_INSTALLER_URL = f"https://github.com/{GITHUB_REPO}/releases/latest/download/DelCargo_Tracker_Setup.exe"
+GITHUB_MAC_ZIP_URL = f"https://github.com/{GITHUB_REPO}/releases/latest/download/DelCargo-Tracker-Mac.zip"
+
 MAX_WIDTH = 1280
 WEBP_QUALITY = 80  # WebP at 80 looks visually equivalent to (often better than) JPEG
                    # at much higher settings, while producing a smaller file
@@ -94,6 +111,23 @@ SETTINGS_POLL_SECONDS = 20  # how often we re-check tracking/shift status (was 6
 
 MOUSE_POLL_SECONDS = 5       # how often we sample the cursor position
 INACTIVITY_THRESHOLD_SECONDS = 180  # 3 minutes — matches the HR/Admin-facing spec
+
+MAX_ERROR_DISPLAY_LEN = 140  # see _short_error() below
+
+
+def _short_error(msg) -> str:
+    """Truncates a raw exception/error string before it goes into the
+    dashboard's status card. A long message (raw network/SSL exception text
+    can easily run to several hundred characters) wraps across enough lines
+    at the card's fixed width to grow the whole card taller than the
+    window — and since the window used to be fixed-size and non-resizable,
+    that pushed the action buttons (Use a Different Setup Code, Disconnect)
+    below the visible area entirely, making them unclickable with no way to
+    reach them. Employees also don't need the full raw exception text to
+    understand "couldn't reach the server" — short is strictly better UX
+    here, not just a layout workaround."""
+    msg = str(msg)
+    return msg if len(msg) <= MAX_ERROR_DISPLAY_LEN else msg[: MAX_ERROR_DISPLAY_LEN - 1].rstrip() + "…"
 
 # ── Brand palette — kept in lockstep with the web dashboard's Tailwind
 # tokens (src/app/globals.css / the orange-600 accent used throughout
@@ -716,6 +750,183 @@ def build_tray_image(active):
     return img
 
 
+# ─────────────────────────────── auto-update ─────────────────────────────────
+
+def _parse_version(v: str):
+    """"1.4" -> (1, 4); "2" -> (2,); used for both APP_VERSION and whatever
+    tag GitHub reports, so "1.10" correctly compares as newer than "1.9"
+    (a plain string/float compare would get that backwards)."""
+    return tuple(int(part) for part in v.strip().split("."))
+
+
+def check_for_update():
+    """Pings GitHub's "latest release" API and returns the new version
+    string (e.g. "1.5") if one is available, or None if already up to
+    date, or if the check failed/couldn't be interpreted for any reason
+    (offline, GitHub rate-limited or down, tag doesn't match the expected
+    "tracker-agent-vX.Y" format, etc.). Must never raise — a broken update
+    check should never be able to stop the app from starting normally."""
+    try:
+        resp = requests.get(
+            GITHUB_LATEST_RELEASE_API,
+            timeout=6,
+            headers={"Accept": "application/vnd.github+json"},
+        )
+        resp.raise_for_status()
+        tag = resp.json().get("tag_name", "") or ""
+        m = re.match(r"tracker-agent-v([\d.]+)$", tag.strip())
+        if not m:
+            return None
+        latest_str = m.group(1)
+        return latest_str if _parse_version(latest_str) > _parse_version(APP_VERSION) else None
+    except Exception as e:
+        print(f"[info] Update check skipped: {e}")
+        return None
+
+
+def _download_with_progress(url, dest_path, on_progress=None):
+    """Streams url to dest_path, calling on_progress(downloaded_bytes,
+    total_bytes_or_None) after each chunk so the caller can drive a
+    progress bar. total is None when the server doesn't send a
+    Content-Length header — callers should fall back to an indeterminate
+    display in that case."""
+    resp = requests.get(url, stream=True, timeout=30)
+    resp.raise_for_status()
+    total = resp.headers.get("Content-Length")
+    total = int(total) if total else None
+    downloaded = 0
+    with open(dest_path, "wb") as f:
+        for chunk in resp.iter_content(chunk_size=256 * 1024):
+            if not chunk:
+                continue
+            f.write(chunk)
+            downloaded += len(chunk)
+            if on_progress:
+                on_progress(downloaded, total)
+
+
+def _perform_update(root, latest_version):
+    """Downloads and (on Windows) launches the new installer, quitting this
+    process afterward so the installer can freely overwrite the running
+    app's files. macOS gets a safer, more manual hand-off: auto-replacing a
+    running unsigned .app bundle from within itself is fragile (Gatekeeper
+    quarantine flags, the OS refusing to overwrite an open executable, a
+    half-replaced bundle if anything goes wrong), so instead this downloads
+    the zip, reveals it in Finder, and tells the person exactly what to do."""
+    system = platform.system()
+    if system not in ("Windows", "Darwin"):
+        # No packaged build for this platform (e.g. Linux) — just point them
+        # at the releases page instead of trying to guess a download.
+        webbrowser.open(GITHUB_RELEASES_PAGE)
+        return
+
+    url = GITHUB_WINDOWS_INSTALLER_URL if system == "Windows" else GITHUB_MAC_ZIP_URL
+    filename = "DelCargo_Tracker_Setup.exe" if system == "Windows" else "DelCargo-Tracker-Mac.zip"
+    # macOS installers/downloads conventionally land in ~/Downloads, where
+    # someone would expect to find one; Windows just needs any scratch
+    # space since the installer is launched programmatically, not found by
+    # hand — the system temp dir is the right place for that.
+    dest_dir = os.path.join(os.path.expanduser("~"), "Downloads") if system == "Darwin" else tempfile.gettempdir()
+    if not os.path.isdir(dest_dir):
+        dest_dir = tempfile.gettempdir()
+    dest_path = os.path.join(dest_dir, filename)
+
+    progress_win = tk.Toplevel(root)
+    progress_win.title(APP_NAME)
+    progress_win.geometry("340x130")
+    progress_win.resizable(False, False)
+    progress_win.configure(bg=BG)
+    progress_win.transient(root)
+    progress_win.grab_set()
+    tk.Label(progress_win, text=f"Downloading update (v{latest_version})…",
+             bg=BG, fg=INK, font=(FONT, 10, "bold")).pack(pady=(22, 10))
+    pbar = ttk.Progressbar(progress_win, length=280, mode="determinate")
+    pbar.pack()
+    status_var = tk.StringVar(value="Starting download…")
+    tk.Label(progress_win, textvariable=status_var, bg=BG, fg=MUTED, font=(FONT, 9)).pack(pady=(8, 0))
+    progress_win.update()
+
+    def on_progress(downloaded, total):
+        if total:
+            pbar["value"] = (downloaded / total) * 100
+            status_var.set(f"{downloaded // 1024} KB / {total // 1024} KB")
+        else:
+            # No Content-Length from the server — show something moving
+            # rather than a bar stuck at 0 the whole time.
+            pbar["mode"] = "indeterminate"
+            pbar.step(5)
+            status_var.set(f"{downloaded // 1024} KB downloaded…")
+        progress_win.update_idletasks()
+
+    try:
+        _download_with_progress(url, dest_path, on_progress)
+    except Exception as e:
+        progress_win.destroy()
+        messagebox.showerror(
+            APP_NAME,
+            f"Update download failed: {_short_error(e)}\n\n"
+            "You can download it manually from the GitHub Releases page instead.",
+            parent=root,
+        )
+        webbrowser.open(GITHUB_RELEASES_PAGE)
+        return
+
+    progress_win.destroy()
+
+    if system == "Windows":
+        messagebox.showinfo(
+            APP_NAME,
+            "Update downloaded. The installer will now open — finish the setup "
+            "wizard, and this app will close automatically so it can be replaced.",
+            parent=root,
+        )
+        try:
+            subprocess.Popen([dest_path], close_fds=True)
+        except Exception as e:
+            messagebox.showerror(
+                APP_NAME,
+                f"Couldn't launch the installer automatically: {_short_error(e)}\n\n"
+                f"Open it yourself from:\n{dest_path}",
+                parent=root,
+            )
+            return
+        # Let the installer take over — it needs this process to fully exit
+        # before it can overwrite the currently-running executable.
+        sys.exit(0)
+    else:  # Darwin
+        try:
+            subprocess.run(["open", "-R", dest_path], check=False)
+        except Exception:
+            pass  # Non-critical — the instructions below still name the exact path.
+        messagebox.showinfo(
+            APP_NAME,
+            f"Update downloaded to:\n{dest_path}\n\n"
+            "Quit this app, unzip it, then drag the new \"DelCargo Tracker\" app "
+            "into your Applications folder, replacing the old one.",
+            parent=root,
+        )
+
+
+def _check_and_prompt_update():
+    """Runs before anything else in main() — see the module-level flow at
+    the bottom of this file. Uses its own short-lived, hidden root so it
+    doesn't depend on (or delay) the real TrackerApp/dashboard window."""
+    latest = check_for_update()
+    if latest is None:
+        return
+    root = tk.Tk()
+    root.withdraw()
+    proceed = messagebox.askyesno(
+        APP_NAME,
+        f"A new version of {APP_NAME} is available — you have v{APP_VERSION}, "
+        f"v{latest} is out.\n\nUpdate now?",
+        parent=root,
+    )
+    if proceed:
+        _perform_update(root, latest)
+    root.destroy()
+
+
 # ───────────────────────────────── main app ──────────────────────────────────
 
 class TrackerApp:
@@ -723,7 +934,15 @@ class TrackerApp:
         self.root = root
         self.root.title(APP_NAME)
         self.root.geometry("440x740")
-        self.root.resizable(False, False)
+        # Height is resizable (width isn't, to preserve the designed layout)
+        # as a safety net alongside _short_error() above: if the status
+        # card's content ever ends up taller than the window for any reason
+        # not covered by that truncation, the window itself can grow instead
+        # of silently clipping the action buttons below the visible,
+        # unpressable area — which is exactly what happened with a fixed,
+        # non-resizable window before this.
+        self.root.resizable(False, True)
+        self.root.minsize(440, 740)
         self.root.configure(bg=BG)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self._set_window_icon()
@@ -1126,7 +1345,7 @@ class TrackerApp:
         except Exception as e:
             with self.state_lock:
                 self.state["connection_status"] = "disconnected"
-                self.state["heartbeat_error"] = f"Couldn't reach the server: {e}"
+                self.state["heartbeat_error"] = _short_error(f"Couldn't reach the server: {e}")
             # A network blip shouldn't permanently stand this device down —
             # keep trying tracking settings/capture as before; only an
             # explicit supersede (a different deviceId) stops the agent.
@@ -1154,7 +1373,7 @@ class TrackerApp:
                 self.force_claim_next = False
             except Exception as e:
                 with self.state_lock:
-                    self.state["heartbeat_error"] = f"Reconnect failed: {e}"
+                    self.state["heartbeat_error"] = _short_error(f"Reconnect failed: {e}")
                     self.state["connection_status"] = "disconnected"
 
         threading.Thread(target=worker, daemon=True).start()
@@ -1179,7 +1398,7 @@ class TrackerApp:
                 settings = get_tracking_settings(cfg["url"], None, cfg["token"])
             except Exception as e:
                 with self.state_lock:
-                    self.state["last_error"] = str(e)
+                    self.state["last_error"] = _short_error(e)
                 stop_event.wait(SETTINGS_POLL_SECONDS)
                 continue
 
@@ -1197,7 +1416,7 @@ class TrackerApp:
                 shift_active = check_active_shift(cfg["url"], None, employee_email)
             except Exception as e:
                 with self.state_lock:
-                    self.state["last_error"] = f"Shift check failed: {e}"
+                    self.state["last_error"] = _short_error(f"Shift check failed: {e}")
                 stop_event.wait(SETTINGS_POLL_SECONDS)
                 continue
 
@@ -1225,7 +1444,7 @@ class TrackerApp:
                         self.state["last_capture"] = ts
                 except Exception as e:
                     with self.state_lock:
-                        self.state["last_error"] = f"Capture/upload failed: {e}"
+                        self.state["last_error"] = _short_error(f"Capture/upload failed: {e}")
 
             remaining = interval_minutes * 60 if enabled else SETTINGS_POLL_SECONDS
             waited = 0
@@ -1412,7 +1631,7 @@ class TrackerApp:
                         )
                     except Exception as e:
                         with self.state_lock:
-                            self.state["last_error"] = f"Inactivity log upload failed: {e}"
+                            self.state["last_error"] = _short_error(f"Inactivity log upload failed: {e}")
                 last_pos = pos
                 last_move_time = now
 
@@ -1563,6 +1782,13 @@ class TrackerApp:
 
 
 def main():
+    # The very first thing this app does on every launch: check GitHub for a
+    # newer release and offer to update before anything else happens (before
+    # the single-instance check, before loading saved config, before any
+    # tracking/heartbeat work starts). Never blocks startup on failure —
+    # check_for_update() swallows every error and just returns None.
+    _check_and_prompt_update()
+
     if not acquire_single_instance_lock():
         # Another copy is already running — surface a clear popup instead of
         # silently opening a second window (which would run a second,

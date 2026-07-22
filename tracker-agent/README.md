@@ -81,8 +81,17 @@ saved per-device in `config.json` right alongside the setup connection.
   a paid code-signing certificate (Windows) and an Apple Developer account +
   notarization (Mac) — worth doing before a wider rollout, not required for
   small-scale testing.
-- No auto-update mechanism yet — if you change `agent_gui.py`, re-run the
-  build/release and have employees reinstall.
+- **Auto-update:** the very first thing the app does on every launch is
+  check GitHub's latest release against the local `APP_VERSION` constant
+  near the top of `agent_gui.py`. If GitHub's tag is newer, it prompts the
+  employee to update — Windows downloads and launches the new installer
+  automatically (then quits itself so the installer can overwrite it);
+  macOS downloads the zip to Downloads and reveals it in Finder with
+  instructions, since safely auto-replacing a running unsigned `.app`
+  bundle from inside itself isn't reliable. **When releasing a new
+  version, bump `APP_VERSION` in `agent_gui.py` AND push a matching
+  `tracker-agent-v<N>` tag together** — the update check only trusts that
+  integer, not the build itself.
 - Runs entirely against the self-hosted PocketBase server; there is no
   separate backend or API key required (matches the rest of the app's
   current security model — see the caveat below).
