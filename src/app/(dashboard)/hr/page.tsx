@@ -4,9 +4,10 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { Avatar } from '@/components/ui/Avatar';
 import { OrgCalendar } from '@/components/ui/OrgCalendar';
 import { TaskModal } from '@/components/ui/TaskModal';
-import { Users, Clock, CheckCircle2, ClipboardList, UserCog, PlusCircle, Loader2, Trash2 } from 'lucide-react';
+import { Users, Clock, CheckCircle2, ClipboardList, UserCog, PlusCircle, Loader2, Trash2, Eye } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { hrActions, Profile, useProfiles, useLeaves, useTasks, useTeams, useAnnouncements, useWarehouses, displayName } from '@/lib/hrData';
 
@@ -45,6 +46,20 @@ export default function HRDashboard() {
   const [isPostingAnnouncement, setIsPostingAnnouncement] = useState(false);
   const [deletingAnnId, setDeletingAnnId] = useState<string | null>(null);
 
+  // "Viewed by" facepile + modal — see hrActions.getAnnouncementReadMap in
+  // hrData.ts (same per-announcement read-tracking store the Employee
+  // dashboard's unread-highlight feature uses).
+  const [announcementReadMap, setAnnouncementReadMap] = useState<Record<string, string[]>>({});
+  const [viewersAnnId, setViewersAnnId] = useState<string | null>(null);
+  const viewersForAnnouncement = (annId: string): Profile[] => {
+    const emails = (announcementReadMap[annId] || []).map(e => e.toLowerCase());
+    return employees.filter((e: Profile) => emails.includes(e.email.toLowerCase()));
+  };
+  const openViewersModal = (annId: string) => {
+    setViewersAnnId(annId);
+    hrActions.getAnnouncementReadMap().then(setAnnouncementReadMap);
+  };
+
   // Team Lead assignment form
   const [leadEmployeeId, setLeadEmployeeId] = useState('');
   const [leadTeamSelections, setLeadTeamSelections] = useState<string[]>([]);
@@ -69,6 +84,10 @@ export default function HRDashboard() {
     window.addEventListener('globalSearch', handleSearch);
     return () => window.removeEventListener('globalSearch', handleSearch);
   }, []);
+
+  useEffect(() => {
+    hrActions.getAnnouncementReadMap().then(setAnnouncementReadMap);
+  }, [announcements.length]);
 
   const handleAnnouncementSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -298,6 +317,33 @@ export default function HRDashboard() {
                 <span>By {ann.createdBy}</span>
                 <span>{ann.timestamp}</span>
               </div>
+              {/* "Viewed by" facepile — see hrActions.getAnnouncementReadMap
+                  in hrData.ts. Clicking opens the full viewer list modal. */}
+              {(() => {
+                const viewers = viewersForAnnouncement(ann.id);
+                return (
+                  <button
+                    onClick={() => openViewersModal(ann.id)}
+                    className="flex items-center gap-2 mt-2.5 group self-start"
+                    title="See who has viewed this announcement"
+                  >
+                    <div className="flex -space-x-2">
+                      {viewers.length === 0 ? (
+                        <span className="h-[22px] w-[22px] rounded-full border border-dashed border-slate-300 flex items-center justify-center">
+                          <Eye className="h-3 w-3 text-slate-300" />
+                        </span>
+                      ) : (
+                        viewers.slice(0, 5).map(v => (
+                          <Avatar key={v.id} src={v.profilePicture} name={displayName(v, 'hr')} size={22} className="ring-2 ring-white" />
+                        ))
+                      )}
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-500 group-hover:text-orange-600 transition-colors">
+                      {viewers.length === 0 ? 'No views yet' : `${viewers.length} viewed${viewers.length > 5 ? ` (+${viewers.length - 5} more)` : ''}`}
+                    </span>
+                  </button>
+                );
+              })()}
             </div>
           ))}
           {announcements.length === 0 && (
@@ -307,6 +353,33 @@ export default function HRDashboard() {
       </Card>
 
       {/* --- MODALS --- */}
+
+      {/* Announcement Viewers Modal — lists everyone who has seen the
+          selected announcement (see hrActions.getAnnouncementReadMap). */}
+      <Modal
+        isOpen={!!viewersAnnId}
+        onClose={() => setViewersAnnId(null)}
+        title={viewersAnnId ? `Viewed by (${viewersForAnnouncement(viewersAnnId).length})` : 'Viewed by'}
+      >
+        {viewersAnnId && (() => {
+          const viewers = viewersForAnnouncement(viewersAnnId);
+          return viewers.length === 0 ? (
+            <p className="text-xs text-slate-400 font-semibold italic text-center py-6">No one has viewed this announcement yet.</p>
+          ) : (
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {viewers.map(v => (
+                <div key={v.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50">
+                  <Avatar src={v.profilePicture} name={displayName(v, 'hr')} size={36} />
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-slate-900 truncate">{displayName(v, 'hr')}</p>
+                    <p className="text-xs text-slate-400 truncate">{v.email}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+      </Modal>
 
       {/* Announcement Modal */}
       <Modal isOpen={isAnnounceOpen} onClose={() => setIsAnnounceOpen(false)} title="Create New Announcement">
