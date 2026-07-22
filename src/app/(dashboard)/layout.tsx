@@ -6,11 +6,44 @@ import { TopNav } from '@/components/layout/TopNav';
 import { useRouter, usePathname } from 'next/navigation';
 import { Profile, hrActions, useProfiles } from '@/lib/hrData';
 import { getSessionEmail, getSessionRole, getSessionToken, clearSession } from '@/lib/session';
+import { initPush } from '@/lib/push';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { AvatarCropperModal } from '@/components/ui/AvatarCropperModal';
 import { compressImageToWebP, MAX_DOCUMENT_IMAGE_BYTES } from '@/lib/imageCompressor';
 import { CheckCircle2, ChevronRight, BookOpen, User, ShieldCheck, ShieldAlert, HelpCircle, FileText, Upload } from 'lucide-react';
+
+// Wraps each page's content for the tab-switch fade+rise animation. Split
+// out into its own component (rather than inlining a `page-enter` class
+// directly) so we can strip the class via onAnimationEnd once the 320ms
+// entrance finishes.
+//
+// Why this matters: `.page-enter`'s keyframes end on `transform:
+// translateY(0)`, and `animation-fill-mode: both` retains that computed
+// style forever once the animation completes — not just during the brief
+// entrance. Per the CSS spec, ANY non-`none` transform (even an identity
+// translateY(0)) turns its element into a new containing block for every
+// `position: fixed` descendant nested inside it. Since this div wraps every
+// dashboard page's content, that silently broke every fixed-position overlay
+// that isn't portaled straight to document.body (e.g. UserProfileModal's
+// hand-rolled card, TrackingView's screenshot lightbox): instead of covering
+// the true viewport, they got clipped to this div's box, while the mobile
+// floating pill nav — a sibling of this div, not a descendant — kept
+// rendering at the real (unclipped) viewport edge, on top of everything.
+// Stripping the class after the animation ends removes the stuck transform
+// and restores normal fixed-position behavior for the rest of the page's
+// lifetime.
+function PageTransition({ className, children }: { className: string; children: React.ReactNode }) {
+  const [animating, setAnimating] = useState(true);
+  return (
+    <div
+      onAnimationEnd={() => setAnimating(false)}
+      className={`${className} ${animating ? 'page-enter' : ''}`}
+    >
+      {children}
+    </div>
+  );
+}
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<'admin' | 'hr' | 'employee' | null>(null);
@@ -63,6 +96,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const isChatScreen = pathname?.endsWith('/chat') || pathname?.endsWith('/team-chats');
+  // Support Tickets has its own bottom-anchored reply composer, same as Team
+  // Chat — the floating pill nav (Sidebar.tsx) now hides on both for the
+  // same reason. Since neither screen needs to reserve space for that pill
+  // anymore, they get a small fixed bottom breathing-room padding instead of
+  // the large pb-24 other tabs use to clear it.
+  const isTicketsScreen = pathname?.endsWith('/tickets');
 
   const { data: allProfiles, isLoading: isProfilesLoading } = useProfiles();
 
@@ -105,6 +144,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
       }
   }, [router, allProfiles, isProfilesLoading]);
+
+  // Register this device/browser for push notifications and link it to the
+  // signed-in user (as OneSignal's "external ID") so they can be targeted
+  // individually later, not just as part of a broadcast to everyone.
+  // No-ops until an App ID is configured in src/lib/push.ts.
+  useEffect(() => {
+    if (email) initPush(email);
+  }, [email]);
 
   // Single-active-session enforcement — Employee/Team Lead accounts only
   // (Admin/HR are exempt, see auth/page.tsx). Periodically "touches" this
@@ -349,7 +396,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           {/* Error notice */}
           {stepperError && (
-            <div className="p-3 text-xs bg-rose-50 text-rose-600 border border-rose-100 rounded-lg font-semibold mb-6 animate-in fade-in duration-150">
+            <div className="p-3 text-xs bg-rose-50 text-rose-600 border border-rose-100 rounded-lg font-semibold mb-6 fade-enter">
               {stepperError}
             </div>
           )}
@@ -417,7 +464,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className="flex justify-end pt-4 border-t border-slate-200">
                 <button 
                   onClick={handleNextStep}
-                  className="w-full md:w-auto bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all flex items-center justify-center gap-1"
+                  className="w-full md:w-auto bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1"
                 >
                   Confirm & Continue <ChevronRight className="h-4 w-4" />
                 </button>
@@ -439,7 +486,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
               {step2SubStep === 1 && (
                 <>
-                  <p className="text-sm text-slate-655 font-medium">Please upload your profile picture and CV:</p>
+                  <p className="text-sm text-slate-600 font-medium">Please upload your profile picture and CV:</p>
                   <div className="space-y-4">
                     {/* Profile Pic box */}
                     <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
@@ -469,7 +516,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         ) : uploadingPic ? (
                           <span className="text-slate-400 text-xs animate-pulse">Uploading photo...</span>
                         ) : (
-                          <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
+                          <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-colors transition-transform active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
                             Upload Photo
                             <input
                               type="file"
@@ -498,7 +545,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         ) : uploading.cv ? (
                           <span className="text-slate-400 text-xs animate-pulse">Uploading file...</span>
                         ) : (
-                          <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
+                          <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-colors transition-transform active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
                             Upload PDF
                             <input 
                               type="file" 
@@ -521,7 +568,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
               {step2SubStep === 2 && (
                 <>
-                  <p className="text-sm text-slate-655 font-medium">Please upload your identification scan:</p>
+                  <p className="text-sm text-slate-600 font-medium">Please upload your identification scan:</p>
                   <div className="space-y-4">
                     {/* CNIC or Driver License file box */}
                     <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
@@ -539,7 +586,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         ) : uploading.cnic ? (
                           <span className="text-slate-400 text-xs animate-pulse">Uploading scans...</span>
                         ) : (
-                          <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
+                          <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-colors transition-transform active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
                             {cnicFiles.length > 0 ? `Upload Scan #${cnicFiles.length + 1}` : 'Upload Scan'}
                             <input 
                               type="file" 
@@ -566,7 +613,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
               {step2SubStep === 3 && (
                 <>
-                  <p className="text-sm text-slate-655 font-medium">Please upload secondary documents (Optional):</p>
+                  <p className="text-sm text-slate-600 font-medium">Please upload secondary documents (Optional):</p>
                   <div className="space-y-4">
                     {/* Optional Passport file box for USA only */}
                     <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 flex flex-col justify-between min-h-[100px]">
@@ -580,7 +627,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         ) : uploadingPassport ? (
                           <span className="text-slate-400 text-xs animate-pulse">Uploading scans...</span>
                         ) : (
-                          <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-all active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
+                          <label className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded cursor-pointer font-bold select-none transition-colors transition-transform active:scale-97 text-center self-start sm:self-auto min-w-[100px]">
                             Upload Scan
                             <input 
                               type="file" 
@@ -609,7 +656,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     else if (step2SubStep === 2) setStep2SubStep(1);
                     else setOnboardStep(1);
                   }}
-                  className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-xs md:text-sm active:scale-97 transition-all"
+                  className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-xs md:text-sm active:scale-97 transition-transform"
                 >
                   Back
                 </button>
@@ -617,7 +664,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <button 
                     type="button"
                     onClick={() => setOnboardStep(3)}
-                    className="flex-1 md:flex-none bg-slate-100 hover:bg-slate-250 border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-xs md:text-sm active:scale-97 transition-all"
+                    className="flex-1 md:flex-none bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-xs md:text-sm active:scale-97 transition-colors transition-transform"
                   >
                     Skip Optional Step
                   </button>
@@ -625,7 +672,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <button 
                   type="button"
                   onClick={handleNextStep}
-                  className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-xs md:text-sm active:scale-97 transition-all flex items-center justify-center gap-1"
+                  className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-xs md:text-sm active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1"
                 >
                   {step2SubStep === 3 ? 'Finish Step 2' : 'Confirm & Continue'} <ChevronRight className="h-4 w-4" />
                 </button>
@@ -639,7 +686,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <HelpCircle className="h-5 w-5 text-orange-600" /> Step 3: Platform Features Guide
               </h2>
-              <p className="text-sm text-slate-655">Review the features available on your DelCargo portal:</p>
+              <p className="text-sm text-slate-600">Review the features available on your DelCargo portal:</p>
 
               <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
                 <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50">
@@ -659,13 +706,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className="flex gap-3 pt-4 border-t border-slate-200">
                 <button 
                   onClick={() => setOnboardStep(2)}
-                  className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all"
+                  className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-transform"
                 >
                   Back
                 </button>
                 <button 
                   onClick={handleNextStep}
-                  className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all flex items-center justify-center gap-1"
+                  className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1"
                 >
                   Continue <ChevronRight className="h-4 w-4" />
                 </button>
@@ -679,7 +726,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <ShieldCheck className="h-5 w-5 text-orange-600" /> Step 4: Policies & Sign Off
               </h2>
-              <p className="text-sm text-slate-655 font-medium">Please read and acknowledge the shared corporate guidelines:</p>
+              <p className="text-sm text-slate-600 font-medium">Please read and acknowledge the shared corporate guidelines:</p>
 
               <div className="space-y-4 max-h-[200px] overflow-y-auto pr-2">
                 <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/20">
@@ -698,10 +745,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       type="checkbox" 
                       checked={acceptedDocs.conduct}
                       onChange={(e) => setAcceptedDocs(prev => ({ ...prev, conduct: e.target.checked }))}
-                      className="h-4 w-4 text-orange-650 rounded border-slate-350 focus:ring-orange-500"
+                      className="h-4 w-4 text-orange-600 rounded border-slate-300 focus:ring-orange-500"
                     />
                   </div>
-                  <p className="text-xs text-slate-555">Professional interaction guidelines and conflict resolution frameworks.</p>
+                  <p className="text-xs text-slate-500">Professional interaction guidelines and conflict resolution frameworks.</p>
                 </div>
 
                 <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/20">
@@ -720,10 +767,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       type="checkbox" 
                       checked={acceptedDocs.handbook}
                       onChange={(e) => setAcceptedDocs(prev => ({ ...prev, handbook: e.target.checked }))}
-                      className="h-4 w-4 text-orange-650 rounded border-slate-350 focus:ring-orange-500"
+                      className="h-4 w-4 text-orange-600 rounded border-slate-300 focus:ring-orange-500"
                     />
                   </div>
-                  <p className="text-xs text-slate-555">Detailed guidelines on leave policies, salary increment cycles, and tools usage.</p>
+                  <p className="text-xs text-slate-500">Detailed guidelines on leave policies, salary increment cycles, and tools usage.</p>
                 </div>
 
                 <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/20">
@@ -742,15 +789,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       type="checkbox" 
                       checked={acceptedDocs.privacy}
                       onChange={(e) => setAcceptedDocs(prev => ({ ...prev, privacy: e.target.checked }))}
-                      className="h-4 w-4 text-orange-650 rounded border-slate-350 focus:ring-orange-500"
+                      className="h-4 w-4 text-orange-600 rounded border-slate-300 focus:ring-orange-500"
                     />
                   </div>
-                  <p className="text-xs text-slate-555">Privacy guarantees and guidelines for processing corporate and customer data.</p>
+                  <p className="text-xs text-slate-500">Privacy guarantees and guidelines for processing corporate and customer data.</p>
                 </div>
               </div>
 
               <div className="space-y-3">
-                <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">
+                <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">
                   Digital Signature <span className="text-slate-400 font-semibold text-[10px] lowercase">(Case-insensitive: must match your full name "{profile.fullName}" exactly)</span>
                 </label>
                 <input 
@@ -765,14 +812,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className="flex gap-3 pt-4 border-t border-slate-200">
                 <button 
                   onClick={() => setOnboardStep(3)}
-                  className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all"
+                  className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-transform"
                 >
                   Back
                 </button>
                 <button
                   onClick={handleCompleteOnboarding}
                   disabled={isCompletingOnboarding}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-70 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-70 text-white font-semibold px-4 py-3 md:py-2 rounded-xl md:rounded-lg text-sm active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1.5 shadow-sm"
                 >
                   {isCompletingOnboarding ? (
                     <>
@@ -861,7 +908,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const isRejected = profile.approvalStatus === 'rejected';
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-sm text-center space-y-4">
+        <div className="max-w-md w-full bg-white border border-slate-200 rounded-xl p-6 sm:p-8 shadow-sm text-center space-y-4">
           <div className={`h-14 w-14 rounded-full flex items-center justify-center mx-auto ${isRejected ? 'bg-rose-50' : 'bg-amber-50'}`}>
             {isRejected ? (
               <ShieldAlert className="h-7 w-7 text-rose-500" />
@@ -893,7 +940,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               clearSession();
               router.push('/auth');
             }}
-            className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97"
+            className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-colors transition-transform active:scale-97"
           >
             Log Out
           </button>
@@ -905,19 +952,36 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden relative">
       <Sidebar role={role} />
-      <div className="flex flex-col flex-1 w-full overflow-hidden">
+      {/* min-w-0 here too: this is itself a flex item of the row above
+          (alongside Sidebar), and without it a wide descendant (e.g. the
+          Careers tab's horizontally-scrollable job-card row) could force
+          this whole column wider than the viewport, dragging the entire
+          app shell into a page-wide horizontal pan instead of staying
+          contained to that one row's own scroll area. overflow-x-hidden
+          is a second, explicit guard against the same failure mode. */}
+      <div className="flex flex-col flex-1 w-full min-w-0 overflow-hidden overflow-x-hidden">
         <TopNav />
-        <main className={`flex-1 min-w-0 ${isChatScreen ? 'overflow-hidden flex flex-col p-1.5 md:px-8 md:py-8' : 'overflow-y-auto px-4 py-4 md:px-8 md:py-8 pb-24 md:pb-8'}`}>
-          <div className={`mx-auto min-w-0 w-full flex flex-col ${isChatScreen ? 'flex-1 h-full max-w-none' : 'max-w-6xl'}`}>
+        <main className={`flex-1 min-w-0 overflow-x-hidden ${
+          isChatScreen
+            ? 'overflow-hidden flex flex-col p-1.5 pb-2.5 md:px-8 md:py-8'
+            : isTicketsScreen
+              ? 'overflow-y-auto px-4 py-4 pb-2.5 md:px-8 md:py-8'
+              : 'overflow-y-auto px-4 py-4 md:px-8 md:py-8 pb-24 md:pb-8'
+        }`}>
+          {/* key={pathname} forces PageTransition to remount on every
+              nav-tab switch so its animating state (and page-enter) resets
+              and re-triggers each time, not just on first load — previously
+              content swapped instantly with zero motion. */}
+          <PageTransition key={pathname} className={`mx-auto min-w-0 w-full flex flex-col ${isChatScreen ? 'flex-1 h-full max-w-none' : 'max-w-6xl'}`}>
             {children}
-          </div>
+          </PageTransition>
         </main>
       </div>
 
       {/* Consent Popup Overlay Gate */}
       {showConsent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white border border-slate-200 w-full max-w-2xl rounded-2xl shadow-2xl p-4 sm:p-8 animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm fade-enter">
+          <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl p-4 sm:p-8 dialog-enter">
             <div className="text-center pb-4 border-b border-slate-200 mb-6">
               <h2 className="text-xl font-bold text-slate-900">DelCargo HR Consent & Data Agreement</h2>
               <p className="text-xs text-slate-500 mt-1">Please review the terms of data access before continuing.</p>
@@ -955,7 +1019,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="mt-6 flex items-center justify-end pt-4 border-t border-slate-200">
               <button 
                 onClick={handleConsentAccept}
-                className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-5 py-2.5 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+                className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-5 py-2.5 rounded-lg text-sm active:scale-97 transition-colors transition-transform flex items-center gap-1.5 shadow-sm"
               >
                 <CheckCircle2 className="h-4 w-4" /> I Agree & Consent
               </button>

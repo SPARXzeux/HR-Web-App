@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, AlertTriangle, Calendar, Briefcase, FileText, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, AlertTriangle, Calendar, Briefcase, FileText, X, Palmtree, ClipboardList } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { LeaveApplication, Task, Profile } from '@/lib/hrData';
 
@@ -28,11 +28,11 @@ interface OrgCalendarProps {
 }
 
 const TEAM_COLORS: Record<string, string> = {
-  Engineering: 'bg-blue-55 text-blue-850 border-blue-200',
-  Design: 'bg-purple-55 text-purple-850 border-purple-200',
-  Marketing: 'bg-pink-55 text-pink-850 border-pink-200',
-  Operations: 'bg-teal-55 text-teal-850 border-teal-200',
-  Sales: 'bg-emerald-55 text-emerald-855 border-emerald-200',
+  Engineering: 'bg-indigo-50 text-indigo-800 border-indigo-200',
+  Design: 'bg-purple-50 text-purple-800 border-purple-200',
+  Marketing: 'bg-pink-50 text-pink-800 border-pink-200',
+  Operations: 'bg-teal-50 text-teal-800 border-teal-200',
+  Sales: 'bg-emerald-50 text-emerald-800 border-emerald-200',
 };
 
 const getTeamColor = (team: string) => TEAM_COLORS[team] || 'bg-slate-50 text-slate-700 border-slate-200';
@@ -109,7 +109,7 @@ export function OrgCalendar({ leaves, tasks, employees }: OrgCalendarProps) {
           type: 'task',
           label: `${task.assignedTo}: ${task.title}`,
           team: task.team,
-          color: 'bg-orange-50 text-orange-850 border-orange-200',
+          color: 'bg-orange-50 text-orange-800 border-orange-200',
           rawTask: task,
         });
       }
@@ -160,9 +160,9 @@ export function OrgCalendar({ leaves, tasks, employees }: OrgCalendarProps) {
 
       {/* Legend */}
       <div className="flex flex-wrap gap-3 text-[10px] font-bold">
-        <span className="flex items-center gap-1 text-slate-500"><span className="h-2.5 w-2.5 rounded bg-blue-100 border border-blue-300"></span>🏖 Leave (approved)</span>
-        <span className="flex items-center gap-1 text-slate-500"><span className="h-2.5 w-2.5 rounded bg-orange-50 border border-orange-300"></span>📋 Task due</span>
-        <span className="flex items-center gap-1 text-slate-500"><span className="h-2.5 w-2.5 rounded bg-amber-50 border border-amber-300"></span>⚠️ Conflict: task + leave overlap</span>
+        <span className="flex items-center gap-1 text-slate-500"><span className="h-2.5 w-2.5 rounded bg-blue-100 border border-blue-300"></span><Palmtree className="h-3 w-3" /> Leave (approved)</span>
+        <span className="flex items-center gap-1 text-slate-500"><span className="h-2.5 w-2.5 rounded bg-orange-50 border border-orange-300"></span><ClipboardList className="h-3 w-3" /> Task due</span>
+        <span className="flex items-center gap-1 text-slate-500"><span className="h-2.5 w-2.5 rounded bg-amber-50 border border-amber-300"></span><AlertTriangle className="h-3 w-3" /> Conflict: task + leave overlap</span>
       </div>
 
       {/* Grid */}
@@ -187,7 +187,7 @@ export function OrgCalendar({ leaves, tasks, employees }: OrgCalendarProps) {
               <div
                 key={date.toISOString()}
                 onClick={() => setModalDay(dayData)}
-                className={`h-20 sm:h-24 p-1 cursor-pointer transition-all flex flex-col group relative ${
+                className={`h-20 sm:h-24 p-1 cursor-pointer transition-colors flex flex-col group relative ${
                   dayData.hasConflict ? 'bg-amber-50/40 hover:bg-amber-50' :
                   hasEvents ? 'bg-white hover:bg-slate-50/80' :
                   'bg-white hover:bg-slate-50/30'
@@ -203,7 +203,7 @@ export function OrgCalendar({ leaves, tasks, employees }: OrgCalendarProps) {
                 {/* Conflict badge */}
                 {dayData.hasConflict && (
                   <div className="flex items-center gap-0.5 text-[8px] font-bold text-amber-700 mb-0.5 bg-amber-50 border border-amber-200 rounded px-1 w-fit">
-                    ⚠️ Conflict
+                    <AlertTriangle className="h-2.5 w-2.5" /> Conflict
                   </div>
                 )}
 
@@ -216,7 +216,10 @@ export function OrgCalendar({ leaves, tasks, employees }: OrgCalendarProps) {
                         event.type === 'leave' ? 'bg-blue-50 text-blue-800 border-blue-200' : 'bg-orange-50 text-orange-800 border-orange-200'
                       }`}
                     >
-                      {event.type === 'task' ? '📋 ' : '🏖 '}{event.label.split('—')[0].split(':')[0]}
+                      <span className="inline-flex items-center gap-0.5">
+                        {event.type === 'task' ? <ClipboardList className="h-2 w-2" /> : <Palmtree className="h-2 w-2" />}
+                        {event.label.split('—')[0].split(':')[0]}
+                      </span>
                     </div>
                   ))}
                   {dayData.events.length > 2 && (
@@ -238,7 +241,7 @@ export function OrgCalendar({ leaves, tasks, employees }: OrgCalendarProps) {
         >
           <div className="space-y-4 max-h-[400px] overflow-y-auto pr-1">
             {modalDay.hasConflict && (
-              <div className="flex items-start gap-2 p-3 bg-amber-55 border border-amber-250 text-amber-900 rounded-lg text-xs font-semibold">
+              <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg text-xs font-semibold">
                 <AlertTriangle className="h-4 w-4 text-amber-700 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-bold">Schedule Conflict Detected</p>
@@ -265,7 +268,7 @@ export function OrgCalendar({ leaves, tasks, employees }: OrgCalendarProps) {
                     <div className={`h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${
                       event.type === 'leave' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'
                     }`}>
-                      {event.type === 'leave' ? '🏖' : '📋'}
+                      {event.type === 'leave' ? <Palmtree className="h-3.5 w-3.5" /> : <ClipboardList className="h-3.5 w-3.5" />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
@@ -278,7 +281,7 @@ export function OrgCalendar({ leaves, tasks, employees }: OrgCalendarProps) {
                       </div>
                       <p className="text-[10px] text-slate-500 font-semibold mt-1">
                         Department: {event.team}
-                        {event.isConflict && <span className="text-amber-700 font-bold ml-2">⚠️ Conflict</span>}
+                        {event.isConflict && <span className="text-amber-700 font-bold ml-2 inline-flex items-center gap-0.5"><AlertTriangle className="h-2.5 w-2.5" /> Conflict</span>}
                       </p>
                       {event.rawLeave && (
                         <p className="text-[10px] text-slate-400 font-medium mt-1 leading-relaxed border-t border-slate-100 pt-1">
@@ -296,7 +299,7 @@ export function OrgCalendar({ leaves, tasks, employees }: OrgCalendarProps) {
               </div>
             )}
 
-            <div className="flex justify-end pt-3 border-t border-slate-150">
+            <div className="flex justify-end pt-3 border-t border-slate-200">
               <button 
                 onClick={() => setModalDay(null)} 
                 className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-colors"

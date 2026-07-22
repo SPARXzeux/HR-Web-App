@@ -4,9 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { hrActions, Profile, Team, useProfiles, useTeams, useWarehouses } from '@/lib/hrData';
+import { hrActions, Profile, Team, useProfiles, useTeams, useWarehouses, displayName } from '@/lib/hrData';
 import { getSessionEmail } from '@/lib/session';
-import { Users, Trash2, Plus, AlertTriangle, CheckCircle2, UserCog, Star, Edit, Trash, Sparkles } from 'lucide-react';
+import { Users, Trash2, Plus, AlertTriangle, CheckCircle2, UserCog, Star, Edit, Trash, Sparkles, Building2, Loader2, CheckSquare, Square } from 'lucide-react';
 import { UserProfileModal } from '@/components/ui/UserProfileModal';
 
 export default function HRTeamsPage() {
@@ -22,6 +22,7 @@ export default function HRTeamsPage() {
   const findTeamByName = (name: string) => allTeams.find((t: Team) => t.name === name);
   const teamNamesForEmployee = (email: string) => allTeams.filter((t: Team) => t.members.includes(email)).map((t: Team) => t.name);
   
+  const [pageTab, setPageTab] = useState<'teams' | 'warehouses'>('teams');
   const [searchQuery, setSearchQuery] = useState('');
   const [newTeamName, setNewTeamName] = useState('');
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
@@ -63,6 +64,12 @@ export default function HRTeamsPage() {
   const [whLeadSelections, setWhLeadSelections] = useState<string[]>([]);
   const [whLeadSuccess, setWhLeadSuccess] = useState('');
   const [cleaningWarehouses, setCleaningWarehouses] = useState(false);
+  const [deletingTeamName, setDeletingTeamName] = useState<string | null>(null);
+  const [isSavingTeamLead, setIsSavingTeamLead] = useState(false);
+  const [isSavingWhLead, setIsSavingWhLead] = useState(false);
+  const [isCreatingWh, setIsCreatingWh] = useState(false);
+  const [deletingWhId, setDeletingWhId] = useState<string | null>(null);
+  const [isSavingWhEdit, setIsSavingWhEdit] = useState(false);
 
   useEffect(() => {
     const email = getSessionEmail();
@@ -104,24 +111,30 @@ export default function HRTeamsPage() {
   };
 
   const handleDeleteTeam = async (teamName: string) => {
+    if (deletingTeamName) return;
     const confirmDelete = window.confirm(`Are you sure you want to delete the "${teamName}" team? Members will be removed from this team.`);
     if (!confirmDelete) return;
 
-    const team = findTeamByName(teamName);
-    if (team) {
-      await hrActions.deleteTeam(team.id);
-      // Mirror the removal onto each member's profile.teams[] (still used
-      // elsewhere in the app, e.g. Tasks page filters by team name).
-      await Promise.all(
-        employees
-          .filter((e: Profile) => e.teams.includes(teamName))
-          .map((e: Profile) => hrActions.updateEmployeeTeams(e.id, e.teams.filter(t => t !== teamName)))
-      );
+    setDeletingTeamName(teamName);
+    try {
+      const team = findTeamByName(teamName);
+      if (team) {
+        await hrActions.deleteTeam(team.id);
+        // Mirror the removal onto each member's profile.teams[] (still used
+        // elsewhere in the app, e.g. Tasks page filters by team name).
+        await Promise.all(
+          employees
+            .filter((e: Profile) => e.teams.includes(teamName))
+            .map((e: Profile) => hrActions.updateEmployeeTeams(e.id, e.teams.filter(t => t !== teamName)))
+        );
+      }
+      refetchTeams();
+      refetchProfiles();
+      setSaveSuccess(`Deleted team`);
+      setTimeout(() => setSaveSuccess(null), 1500);
+    } finally {
+      setDeletingTeamName(null);
     }
-    refetchTeams();
-    refetchProfiles();
-    setSaveSuccess(`Deleted team`);
-    setTimeout(() => setSaveSuccess(null), 1500);
   };
 
   const handleDragStart = (emp: Profile) => {
@@ -132,22 +145,32 @@ export default function HRTeamsPage() {
     e.preventDefault(); // Enable drop target
   };
 
-  const handleDropOnTeam = (teamName: string) => {
-    if (!draggedEmployee) return;
-
+  // Shared by the desktop drag-and-drop drop zone AND the mobile "Assign to
+  // team" select rendered on each employee card. HTML5's native
+  // drag-and-drop API (draggable/onDragStart/onDragOver/onDrop) never fires
+  // on touch devices at all — a hard browser limitation, not a sizing/CSS
+  // issue — so phones need a completely different interaction to reach this
+  // same assignment logic.
+  const assignEmployeeToTeam = (employee: Profile, teamName: string) => {
     const team = findTeamByName(teamName);
-    if (team && team.members.includes(draggedEmployee.email)) {
+    if (team && team.members.includes(employee.email)) {
       return;
     }
 
+    setDraggedEmployee(employee);
     setTargetTeam(teamName);
 
-    const currentTeamNames = teamNamesForEmployee(draggedEmployee.email);
+    const currentTeamNames = teamNamesForEmployee(employee.email);
     if (currentTeamNames.length > 0) {
       setIsPromptOpen(true);
     } else {
-      performAllocation(draggedEmployee, [teamName]);
+      performAllocation(employee, [teamName]);
     }
+  };
+
+  const handleDropOnTeam = (teamName: string) => {
+    if (!draggedEmployee) return;
+    assignEmployeeToTeam(draggedEmployee, teamName);
   };
 
   // Writes membership to the authoritative hr_teams.members arrays, then
@@ -192,11 +215,11 @@ export default function HRTeamsPage() {
     const alreadyLead = emp.isTeamLead && (emp.leadTeams?.length ?? 0) > 0;
     if (alreadyLead) {
       await hrActions.setTeamLead(emp.id, []);
-      setSaveSuccess(`${emp.fullName} is no longer a team lead.`);
+      setSaveSuccess(`${displayName(emp, 'hr')} is no longer a team lead.`);
     } else {
       const leadTeams = emp.teams.length > 0 ? emp.teams : [];
       await hrActions.setTeamLead(emp.id, leadTeams);
-      setSaveSuccess(`${emp.fullName} is now Team Lead of: ${leadTeams.join(', ') || '(no teams yet)'}`);
+      setSaveSuccess(`${displayName(emp, 'hr')} is now Team Lead of: ${leadTeams.join(', ') || '(no teams yet)'}`);
     }
     refetchProfiles();
     setTimeout(() => setSaveSuccess(null), 2000);
@@ -209,28 +232,33 @@ export default function HRTeamsPage() {
   };
 
   const handleSaveTeamLead = async () => {
-    if (!leadEmployeeId) return;
-    const emp = allProfiles.find(e => e.id === leadEmployeeId);
-    await hrActions.setTeamLead(leadEmployeeId, leadTeamSelections);
-    // Best-effort mirror onto hr_teams.leadEmail (one lead per team in the
-    // real schema): set it for newly-selected teams, clear it for teams
-    // this employee previously led but is no longer selected for.
-    if (emp) {
-      await Promise.all(
-        allTeams.map(async (team: Team) => {
-          const shouldLead = leadTeamSelections.includes(team.name);
-          if (shouldLead && team.leadEmail !== emp.email) {
-            await hrActions.updateTeamLead(team.id, emp.email);
-          } else if (!shouldLead && team.leadEmail === emp.email) {
-            await hrActions.updateTeamLead(team.id, '');
-          }
-        })
-      );
+    if (!leadEmployeeId || isSavingTeamLead) return;
+    setIsSavingTeamLead(true);
+    try {
+      const emp = allProfiles.find(e => e.id === leadEmployeeId);
+      await hrActions.setTeamLead(leadEmployeeId, leadTeamSelections);
+      // Best-effort mirror onto hr_teams.leadEmail (one lead per team in the
+      // real schema): set it for newly-selected teams, clear it for teams
+      // this employee previously led but is no longer selected for.
+      if (emp) {
+        await Promise.all(
+          allTeams.map(async (team: Team) => {
+            const shouldLead = leadTeamSelections.includes(team.name);
+            if (shouldLead && team.leadEmail !== emp.email) {
+              await hrActions.updateTeamLead(team.id, emp.email);
+            } else if (!shouldLead && team.leadEmail === emp.email) {
+              await hrActions.updateTeamLead(team.id, '');
+            }
+          })
+        );
+      }
+      refetchProfiles();
+      refetchTeams();
+      setLeadSuccess(`${emp?.fullName} is now team lead of: ${leadTeamSelections.join(', ') || '(none)'}`);
+      setTimeout(() => { setIsTeamLeadOpen(false); setLeadSuccess(''); setLeadEmployeeId(''); setLeadTeamSelections([]); }, 1400);
+    } finally {
+      setIsSavingTeamLead(false);
     }
-    refetchProfiles();
-    refetchTeams();
-    setLeadSuccess(`${emp?.fullName} is now team lead of: ${leadTeamSelections.join(', ') || '(none)'}`);
-    setTimeout(() => { setIsTeamLeadOpen(false); setLeadSuccess(''); setLeadEmployeeId(''); setLeadTeamSelections([]); }, 1400);
   };
 
   const handleWhLeadToggle = (whId: string) => {
@@ -240,57 +268,73 @@ export default function HRTeamsPage() {
   };
 
   const handleSaveWhLead = async () => {
-    if (!whLeadEmployeeId) return;
+    if (!whLeadEmployeeId || isSavingWhLead) return;
     const emp = allProfiles.find(e => e.id === whLeadEmployeeId);
     if (!emp) return;
 
-    const isNowLead = whLeadSelections.length > 0;
-    await hrActions.updateProfileDetails(emp.id, {
-      isWarehouseLead: isNowLead,
-      managedWarehouses: whLeadSelections,
-      jobTitle: isNowLead ? 'Warehouse Manager' : emp.jobTitle
-    });
+    setIsSavingWhLead(true);
+    try {
+      const isNowLead = whLeadSelections.length > 0;
+      await hrActions.updateProfileDetails(emp.id, {
+        isWarehouseLead: isNowLead,
+        managedWarehouses: whLeadSelections,
+        jobTitle: isNowLead ? 'Warehouse Manager' : emp.jobTitle
+      });
 
-    refetchProfiles();
-    setWhLeadSuccess(`${emp.fullName} is now Warehouse Manager for: ${
-      whLeadSelections.map(id => allWarehouses.find(w => w.id === id)?.name || id).join(', ') || '(none)'
-    }`);
-    setTimeout(() => { 
-      setIsWhLeadOpen(false); 
-      setWhLeadSuccess(''); 
-      setWhLeadEmployeeId(''); 
-      setWhLeadSelections([]); 
-    }, 1500);
+      refetchProfiles();
+      setWhLeadSuccess(`${displayName(emp, 'hr')} is now Warehouse Manager for: ${
+        whLeadSelections.map(id => allWarehouses.find(w => w.id === id)?.name || id).join(', ') || '(none)'
+      }`);
+      setTimeout(() => {
+        setIsWhLeadOpen(false);
+        setWhLeadSuccess('');
+        setWhLeadEmployeeId('');
+        setWhLeadSelections([]);
+      }, 1500);
+    } finally {
+      setIsSavingWhLead(false);
+    }
   };
 
   const handleCreateWarehouse = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!whName.trim() || !whLat || !whLon) return;
+    if (isCreatingWh || !whName.trim() || !whLat || !whLon) return;
 
-    await hrActions.addWarehouse({
-      name: whName.trim(),
-      latitude: Number(whLat),
-      longitude: Number(whLon),
-      radius: Number(whRadius)
-    });
-    refetchWarehouses();
-    setWhName('');
-    setWhLat('');
-    setWhLon('');
-    setWhRadius('500');
-    setWhSuccess('Warehouse created successfully!');
-    setTimeout(() => setWhSuccess(''), 1500);
+    setIsCreatingWh(true);
+    try {
+      await hrActions.addWarehouse({
+        name: whName.trim(),
+        latitude: Number(whLat),
+        longitude: Number(whLon),
+        radius: Number(whRadius)
+      });
+      refetchWarehouses();
+      setWhName('');
+      setWhLat('');
+      setWhLon('');
+      setWhRadius('500');
+      setWhSuccess('Warehouse created successfully!');
+      setTimeout(() => setWhSuccess(''), 1500);
+    } finally {
+      setIsCreatingWh(false);
+    }
   };
 
   const handleDeleteWarehouse = async (id: string) => {
+    if (deletingWhId) return;
     const confirmDelete = window.confirm('Are you sure you want to delete this warehouse? Assignments will be updated.');
     if (!confirmDelete) return;
 
-    await hrActions.deleteWarehouse(id, allProfiles);
-    refetchWarehouses();
-    refetchProfiles();
-    setWhSuccess('Warehouse deleted successfully.');
-    setTimeout(() => setWhSuccess(''), 1500);
+    setDeletingWhId(id);
+    try {
+      await hrActions.deleteWarehouse(id, allProfiles);
+      refetchWarehouses();
+      refetchProfiles();
+      setWhSuccess('Warehouse deleted successfully.');
+      setTimeout(() => setWhSuccess(''), 1500);
+    } finally {
+      setDeletingWhId(null);
+    }
   };
 
   const handleStartEditWarehouse = (wh: any) => {
@@ -303,18 +347,23 @@ export default function HRTeamsPage() {
 
   const handleUpdateWarehouseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingWhId) return;
+    if (isSavingWhEdit || !editingWhId) return;
 
-    await hrActions.updateWarehouse(editingWhId, {
-      name: editingWhName.trim(),
-      latitude: Number(editingWhLat),
-      longitude: Number(editingWhLon),
-      radius: Number(editingWhRadius)
-    });
-    refetchWarehouses();
-    setEditingWhId(null);
-    setWhSuccess('Warehouse updated successfully.');
-    setTimeout(() => setWhSuccess(''), 1500);
+    setIsSavingWhEdit(true);
+    try {
+      await hrActions.updateWarehouse(editingWhId, {
+        name: editingWhName.trim(),
+        latitude: Number(editingWhLat),
+        longitude: Number(editingWhLon),
+        radius: Number(editingWhRadius)
+      });
+      refetchWarehouses();
+      setEditingWhId(null);
+      setWhSuccess('Warehouse updated successfully.');
+      setTimeout(() => setWhSuccess(''), 1500);
+    } finally {
+      setIsSavingWhEdit(false);
+    }
   };
 
   const handleAssignWarehouse = async (empId: string, whId: string, checked: boolean) => {
@@ -330,7 +379,7 @@ export default function HRTeamsPage() {
 
     await hrActions.updateProfileDetails(emp.id, { assignedWarehouses: current });
     refetchProfiles();
-    setWhSuccess(`Warehouse assignment updated for ${emp.fullName}`);
+    setWhSuccess(`Warehouse assignment updated for ${displayName(emp, 'hr')}`);
     setTimeout(() => setWhSuccess(''), 1500);
   };
 
@@ -408,24 +457,27 @@ export default function HRTeamsPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Teams & Allocations</h1>
-          <p className="text-slate-500">Create custom teams and drag employees to allocate them.</p>
+          <h1 className="text-2xl font-bold text-slate-900">Teams &amp; Warehouses</h1>
+          <p className="text-slate-500">Build teams, allocate staff, and configure USA warehouse geofencing.</p>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
-          <button 
-            onClick={() => setIsTeamLeadOpen(true)}
-            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 rounded-xl text-xs active:scale-97 transition-all flex items-center justify-center gap-1.5 shadow-sm"
-          >
-            <UserCog className="h-4 w-4" /> Manage Team Leads
-          </button>
-          <button 
-            onClick={() => setIsWhLeadOpen(true)}
-            className="bg-purple-600 hover:bg-purple-750 text-white font-semibold px-4 py-2.5 rounded-xl text-xs active:scale-97 transition-all flex items-center justify-center gap-1.5 shadow-sm"
-          >
-            <UserCog className="h-4 w-4" /> Manage Warehouse Managers
-          </button>
+          {pageTab === 'teams' ? (
+            <button
+              onClick={() => setIsTeamLeadOpen(true)}
+              className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 rounded-xl text-xs active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1.5 shadow-sm"
+            >
+              <UserCog className="h-4 w-4" /> Manage Team Leads
+            </button>
+          ) : (
+            <button
+              onClick={() => setIsWhLeadOpen(true)}
+              className="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-4 py-2.5 rounded-xl text-xs active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1.5 shadow-sm"
+            >
+              <UserCog className="h-4 w-4" /> Manage Warehouse Managers
+            </button>
+          )}
           {saveSuccess && (
-            <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 animate-in fade-in duration-150 shadow-sm">
+            <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 fade-enter shadow-sm">
               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
               {saveSuccess}
             </div>
@@ -433,6 +485,35 @@ export default function HRTeamsPage() {
         </div>
       </div>
 
+      {/* Section tabs — splits what used to be one very long scrolling page
+          (team builder + drag-drop allocation + warehouse config + USA
+          warehouse assignments) into two focused workflows, matching the
+          Queue/History tab pattern already used on the Leaves pages. */}
+      <div className="flex gap-2 border-b border-slate-200">
+        <button
+          onClick={() => setPageTab('teams')}
+          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-t-lg border-b-2 transition-colors ${
+            pageTab === 'teams'
+              ? 'border-orange-500 text-orange-700 bg-orange-50'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Users className="h-4 w-4" /> Teams &amp; Allocation
+        </button>
+        <button
+          onClick={() => setPageTab('warehouses')}
+          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-t-lg border-b-2 transition-colors ${
+            pageTab === 'warehouses'
+              ? 'border-orange-500 text-orange-700 bg-orange-50'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Building2 className="h-4 w-4" /> USA Warehouse Geofencing
+        </button>
+      </div>
+
+      {pageTab === 'teams' && (
+      <>
       {/* Inline Team Builder Form */}
       <Card className="p-4 bg-slate-50/50 border border-slate-200 space-y-3">
         {teamError && (
@@ -453,7 +534,7 @@ export default function HRTeamsPage() {
           <button
             type="submit"
             disabled={creatingTeam || !newTeamName.trim()}
-            className="w-full sm:w-auto bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center justify-center gap-1 disabled:opacity-50"
+            className="w-full sm:w-auto bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1 disabled:opacity-50"
           >
             <Plus className="h-4 w-4" /> {creatingTeam ? 'Creating…' : 'Create Team'}
           </button>
@@ -461,7 +542,7 @@ export default function HRTeamsPage() {
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
+
         {/* Left Panel: Draggable Employees */}
         <div className="lg:col-span-4 space-y-4">
           <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider flex items-center gap-1.5">
@@ -473,30 +554,30 @@ export default function HRTeamsPage() {
                 key={emp.id}
                 draggable
                 onDragStart={() => handleDragStart(emp)}
-                className="cursor-grab select-none hover:shadow-md transition-all active:scale-97"
+                className="cursor-grab select-none hover:shadow-md transition-shadow transition-transform active:scale-97"
               >
                 <Card 
                   onClick={() => setSelectedProfileEmail(emp.email)} 
-                  className="p-4 bg-white border border-slate-200 hover:border-slate-350 cursor-pointer"
+                  className="p-4 bg-white border border-slate-200 hover:border-slate-300 cursor-pointer"
                 >
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <div>
                       <div className="font-semibold text-slate-900 text-sm flex items-center gap-1.5">
-                        {emp.fullName}
+                        {displayName(emp, 'hr')}
                         {emp.isTeamLead && (emp.leadTeams?.length ?? 0) > 0 && (
-                          <span title={`Lead of: ${emp.leadTeams?.join(', ')}`} className="text-amber-500">⭐</span>
+                          <span title={`Lead of: ${emp.leadTeams?.join(', ')}`} className="text-amber-500"><Star className="h-3 w-3 fill-amber-500" /></span>
                         )}
                         {emp.isWarehouseLead && (emp.managedWarehouses?.length ?? 0) > 0 && (
-                          <span title="Warehouse Manager" className="text-purple-650 font-bold text-xs" style={{ cursor: 'help' }}>🏢 Manager</span>
+                          <span title="Warehouse Manager" className="text-purple-700 font-bold text-xs flex items-center gap-0.5" style={{ cursor: 'help' }}><Building2 className="h-3 w-3" /> Manager</span>
                         )}
                       </div>
-                      <div className="text-[10px] text-slate-550 mt-0.5 uppercase tracking-wide font-medium">{emp.jobTitle || emp.role}</div>
+                      <div className="text-[10px] text-slate-600 mt-0.5 uppercase tracking-wide font-medium">{emp.jobTitle || emp.role}</div>
                     </div>
                     <button
                       onMouseDown={e => e.stopPropagation()}
                       onClick={e => { e.stopPropagation(); handleToggleTeamLead(emp); }}
                       title={emp.isTeamLead && (emp.leadTeams?.length ?? 0) > 0 ? 'Remove team lead' : 'Make team lead'}
-                      className={`flex-shrink-0 flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border transition-all active:scale-95 ${
+                      className={`flex-shrink-0 flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border transition-colors transition-transform active:scale-95 ${
                         emp.isTeamLead && (emp.leadTeams?.length ?? 0) > 0
                           ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700'
                           : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-amber-50 hover:border-amber-200 hover:text-amber-700'
@@ -515,6 +596,27 @@ export default function HRTeamsPage() {
                       ))
                     )}
                   </div>
+
+                  {/* Mobile-only "Assign to team" — native HTML5
+                      drag-and-drop never fires on touch devices at all (a
+                      hard browser limitation, not a sizing bug), so dragging
+                      this card onto a team dropzone silently does nothing on
+                      phones. This calls the exact same assignEmployeeToTeam()
+                      path the desktop drag-and-drop uses. */}
+                  {teamNames.length > 0 && (
+                    <select
+                      value=""
+                      onChange={e => { if (e.target.value) { assignEmployeeToTeam(emp, e.target.value); e.target.value = ''; } }}
+                      onClick={e => e.stopPropagation()}
+                      onMouseDown={e => e.stopPropagation()}
+                      className="md:hidden mt-2.5 w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2 text-[10px] font-bold text-slate-700 outline-none focus:border-orange-500"
+                    >
+                      <option value="">Assign to team…</option>
+                      {teamNames.filter(t => !findTeamByName(t)?.members.includes(emp.email)).map(t => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  )}
                 </Card>
               </div>
             ))}
@@ -535,7 +637,7 @@ export default function HRTeamsPage() {
                   key={team.id}
                   onDragOver={handleDragOver}
                   onDrop={() => handleDropOnTeam(teamName)}
-                  className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-4 min-h-[160px] flex flex-col transition-all hover:bg-slate-100/50"
+                  className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-4 min-h-[160px] flex flex-col transition-colors hover:bg-slate-100/50"
                 >
                   <div className="flex justify-between items-center mb-3">
                     <span className="font-bold text-xs text-slate-700 uppercase tracking-wider">{teamName}</span>
@@ -554,12 +656,13 @@ export default function HRTeamsPage() {
                           <option key={wh.id} value={wh.id}>{wh.name}</option>
                         ))}
                       </select>
-                      <button 
+                      <button
                         onClick={() => handleDeleteTeam(teamName)}
-                        className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-white transition-colors"
+                        disabled={deletingTeamName === teamName}
+                        className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         title="Delete Team"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        {deletingTeamName === teamName ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                       </button>
                     </div>
                   </div>
@@ -569,13 +672,13 @@ export default function HRTeamsPage() {
                       <div 
                         key={member.id} 
                         onClick={() => setSelectedProfileEmail(member.email)}
-                        className="bg-white border border-slate-200 rounded-lg p-2.5 shadow-sm text-xs font-semibold text-slate-700 flex justify-between items-center cursor-pointer hover:border-slate-350 transition-colors"
+                        className="bg-white border border-slate-200 rounded-lg p-2.5 shadow-sm text-xs font-semibold text-slate-700 flex justify-between items-center cursor-pointer hover:border-slate-300 transition-colors"
                       >
-                        <span>{member.fullName}</span>
+                        <span>{displayName(member, 'hr')}</span>
                         <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
                           {member.isTeamLead && member.leadTeams?.includes(teamName) && (
                             <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded flex items-center gap-0.5">
-                              ⭐ Lead
+                              <Star className="h-2.5 w-2.5" /> Lead
                             </span>
                           )}
                           <button
@@ -583,7 +686,7 @@ export default function HRTeamsPage() {
                               const remain = teamNamesForEmployee(member.email).filter(t => t !== teamName);
                               performAllocation(member, remain);
                             }}
-                            className="text-slate-350 hover:text-rose-600 text-[10px] font-bold"
+                            className="text-slate-400 hover:text-rose-600 text-[10px] font-bold"
                           >
                             Remove
                           </button>
@@ -602,6 +705,8 @@ export default function HRTeamsPage() {
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {/* Team Lead Management Modal */}
       <Modal isOpen={isTeamLeadOpen} onClose={() => setIsTeamLeadOpen(false)} title="Manage Team Leads">
@@ -613,7 +718,7 @@ export default function HRTeamsPage() {
           )}
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Select Employee</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Select Employee</label>
             <select
               value={leadEmployeeId}
               onChange={e => {
@@ -626,7 +731,7 @@ export default function HRTeamsPage() {
               <option value="">— Select employee —</option>
               {employees.filter(e => e.role === 'employee').map(emp => (
                 <option key={emp.id} value={emp.id}>
-                  {emp.fullName} {emp.isTeamLead ? '⭐ (Lead)' : ''} — {emp.teams.join(', ')}
+                  {displayName(emp, 'hr')} {emp.isTeamLead ? '(Lead)' : ''} — {emp.teams.join(', ')}
                 </option>
               ))}
             </select>
@@ -634,7 +739,7 @@ export default function HRTeamsPage() {
 
           {leadEmployeeId && (
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Assign as Lead of Teams</label>
+              <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Assign as Lead of Teams</label>
               <div className="space-y-2 mt-1">
                 {teamNames.map(t => (
                   <label key={t} className="flex items-center gap-2.5 cursor-pointer group">
@@ -657,7 +762,7 @@ export default function HRTeamsPage() {
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Current Team Leads</p>
             {employees.filter(e => e.isTeamLead && (e.leadTeams?.length ?? 0) > 0).map(emp => (
               <div key={emp.id} className="flex items-center justify-between text-xs bg-purple-50 border border-purple-100 rounded-lg px-3 py-2">
-                <span className="font-semibold text-slate-800">⭐ {emp.fullName}</span>
+                <span className="font-semibold text-slate-800 flex items-center gap-1"><Star className="h-3 w-3 text-purple-600" /> {displayName(emp, 'hr')}</span>
                 <span className="text-purple-700 font-semibold">{emp.leadTeams?.join(', ')}</span>
               </div>
             ))}
@@ -667,8 +772,11 @@ export default function HRTeamsPage() {
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-            <button onClick={() => setIsTeamLeadOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
-            <button onClick={handleSaveTeamLead} disabled={!leadEmployeeId} className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Save Changes</button>
+            <button onClick={() => setIsTeamLeadOpen(false)} disabled={isSavingTeamLead} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
+            <button onClick={handleSaveTeamLead} disabled={!leadEmployeeId || isSavingTeamLead} className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform shadow-sm disabled:cursor-not-allowed flex items-center justify-center gap-1.5">
+              {isSavingTeamLead && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {isSavingTeamLead ? 'Saving…' : 'Save Changes'}
+            </button>
           </div>
         </div>
       </Modal>
@@ -683,7 +791,7 @@ export default function HRTeamsPage() {
           )}
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Select USA Employee</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Select USA Employee</label>
             <select
               value={whLeadEmployeeId}
               onChange={e => {
@@ -696,7 +804,7 @@ export default function HRTeamsPage() {
               <option value="">— Select employee —</option>
               {employees.filter(e => e.region === 'USA' && e.role === 'employee').map(emp => (
                 <option key={emp.id} value={emp.id}>
-                  {emp.fullName} {emp.isWarehouseLead ? '🏢 (Manager)' : ''}
+                  {displayName(emp, 'hr')} {emp.isWarehouseLead ? '(Manager)' : ''}
                 </option>
               ))}
             </select>
@@ -704,7 +812,7 @@ export default function HRTeamsPage() {
 
           {whLeadEmployeeId && (
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Assign as Manager of Warehouses</label>
+              <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Assign as Manager of Warehouses</label>
               <div className="space-y-2 mt-1">
                 {warehouses.map(w => (
                   <label key={w.id} className="flex items-center gap-2.5 cursor-pointer group">
@@ -724,10 +832,10 @@ export default function HRTeamsPage() {
 
           {/* Current Warehouse Managers List */}
           <div className="border-t border-slate-200 pt-4 space-y-2">
-            <p className="text-xs font-bold text-slate-550 uppercase tracking-wider">Current Warehouse Managers</p>
+            <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Current Warehouse Managers</p>
             {employees.filter(e => e.isWarehouseLead && (e.managedWarehouses?.length ?? 0) > 0).map(emp => (
               <div key={emp.id} className="flex items-center justify-between text-xs bg-purple-50 border border-purple-100 rounded-lg px-3 py-2">
-                <span className="font-semibold text-slate-800">🏢 {emp.fullName}</span>
+                <span className="font-semibold text-slate-800 flex items-center gap-1"><Building2 className="h-3 w-3 text-purple-600" /> {displayName(emp, 'hr')}</span>
                 <span className="text-purple-700 font-semibold">
                   {emp.managedWarehouses?.map(id => warehouses.find(w => w.id === id)?.name || id).join(', ')}
                 </span>
@@ -739,8 +847,11 @@ export default function HRTeamsPage() {
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-            <button onClick={() => setIsWhLeadOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
-            <button onClick={handleSaveWhLead} disabled={!whLeadEmployeeId} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Save Changes</button>
+            <button onClick={() => setIsWhLeadOpen(false)} disabled={isSavingWhLead} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
+            <button onClick={handleSaveWhLead} disabled={!whLeadEmployeeId || isSavingWhLead} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform shadow-sm disabled:cursor-not-allowed flex items-center justify-center gap-1.5">
+              {isSavingWhLead && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {isSavingWhLead ? 'Saving…' : 'Save Changes'}
+            </button>
           </div>
         </div>
       </Modal>
@@ -753,7 +864,7 @@ export default function HRTeamsPage() {
             <div>
               <p className="font-bold text-sm text-amber-950 mb-1">Employee is already assigned to other teams</p>
               <p className="font-medium text-amber-800">
-                <strong>{draggedEmployee?.fullName}</strong> is currently assigned to: <strong>{draggedEmployee?.teams.join(', ')}</strong>.
+                <strong>{draggedEmployee ? displayName(draggedEmployee, 'hr') : ''}</strong> is currently assigned to: <strong>{draggedEmployee?.teams.join(', ')}</strong>.
               </p>
             </div>
           </div>
@@ -765,19 +876,19 @@ export default function HRTeamsPage() {
           <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-200">
             <button 
               onClick={() => setIsPromptOpen(false)}
-              className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-750 font-semibold px-4 py-2 rounded-lg text-xs active:scale-97 transition-all order-3 sm:order-1"
+              className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-xs active:scale-97 transition-colors transition-transform order-3 sm:order-1"
             >
               Cancel Drop
             </button>
             <button 
               onClick={() => handleConfirmMultiTeam('reassign')}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold px-4 py-2 rounded-lg text-xs active:scale-97 transition-all order-2 sm:order-2"
+              className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold px-4 py-2 rounded-lg text-xs active:scale-97 transition-colors transition-transform order-2 sm:order-2"
             >
               Reassign Exclusively
             </button>
             <button 
               onClick={() => handleConfirmMultiTeam('both')}
-              className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-xs active:scale-97 transition-all shadow-sm order-1 sm:order-3"
+              className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-xs active:scale-97 transition-colors transition-transform shadow-sm order-1 sm:order-3"
             >
               Add to Both Teams
             </button>
@@ -786,17 +897,17 @@ export default function HRTeamsPage() {
       </Modal>
 
       {/* Warehouse Geofence configuration and Employee Assignment section */}
-      <div className="border-t border-slate-200 pt-8 mt-8 space-y-6">
+      {pageTab === 'warehouses' && (
+      <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-bold text-slate-900">USA Warehouse Geofencing & Assignments</h2>
             <p className="text-sm text-slate-500">Configure logistics warehouses and assign them to USA employees for auto check-in geofencing.</p>
           </div>
           <button
             onClick={handleCleanupStaleWarehouses}
             disabled={cleaningWarehouses}
             title="Remove leftover warehouse IDs from a past migration that no longer match any current warehouse"
-            className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-xs active:scale-97 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 shrink-0"
+            className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-xs active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1.5 disabled:opacity-50 shrink-0"
           >
             <Sparkles className="h-3.5 w-3.5 text-orange-600" /> {cleaningWarehouses ? 'Cleaning up…' : 'Clean Up Stale Warehouse Links'}
           </button>
@@ -819,7 +930,7 @@ export default function HRTeamsPage() {
               <CardContent className="p-6">
                 <form onSubmit={handleCreateWarehouse} className="space-y-3">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider">Warehouse Name *</label>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Warehouse Name *</label>
                     <input 
                       type="text" 
                       required
@@ -831,7 +942,7 @@ export default function HRTeamsPage() {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider">Latitude *</label>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Latitude *</label>
                       <input 
                         type="number" 
                         step="0.000001"
@@ -843,7 +954,7 @@ export default function HRTeamsPage() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider">Longitude *</label>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Longitude *</label>
                       <input 
                         type="number" 
                         step="0.000001"
@@ -855,7 +966,7 @@ export default function HRTeamsPage() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider">Radius (meters) *</label>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Radius (meters) *</label>
                       <input 
                         type="number" 
                         required
@@ -866,11 +977,13 @@ export default function HRTeamsPage() {
                       />
                     </div>
                   </div>
-                  <button 
-                    type="submit" 
-                    className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 rounded-lg text-xs transition-all shadow-sm active:scale-97"
+                  <button
+                    type="submit"
+                    disabled={isCreatingWh}
+                    className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 rounded-lg text-xs transition-colors transition-transform shadow-sm active:scale-97 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
                   >
-                    Add Warehouse
+                    {isCreatingWh && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    {isCreatingWh ? 'Adding…' : 'Add Warehouse'}
                   </button>
                 </form>
               </CardContent>
@@ -882,25 +995,27 @@ export default function HRTeamsPage() {
               </div>
               <CardContent className="p-4 space-y-2 max-h-60 overflow-y-auto">
                 {warehouses.map(wh => (
-                  <div key={wh.id} className="p-3 rounded-lg border border-slate-150 bg-slate-50/50 flex justify-between items-center text-xs">
+                  <div key={wh.id} className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 flex justify-between items-center text-xs">
                     <div>
                       <div className="font-bold text-slate-800">{wh.name}</div>
-                      <div className="text-[10px] text-slate-450 mt-0.5">Coords: {wh.latitude}, {wh.longitude} · Radius: {wh.radius}m</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">Coords: {wh.latitude}, {wh.longitude} · Radius: {wh.radius}m</div>
                     </div>
                     <div className="flex gap-1.5" onClick={e => e.stopPropagation()}>
-                      <button 
+                      <button
                         onClick={() => handleStartEditWarehouse(wh)}
-                        className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-200 transition-all"
+                        disabled={deletingWhId === wh.id}
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         title="Edit Warehouse"
                       >
                         <Edit className="h-3.5 w-3.5" />
                       </button>
-                      <button 
+                      <button
                         onClick={() => handleDeleteWarehouse(wh.id)}
-                        className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-100 transition-all"
+                        disabled={deletingWhId === wh.id}
+                        className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         title="Delete Warehouse"
                       >
-                        <Trash className="h-3.5 w-3.5" />
+                        {deletingWhId === wh.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5" />}
                       </button>
                     </div>
                   </div>
@@ -917,11 +1032,14 @@ export default function HRTeamsPage() {
               </div>
               <CardContent className="p-6 space-y-4 max-h-[460px] overflow-y-auto">
                 {employees.filter(e => e.region === 'USA').map(emp => (
-                  <div key={emp.id} className="p-4 rounded-xl border border-slate-150 bg-slate-50/50 space-y-3">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <div className="font-bold text-slate-900 text-sm">{emp.fullName}</div>
-                        <div className="text-[10px] text-slate-400 font-semibold">{emp.email} · {emp.jobTitle || 'USA Staff'}</div>
+                  <div key={emp.id} className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
+                    <div className="flex justify-between items-center gap-2 pb-3 border-b border-slate-100">
+                      <div className="h-8 w-8 rounded-full bg-orange-50 text-orange-700 flex items-center justify-center font-bold text-xs uppercase shrink-0">
+                        {emp.fullName.split(' ').map(w => w[0]).join('').slice(0, 2)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-slate-900 text-sm truncate">{displayName(emp, 'hr')}</div>
+                        <div className="text-[10px] text-slate-400 font-semibold truncate">{emp.email} · {emp.jobTitle || 'USA Staff'}</div>
                       </div>
                     </div>
 
@@ -931,15 +1049,24 @@ export default function HRTeamsPage() {
                         {warehouses.map(wh => {
                           const isAssigned = (emp.assignedWarehouses || []).includes(wh.id);
                           return (
-                            <label key={wh.id} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer bg-white border border-slate-200 p-2 rounded-lg hover:bg-slate-50">
-                              <input 
-                                type="checkbox"
-                                checked={isAssigned}
-                                onChange={e => handleAssignWarehouse(emp.id, wh.id, e.target.checked)}
-                                className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-                              />
-                              <span className="truncate" title={wh.name}>{wh.name}</span>
-                            </label>
+                            <button
+                              key={wh.id}
+                              type="button"
+                              onClick={() => handleAssignWarehouse(emp.id, wh.id, !isAssigned)}
+                              title={wh.name}
+                              className={`flex items-center gap-1.5 text-xs font-semibold p-2 rounded-lg border text-left transition-colors ${
+                                isAssigned
+                                  ? 'bg-orange-50 border-orange-300 text-orange-800'
+                                  : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-100'
+                              }`}
+                            >
+                              {isAssigned ? (
+                                <CheckSquare className="h-3.5 w-3.5 text-orange-600 shrink-0" />
+                              ) : (
+                                <Square className="h-3.5 w-3.5 text-slate-300 shrink-0" />
+                              )}
+                              <span className="truncate">{wh.name}</span>
+                            </button>
                           );
                         })}
                       </div>
@@ -954,6 +1081,7 @@ export default function HRTeamsPage() {
           </div>
         </div>
       </div>
+      )}
 
       {selectedProfileEmail && (
         <UserProfileModal
@@ -1016,8 +1144,11 @@ export default function HRTeamsPage() {
               </div>
             </div>
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-              <button type="button" onClick={() => setEditingWhId(null)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 rounded-xl text-xs active:scale-97 transition-all">Cancel</button>
-              <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs active:scale-97 transition-all shadow-sm">Save Changes</button>
+              <button type="button" disabled={isSavingWhEdit} onClick={() => setEditingWhId(null)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 rounded-xl text-xs active:scale-97 transition-colors transition-transform disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
+              <button type="submit" disabled={isSavingWhEdit} className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs active:scale-97 transition-colors transition-transform shadow-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5">
+                {isSavingWhEdit && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {isSavingWhEdit ? 'Saving…' : 'Save Changes'}
+              </button>
             </div>
           </form>
         </Modal>

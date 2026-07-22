@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useProfiles, hrActions, Profile, formatMoney } from '@/lib/hrData';
+import { useProfiles, useProfileDocuments, hrActions, Profile, formatMoney } from '@/lib/hrData';
 import { getSessionEmail } from '@/lib/session';
 import { compressImageToWebP, validatePdfSize, fileToDataUrl, MAX_DOCUMENT_IMAGE_BYTES } from '@/lib/imageCompressor';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -17,6 +17,10 @@ export default function EmployeeProfilePage() {
   const { data: allProfiles, refetch: refetchProfiles } = useProfiles();
 
   const [profile, setProfile] = useState<Profile | null>(null);
+  // CV/passport/identity scans are fetched separately from the main
+  // profile — this is the one page where the signed-in employee actually
+  // needs to see their own documents, so it's fine to fetch them here.
+  const { data: myDocs, refetch: refetchDocs } = useProfileDocuments(profile?.id);
 
   // Profile picture upload
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -39,6 +43,7 @@ export default function EmployeeProfilePage() {
   const [confirmPass, setConfirmPass] = useState('');
   const [resetError, setResetError] = useState('');
   const [resetSuccess, setResetSuccess] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
   // Bank details self-service edit
   const [isBankEditOpen, setIsBankEditOpen] = useState(false);
@@ -47,6 +52,7 @@ export default function EmployeeProfilePage() {
   const [ibanInput, setIbanInput] = useState('');
   const [bankError, setBankError] = useState('');
   const [bankSuccess, setBankSuccess] = useState('');
+  const [isSavingBank, setIsSavingBank] = useState(false);
 
   // Contact numbers self-service edit
   const [isPhoneEditOpen, setIsPhoneEditOpen] = useState(false);
@@ -54,6 +60,7 @@ export default function EmployeeProfilePage() {
   const [companyPhoneInput, setCompanyPhoneInput] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [phoneSuccess, setPhoneSuccess] = useState('');
+  const [isSavingPhone, setIsSavingPhone] = useState(false);
 
   useEffect(() => {
     const email = getSessionEmail();
@@ -117,9 +124,7 @@ export default function EmployeeProfilePage() {
       const { data, error } = await fileToStoredData(file);
       if (error) { setDocError(error); return; }
       await hrActions.updateProfileDetails(profile.id, { cvFileName: file.name, cvFileData: data });
-      const { data: refreshed } = await refetchProfiles();
-      const updated = refreshed?.find(p => p.id === profile.id);
-      if (updated) setProfile(updated);
+      await refetchDocs();
       setDocSuccess('CV / Resume uploaded successfully!');
       setTimeout(() => setDocSuccess(''), 2500);
     } catch (err) {
@@ -139,11 +144,9 @@ export default function EmployeeProfilePage() {
     try {
       const { data, error } = await fileToStoredData(file);
       if (error) { setDocError(error); return; }
-      const existing = profile.identityDocs || [];
+      const existing = myDocs?.identityDocs || [];
       await hrActions.updateProfileDetails(profile.id, { identityDocs: [...existing, { name: file.name, data }] });
-      const { data: refreshed } = await refetchProfiles();
-      const updated = refreshed?.find(p => p.id === profile.id);
-      if (updated) setProfile(updated);
+      await refetchDocs();
       setDocSuccess('Identity document uploaded successfully!');
       setTimeout(() => setDocSuccess(''), 2500);
     } catch (err) {
@@ -164,9 +167,7 @@ export default function EmployeeProfilePage() {
       const { data, error } = await fileToStoredData(file);
       if (error) { setDocError(error); return; }
       await hrActions.updateProfileDetails(profile.id, { passportFileName: file.name, passportFileData: data });
-      const { data: refreshed } = await refetchProfiles();
-      const updated = refreshed?.find(p => p.id === profile.id);
-      if (updated) setProfile(updated);
+      await refetchDocs();
       setDocSuccess('Passport uploaded successfully!');
       setTimeout(() => setDocSuccess(''), 2500);
     } catch (err) {
@@ -192,6 +193,7 @@ export default function EmployeeProfilePage() {
     setBankError('');
     setBankSuccess('');
 
+    if (isSavingBank) return;
     if (!bankNameInput.trim() || !accountNumberInput.trim() || !ibanInput.trim()) {
       setBankError('Please fill in all bank detail fields.');
       return;
@@ -200,6 +202,7 @@ export default function EmployeeProfilePage() {
     const email = getSessionEmail();
     if (!email || !profile?.id) return;
 
+    setIsSavingBank(true);
     try {
       await hrActions.updateProfileDetails(profile.id, {
         bankName: bankNameInput.trim(),
@@ -214,6 +217,8 @@ export default function EmployeeProfilePage() {
     } catch (err) {
       console.error(err);
       setBankError('Failed to save bank details.');
+    } finally {
+      setIsSavingBank(false);
     }
   };
 
@@ -231,6 +236,7 @@ export default function EmployeeProfilePage() {
     setPhoneError('');
     setPhoneSuccess('');
 
+    if (isSavingPhone) return;
     if (!personalPhoneInput.trim()) {
       setPhoneError('Please enter your own phone number.');
       return;
@@ -238,6 +244,7 @@ export default function EmployeeProfilePage() {
 
     if (!profile?.id) return;
 
+    setIsSavingPhone(true);
     try {
       await hrActions.updateProfileDetails(profile.id, {
         personalPhone: personalPhoneInput.trim(),
@@ -251,6 +258,8 @@ export default function EmployeeProfilePage() {
     } catch (err) {
       console.error(err);
       setPhoneError('Failed to save contact numbers.');
+    } finally {
+      setIsSavingPhone(false);
     }
   };
 
@@ -259,6 +268,7 @@ export default function EmployeeProfilePage() {
     setResetError('');
     setResetSuccess('');
 
+    if (isResetting) return;
     if (!currentPass || !newPass || !confirmPass) {
       setResetError('Please fill in all fields.');
       return;
@@ -281,6 +291,7 @@ export default function EmployeeProfilePage() {
     }
 
     if (profile?.id) {
+      setIsResetting(true);
       // hr_profiles is a base (non-auth) collection. The password field is
       // a plain text column, updated via hrActions.resetPassword.
       hrActions.resetPassword(profile.id, newPass)
@@ -300,7 +311,8 @@ export default function EmployeeProfilePage() {
         .catch(err => {
           console.error('[Profile] Password update error:', err);
           setResetError('Failed to change password. Please try again.');
-        });
+        })
+        .finally(() => setIsResetting(false));
     }
   };
 
@@ -338,7 +350,7 @@ export default function EmployeeProfilePage() {
       {/* Avatar + Name card */}
       <Card className="p-0 overflow-hidden border border-slate-200">
         {/* Top banner */}
-        <div className="h-24 bg-gradient-to-r from-orange-500 to-orange-400" />
+        <div className="h-24 bg-orange-600" />
         <div className="px-6 pb-6">
           <div className="-mt-10 mb-4 flex items-end justify-between">
             <div className="relative group">
@@ -356,9 +368,9 @@ export default function EmployeeProfilePage() {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 title="Change profile picture"
-                className="absolute bottom-0 right-0 h-7 w-7 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center shadow-md border-2 border-white transition-all active:scale-90"
+                className="absolute -bottom-0.5 -right-0.5 h-5 w-5 md:h-6 md:w-6 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center shadow-sm border-[1.5px] border-white transition-colors transition-transform active:scale-90"
               >
-                <Camera className="h-3.5 w-3.5" />
+                <Camera className="h-2.5 w-2.5 md:h-3 md:w-3" />
               </button>
               <input
                 ref={fileInputRef}
@@ -370,7 +382,7 @@ export default function EmployeeProfilePage() {
             </div>
             <button
               onClick={() => setIsResetOpen(true)}
-              className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2.5 md:py-1.5 rounded-lg transition-all border border-slate-200 active:scale-97"
+              className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2.5 md:py-1.5 rounded-lg transition-colors transition-transform border border-slate-200 active:scale-97"
             >
               <KeyRound className="h-3.5 w-3.5" /> Reset Password
             </button>
@@ -431,7 +443,7 @@ export default function EmployeeProfilePage() {
           <h3 className="font-bold text-slate-900 text-sm">Bank Details</h3>
           <button
             onClick={openBankEdit}
-            className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition-all border border-slate-200 active:scale-97"
+            className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition-colors transition-transform border border-slate-200 active:scale-97"
           >
             <Pencil className="h-3.5 w-3.5" /> Edit
           </button>
@@ -479,7 +491,7 @@ export default function EmployeeProfilePage() {
           <h3 className="font-bold text-slate-900 text-sm">Contact Numbers</h3>
           <button
             onClick={openPhoneEdit}
-            className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition-all border border-slate-200 active:scale-97"
+            className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition-colors transition-transform border border-slate-200 active:scale-97"
           >
             <Pencil className="h-3.5 w-3.5" /> Edit
           </button>
@@ -535,15 +547,15 @@ export default function EmployeeProfilePage() {
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CV / Resume</p>
-                <p className="text-sm font-semibold text-slate-900 mt-0.5 truncate">{profile.cvFileName || 'Not uploaded yet'}</p>
+                <p className="text-sm font-semibold text-slate-900 mt-0.5 truncate">{myDocs?.cvFileName || 'Not uploaded yet'}</p>
               </div>
             </div>
             <button
               onClick={() => cvInputRef.current?.click()}
               disabled={docBusy === 'cv'}
-              className="flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition-all border border-slate-200 active:scale-97 disabled:opacity-60"
+              className="flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition-colors transition-transform border border-slate-200 active:scale-97 disabled:opacity-60"
             >
-              <Upload className="h-3.5 w-3.5" /> {docBusy === 'cv' ? 'Uploading…' : profile.cvFileData ? 'Replace' : 'Upload'}
+              <Upload className="h-3.5 w-3.5" /> {docBusy === 'cv' ? 'Uploading…' : myDocs?.cvFileData ? 'Replace' : 'Upload'}
             </button>
             <input ref={cvInputRef} type="file" accept="image/*,application/pdf" onChange={handleCvUpload} className="hidden" />
           </div>
@@ -553,20 +565,20 @@ export default function EmployeeProfilePage() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{profile.region === 'USA' ? 'Driver License / Work Permit' : 'CNIC (Front/Back)'}</p>
-                <p className="text-xs text-slate-500 mt-0.5">{(profile.identityDocs || []).length} document(s) on file</p>
+                <p className="text-xs text-slate-500 mt-0.5">{(myDocs?.identityDocs || []).length} document(s) on file</p>
               </div>
               <button
                 onClick={() => idInputRef.current?.click()}
                 disabled={docBusy === 'id'}
-                className="flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition-all border border-slate-200 active:scale-97 disabled:opacity-60"
+                className="flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition-colors transition-transform border border-slate-200 active:scale-97 disabled:opacity-60"
               >
                 <Upload className="h-3.5 w-3.5" /> {docBusy === 'id' ? 'Uploading…' : 'Add Document'}
               </button>
               <input ref={idInputRef} type="file" accept="image/*,application/pdf" onChange={handleIdUpload} className="hidden" />
             </div>
-            {(profile.identityDocs || []).length > 0 && (
+            {(myDocs?.identityDocs || []).length > 0 && (
               <ul className="text-xs text-slate-600 space-y-1 pl-1">
-                {(profile.identityDocs || []).map((d, i) => <li key={i} className="truncate">• {d.name}</li>)}
+                {(myDocs?.identityDocs || []).map((d, i) => <li key={i} className="truncate">• {d.name}</li>)}
               </ul>
             )}
           </div>
@@ -579,15 +591,15 @@ export default function EmployeeProfilePage() {
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Passport (Optional)</p>
-                <p className="text-sm font-semibold text-slate-900 mt-0.5 truncate">{profile.passportFileName || 'Not uploaded yet'}</p>
+                <p className="text-sm font-semibold text-slate-900 mt-0.5 truncate">{myDocs?.passportFileName || 'Not uploaded yet'}</p>
               </div>
             </div>
             <button
               onClick={() => passportInputRef.current?.click()}
               disabled={docBusy === 'passport'}
-              className="flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition-all border border-slate-200 active:scale-97 disabled:opacity-60"
+              className="flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition-colors transition-transform border border-slate-200 active:scale-97 disabled:opacity-60"
             >
-              <Upload className="h-3.5 w-3.5" /> {docBusy === 'passport' ? 'Uploading…' : profile.passportFileData ? 'Replace' : 'Upload'}
+              <Upload className="h-3.5 w-3.5" /> {docBusy === 'passport' ? 'Uploading…' : myDocs?.passportFileData ? 'Replace' : 'Upload'}
             </button>
             <input ref={passportInputRef} type="file" accept="image/*,application/pdf" onChange={handlePassportUpload} className="hidden" />
           </div>
@@ -611,7 +623,7 @@ export default function EmployeeProfilePage() {
           </div>
           <button
             onClick={() => setIsResetOpen(true)}
-            className="w-full sm:w-auto flex-shrink-0 bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm"
+            className="w-full sm:w-auto flex-shrink-0 bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform shadow-sm"
           >
             Change Password
           </button>
@@ -633,7 +645,7 @@ export default function EmployeeProfilePage() {
           )}
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Current Password</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Current Password</label>
             <PasswordInput
               value={currentPass}
               onChange={setCurrentPass}
@@ -642,7 +654,7 @@ export default function EmployeeProfilePage() {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">New Password</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">New Password</label>
             <PasswordInput
               value={newPass}
               onChange={setNewPass}
@@ -651,7 +663,7 @@ export default function EmployeeProfilePage() {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Confirm New Password</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Confirm New Password</label>
             <PasswordInput
               value={confirmPass}
               onChange={setConfirmPass}
@@ -661,8 +673,8 @@ export default function EmployeeProfilePage() {
           </div>
 
           <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-200">
-            <button type="button" onClick={() => setIsResetOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
-            <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Update Password</button>
+            <button type="button" disabled={isResetting} onClick={() => setIsResetOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
+            <button type="submit" disabled={isResetting} className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform shadow-sm disabled:opacity-60 disabled:cursor-not-allowed">{isResetting ? 'Updating…' : 'Update Password'}</button>
           </div>
         </form>
       </Modal>
@@ -682,7 +694,7 @@ export default function EmployeeProfilePage() {
           )}
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Bank Name</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Bank Name</label>
             <input
               type="text"
               value={bankNameInput}
@@ -692,7 +704,7 @@ export default function EmployeeProfilePage() {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Account Number</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Account Number</label>
             <input
               type="text"
               value={accountNumberInput}
@@ -702,7 +714,7 @@ export default function EmployeeProfilePage() {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">
               {profile.region === 'USA' ? 'Routing Number' : 'IBAN'}
             </label>
             <input
@@ -719,8 +731,8 @@ export default function EmployeeProfilePage() {
           </p>
 
           <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-200">
-            <button type="button" onClick={() => setIsBankEditOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
-            <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Save Bank Details</button>
+            <button type="button" disabled={isSavingBank} onClick={() => setIsBankEditOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
+            <button type="submit" disabled={isSavingBank} className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform shadow-sm disabled:opacity-60 disabled:cursor-not-allowed">{isSavingBank ? 'Saving…' : 'Save Bank Details'}</button>
           </div>
         </form>
       </Modal>
@@ -740,7 +752,7 @@ export default function EmployeeProfilePage() {
           )}
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Own Number</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Own Number</label>
             <input
               type="tel"
               value={personalPhoneInput}
@@ -750,7 +762,7 @@ export default function EmployeeProfilePage() {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Company Allocated Number (if applicable)</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Company Allocated Number (if applicable)</label>
             <input
               type="tel"
               value={companyPhoneInput}
@@ -765,8 +777,8 @@ export default function EmployeeProfilePage() {
           </p>
 
           <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-200">
-            <button type="button" onClick={() => setIsPhoneEditOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
-            <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Save Contact Numbers</button>
+            <button type="button" disabled={isSavingPhone} onClick={() => setIsPhoneEditOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
+            <button type="submit" disabled={isSavingPhone} className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform shadow-sm disabled:opacity-60 disabled:cursor-not-allowed">{isSavingPhone ? 'Saving…' : 'Save Contact Numbers'}</button>
           </div>
         </form>
       </Modal>

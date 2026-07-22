@@ -5,6 +5,7 @@ import { Team, Profile, Message, useMessages, useTeamDocuments, hrActions, displ
 import { Avatar } from './Avatar';
 import { TeamDocumentsPanel } from './TeamDocumentsPanel';
 import { Send, Paperclip, FileText, Download, ShieldCheck, Loader2, Crown, Search, SlidersHorizontal, X, Megaphone, MessageCircle, FolderOpen, Smile } from 'lucide-react';
+import { ImageLightbox } from './ImageLightbox';
 
 // Curated, no-dependency emoji set for the composer's emoji picker — avoids
 // pulling in an emoji-picker package (and its bundle size / build-tool
@@ -33,7 +34,7 @@ function EmojiPicker({ onPick, onClose }: { onPick: (emoji: string) => void; onC
 
   return (
     <div
-      className="absolute bottom-full right-0 mb-1 w-64 max-h-72 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg z-20 p-2.5 space-y-2"
+      className="absolute bottom-full left-0 mb-1 w-64 max-w-[calc(100vw-2rem)] max-h-72 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg z-20 p-2.5 space-y-2"
     >
       {EMOJI_GROUPS.map(group => (
         <div key={group.label}>
@@ -193,6 +194,14 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
   const [sizeFilter, setSizeFilter] = useState<SizeFilter>('all');
   const [showAnnouncements, setShowAnnouncements] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  // Image attachments used to open via <a target="_blank"> pointing at a
+  // base64 data: URL — same Capacitor/Android WebView gotcha already fixed
+  // in the Tickets view: that hands the URL off to an external browser
+  // intent, which either fails silently or opens a blank tab since there's
+  // no real document to navigate to. Rendered in-app via ImageLightbox
+  // instead, same as Tickets.
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxName, setLightboxName] = useState<string | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -241,14 +250,19 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
     setShowEmojiPicker(false);
   }, [activeTeamId]);
 
-  const emailToProfile = new Map(allProfiles.map(p => [p.email.toLowerCase(), p]));
+  // Trimmed as well as lower-cased — a stray leading/trailing space on
+  // either side (e.g. from a copy-pasted email during onboarding) would
+  // silently break this lookup and show the initials fallback instead of
+  // the sender's real photo, with no visible error anywhere.
+  const normEmail = (e: string) => e.trim().toLowerCase();
+  const emailToProfile = new Map(allProfiles.map(p => [normEmail(p.email), p]));
 
   const hasActiveFilters = !!(searchQuery || dateFrom || dateTo || fileTypeFilter !== 'all' || sizeFilter !== 'all');
 
   const filteredMessages = messages.filter(m => {
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      const senderMatch = m.senderName.toLowerCase().includes(q) || emailToProfile.get(m.senderEmail.toLowerCase())?.alias?.toLowerCase().includes(q);
+      const senderMatch = m.senderName.toLowerCase().includes(q) || emailToProfile.get(normEmail(m.senderEmail))?.alias?.toLowerCase().includes(q);
       const textMatch = (m.text || '').toLowerCase().includes(q);
       const fileMatch = (m.attachmentName || '').toLowerCase().includes(q);
       if (!senderMatch && !textMatch && !fileMatch) return false;
@@ -294,7 +308,7 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
   // retroactively to old messages too. Falls back to the snapshot if the
   // profile can't be found (e.g. the sender was since deleted).
   const senderLabel = (m: Message): string => {
-    const profile = emailToProfile.get(m.senderEmail.toLowerCase());
+    const profile = emailToProfile.get(normEmail(m.senderEmail));
     if (profile) return displayName(profile, currentUserRole);
     // Sender profile no longer exists (e.g. deleted employee) — fall back
     // to the real-name snapshot regardless of viewer role. This is a rare
@@ -420,7 +434,7 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
     if (!activeTeamId || sending) return;
     if (!draft.trim() && !pendingFile) return;
     setShowEmojiPicker(false);
-    const senderProfile = emailToProfile.get(currentUserEmail.toLowerCase());
+    const senderProfile = emailToProfile.get(normEmail(currentUserEmail));
     const teamLabel = activeTeam?.name || 'Team Chat';
     const draftAtSend = draft;
     const wasAnnouncement = draftIsAnnouncement;
@@ -482,7 +496,7 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
             <button
               key={t.id}
               onClick={() => setActiveTeamId(t.id)}
-              className={`px-4 py-2 md:py-2.5 rounded-full md:rounded-xl text-xs font-bold text-left whitespace-nowrap md:whitespace-normal transition-all shrink-0 ${
+              className={`px-4 py-2 md:py-2.5 rounded-xl text-xs font-bold text-left whitespace-nowrap md:whitespace-normal transition-colors transition-shadow shrink-0 ${
                 activeTeamId === t.id ? 'bg-orange-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
@@ -493,18 +507,25 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
         </div>
       )}
 
-      <div className="flex-1 flex flex-col bg-white border border-slate-200 rounded-xl md:rounded-2xl overflow-hidden min-h-0">
-        <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50/60 hidden md:flex items-center justify-between shrink-0 gap-2">
-          <h3 className="font-bold text-slate-900 text-sm truncate">
-            {activeTeam?.name || 'Team Chat'}
-          </h3>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {oversight && <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mr-1 hidden sm:inline">Viewing every channel</span>}
+      <div className="flex-1 flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden min-h-0">
+        <div className="px-3 py-2 md:px-5 md:py-3.5 border-b border-slate-200 bg-slate-50/60 flex items-center justify-between shrink-0 gap-2">
+          {/* Left group: team name + Chat/Documents toggle + announcement
+              count. Filter is a separate, second flex child below so
+              `justify-between` on this row actually has two items to split
+              apart — previously Filter's `ml-auto` lived INSIDE this same
+              shrink-0 group, which only sizes to its own content and never
+              had spare room to push into, so it never reached the true
+              right edge. */}
+          <div className="flex items-center gap-1.5 min-w-0 overflow-x-auto scrollbar-hide">
+            <h3 className="font-bold text-slate-900 text-sm truncate hidden md:block shrink-0">
+              {activeTeam?.name || 'Team Chat'}
+            </h3>
+            {oversight && <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mr-1 hidden sm:inline shrink-0">Viewing every channel</span>}
             {/* Chat / Team Documents tab toggle */}
-            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 mr-1">
+            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 mr-1 shrink-0">
               <button
                 onClick={() => setActivePanel('chat')}
-                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md transition-all ${
+                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md transition-colors transition-shadow ${
                   activePanel === 'chat' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
@@ -512,7 +533,7 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
               </button>
               <button
                 onClick={() => setActivePanel('documents')}
-                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md transition-all ${
+                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md transition-colors transition-shadow ${
                   activePanel === 'documents' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
@@ -522,24 +543,29 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
             {activePanel === 'chat' && announcements.length > 0 && (
               <button
                 onClick={() => setShowAnnouncements(v => !v)}
-                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1.5 rounded-lg transition-all ${
+                className={`flex items-center gap-1 text-[10px] font-bold h-7 md:h-auto px-2 py-1.5 rounded-lg transition-colors shrink-0 ${
                   showAnnouncements ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                 }`}
               >
-                <Megaphone className="h-3 w-3" /> {announcements.length}
-              </button>
-            )}
-            {activePanel === 'chat' && (
-              <button
-                onClick={() => setShowFilters(v => !v)}
-                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1.5 rounded-lg transition-all ${
-                  showFilters || hasActiveFilters ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                }`}
-              >
-                <SlidersHorizontal className="h-3 w-3" /> {hasActiveFilters ? `Filtered (${filteredMessages.length})` : 'Filter'}
+                <Megaphone className="h-3 w-3 shrink-0" /> {announcements.length}
               </button>
             )}
           </div>
+
+          {/* Right group: Filter — alone in its own flex slot so
+              justify-between on the row pins it to the true right edge. */}
+          {activePanel === 'chat' && (
+            <button
+              onClick={() => setShowFilters(v => !v)}
+              title={hasActiveFilters ? `Filtered (${filteredMessages.length})` : 'Filter'}
+              className={`flex items-center gap-1 text-[10px] font-bold h-7 w-7 md:h-auto md:w-auto md:px-2 md:py-1.5 rounded-lg transition-colors justify-center shrink-0 ${
+                showFilters || hasActiveFilters ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+              }`}
+            >
+              <SlidersHorizontal className="h-3 w-3 shrink-0" />
+              <span className="hidden md:inline">{hasActiveFilters ? `Filtered (${filteredMessages.length})` : 'Filter'}</span>
+            </button>
+          )}
         </div>
 
         {activePanel === 'documents' && (
@@ -547,7 +573,7 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
             team={activeTeam || null}
             currentUserEmail={currentUserEmail}
             currentUserRole={currentUserRole}
-            currentUserName={emailToProfile.get(currentUserEmail.toLowerCase())?.fullName || currentUserEmail}
+            currentUserName={emailToProfile.get(normEmail(currentUserEmail))?.fullName || currentUserEmail}
             canManage={canManageDocuments}
           />
         )}
@@ -628,7 +654,7 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
             // anywhere — their messages get a distinct highlighted look
             // (purple + crown badge) in every viewer's chat, self or not,
             // so they're unmistakable next to regular team messages.
-            const isAdminSender = emailToProfile.get(m.senderEmail.toLowerCase())?.role === 'admin';
+            const isAdminSender = emailToProfile.get(normEmail(m.senderEmail))?.role === 'admin';
 
             // Announcements render full-width and pinned-banner styled,
             // not as a left/right chat bubble — they're meant to stand out
@@ -648,9 +674,13 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
                   )}
                   {m.attachmentUrl && (
                     isImageAttachment(m.attachmentName) ? (
-                      <a href={m.attachmentUrl} target="_blank" rel="noreferrer" className={m.text ? 'block mt-2' : 'block'}>
+                      <button
+                        type="button"
+                        onClick={() => { setLightboxSrc(m.attachmentUrl!); setLightboxName(m.attachmentName); }}
+                        className={m.text ? 'block mt-2' : 'block'}
+                      >
                         <img src={m.attachmentUrl} alt={m.attachmentName || 'attachment'} className="rounded-lg max-h-56 object-cover" />
-                      </a>
+                      </button>
                     ) : (
                       <a href={m.attachmentUrl} target="_blank" rel="noreferrer" className={`flex items-center gap-1.5 text-[11px] font-bold underline text-amber-700 ${m.text ? 'mt-2' : ''}`}>
                         <FileText className="h-3.5 w-3.5 shrink-0" /> {m.attachmentName || 'Attachment'} <Download className="h-3 w-3 shrink-0" />
@@ -663,7 +693,7 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
 
             return (
               <div key={m.id} className={`flex gap-2 ${isSelf ? 'flex-row-reverse' : ''}`}>
-                <Avatar src={emailToProfile.get(m.senderEmail.toLowerCase())?.profilePicture} name={label} size={28} />
+                <Avatar src={emailToProfile.get(normEmail(m.senderEmail))?.profilePicture} name={label} size={28} />
                 <div className={`max-w-[75%] flex flex-col ${isSelf ? 'items-end' : 'items-start'}`}>
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <span className={`text-[10px] font-bold ${isAdminSender ? 'text-purple-700' : 'text-slate-600'}`}>{label}</span>
@@ -686,9 +716,13 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
                     )}
                     {m.attachmentUrl && (
                       isImageAttachment(m.attachmentName) ? (
-                        <a href={m.attachmentUrl} target="_blank" rel="noreferrer" className={m.text ? 'block mt-2' : 'block'}>
+                        <button
+                          type="button"
+                          onClick={() => { setLightboxSrc(m.attachmentUrl!); setLightboxName(m.attachmentName); }}
+                          className={m.text ? 'block mt-2' : 'block'}
+                        >
                           <img src={m.attachmentUrl} alt={m.attachmentName || 'attachment'} className="rounded-lg max-h-56 object-cover" />
-                        </a>
+                        </button>
                       ) : (
                         <a
                           href={m.attachmentUrl}
@@ -709,9 +743,8 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
           })}
         </div>
         )}
-
         {activePanel === 'chat' && (
-          <div className="border-t border-slate-200 p-3 pb-safe shrink-0 relative bg-white md:bg-transparent">
+          <div className="border-t border-slate-200 p-2 md:p-3 pb-safe shrink-0 relative bg-white">
             {oversight && (
               <p className="text-[9px] text-purple-600 font-bold mb-2 flex items-center gap-1"><Crown className="h-3 w-3" /> Posting as Admin — this message will be highlighted for everyone in {activeTeam?.name || 'this team'}.</p>
             )}
@@ -722,7 +755,9 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
             {pendingFile && (
               <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 mb-2 text-[10px] font-bold text-slate-600">
                 <Paperclip className="h-3 w-3" /> {pendingFile.name}
-                <button onClick={() => { setPendingFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="ml-auto text-slate-400 hover:text-rose-600">✕</button>
+                <button onClick={() => { setPendingFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="ml-auto text-slate-400 hover:text-rose-600">
+                  <X className="h-3.5 w-3.5" />
+                </button>
               </div>
             )}
 
@@ -766,74 +801,84 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
               </div>
             )}
 
-            <div className="flex items-end gap-2">
-              <label className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 cursor-pointer transition-all shrink-0">
+            <div className="flex items-center gap-1.5 md:gap-2">
+              <label className="h-8 w-8 md:h-9 md:w-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 cursor-pointer transition-colors shrink-0 flex items-center justify-center">
                 <Paperclip className="h-4 w-4" />
                 <input ref={fileInputRef} type="file" className="hidden" onChange={e => handleFilePick(e.target.files?.[0])} />
               </label>
-              <button
-                type="button"
-                onClick={() => setDraftIsAnnouncement(v => !v)}
-                title="Send as Announcement"
-                className={`p-2.5 rounded-xl transition-all shrink-0 ${
-                  draftIsAnnouncement ? 'bg-amber-500 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-500'
-                }`}
-              >
-                <Megaphone className="h-4 w-4" />
-              </button>
-              <div ref={emojiWrapperRef} className="relative shrink-0">
+              
+              {oversight && (
                 <button
                   type="button"
-                  onClick={() => setShowEmojiPicker(v => !v)}
-                  title="Insert emoji"
-                  className={`p-2.5 rounded-xl transition-all ${
-                    showEmojiPicker ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-500'
+                  onClick={() => setDraftIsAnnouncement(v => !v)}
+                  title="Send as Announcement"
+                  className={`h-8 w-8 md:h-9 md:w-9 rounded-full flex items-center justify-center transition-colors shrink-0 ${
+                    draftIsAnnouncement ? 'bg-amber-500 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-500'
                   }`}
                 >
-                  <Smile className="h-4 w-4" />
+                  <Megaphone className="h-4 w-4" />
                 </button>
-                {showEmojiPicker && (
-                  <EmojiPicker onPick={insertEmoji} onClose={() => setShowEmojiPicker(false)} />
-                )}
+              )}
+
+              <div className="relative flex-1 flex items-center bg-slate-50 border border-slate-200 rounded-3xl pl-1 pr-3">
+                <div ref={emojiWrapperRef} className="shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowEmojiPicker(v => !v)}
+                    title="Insert emoji"
+                    className={`p-2 rounded-full transition-colors flex items-center justify-center ${
+                      showEmojiPicker ? 'text-orange-600' : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    <Smile className="h-4 w-4" />
+                  </button>
+                  {showEmojiPicker && (
+                    <div className="absolute bottom-full left-0 mb-2">
+                      <EmojiPicker onPick={insertEmoji} onClose={() => setShowEmojiPicker(false)} />
+                    </div>
+                  )}
+                </div>
+                
+                <textarea
+                  ref={textareaRef}
+                  value={draft}
+                  onChange={handleDraftChange}
+                  onKeyDown={e => {
+                    if (mention && mentionSuggestions.length > 0 && (e.key === 'Enter' || e.key === 'Tab')) {
+                      e.preventDefault();
+                      pickMention(mentionSuggestions[0]);
+                      return;
+                    }
+                    if (mention && e.key === 'Escape') {
+                      e.preventDefault();
+                      setMention(null);
+                      return;
+                    }
+                    if (docTag && docTagSuggestions.length > 0 && (e.key === 'Enter' || e.key === 'Tab')) {
+                      e.preventDefault();
+                      pickDocTag(docTagSuggestions[0]);
+                      return;
+                    }
+                    if (docTag && e.key === 'Escape') {
+                      e.preventDefault();
+                      setDocTag(null);
+                      return;
+                    }
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder={draftIsAnnouncement ? 'Announcement…' : 'Message… (@ to mention)'}
+                  rows={1}
+                  className="flex-1 bg-transparent py-2 md:py-2.5 px-1 text-[10px] md:text-[11px] outline-none font-medium resize-none max-h-24 min-h-8 md:min-h-9 w-full"
+                />
               </div>
-              <textarea
-                ref={textareaRef}
-                value={draft}
-                onChange={handleDraftChange}
-                onKeyDown={e => {
-                  if (mention && mentionSuggestions.length > 0 && (e.key === 'Enter' || e.key === 'Tab')) {
-                    e.preventDefault();
-                    pickMention(mentionSuggestions[0]);
-                    return;
-                  }
-                  if (mention && e.key === 'Escape') {
-                    e.preventDefault();
-                    setMention(null);
-                    return;
-                  }
-                  if (docTag && docTagSuggestions.length > 0 && (e.key === 'Enter' || e.key === 'Tab')) {
-                    e.preventDefault();
-                    pickDocTag(docTagSuggestions[0]);
-                    return;
-                  }
-                  if (docTag && e.key === 'Escape') {
-                    e.preventDefault();
-                    setDocTag(null);
-                    return;
-                  }
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSend();
-                  }
-                }}
-                placeholder={draftIsAnnouncement ? 'Write your announcement…' : 'Message your team… (@ to mention, # to tag a document)'}
-                rows={1}
-                className="flex-1 bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-xs outline-none focus:border-orange-500 font-medium resize-none max-h-24"
-              />
+
               <button
                 onClick={handleSend}
                 disabled={sending || (!draft.trim() && !pendingFile)}
-                className={`p-2.5 rounded-xl disabled:opacity-50 text-white transition-all active:scale-95 shrink-0 ${
+                className={`h-8 w-8 md:h-9 md:w-9 rounded-full flex items-center justify-center disabled:opacity-50 text-white transition-colors transition-transform active:scale-95 shrink-0 ${
                   draftIsAnnouncement ? 'bg-amber-500 hover:bg-amber-600' : 'bg-orange-600 hover:bg-orange-700'
                 }`}
               >
@@ -843,6 +888,13 @@ export function TeamChatView({ teams, currentUserEmail, currentUserRole, allProf
           </div>
         )}
       </div>
+
+      <ImageLightbox
+        src={lightboxSrc}
+        alt={lightboxName}
+        downloadName={lightboxName}
+        onClose={() => { setLightboxSrc(null); setLightboxName(undefined); }}
+      />
     </div>
   );
 }

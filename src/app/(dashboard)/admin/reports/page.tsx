@@ -4,9 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { Profile, formatMoney, TimesheetEntry, hrActions, localShiftDate, useProfiles, useWarehouses, useTimesheets } from '@/lib/hrData';
+import { Profile, formatMoney, TimesheetEntry, hrActions, localShiftDate, useProfiles, useProfileDocuments, useWarehouses, useTimesheets, displayName } from '@/lib/hrData';
 import { getSessionEmail } from '@/lib/session';
-import { FileText, Search, Filter, ShieldCheck, Download, MapPin, Edit2, Monitor } from 'lucide-react';
+import { FileText, Search, Filter, ShieldCheck, Download, MapPin, Edit2, Monitor, Landmark, Loader2 } from 'lucide-react';
 import { UserProfileModal } from '@/components/ui/UserProfileModal';
 import { DocumentsModal } from '@/components/ui/DocumentsModal';
 import { Avatar } from '@/components/ui/Avatar';
@@ -25,6 +25,7 @@ export default function ReportsPage() {
   const [selectedWarehouses, setSelectedWarehouses] = useState<string[]>([]);
   const [trackingEnabled, setTrackingEnabled] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+  const [isSavingAssignment, setIsSavingAssignment] = useState(false);
 
   // Timesheet Review states
   const [selectedReviewEmp, setSelectedReviewEmp] = useState<Profile | null>(null);
@@ -34,8 +35,10 @@ export default function ReportsPage() {
   const [selectedProfileEmail, setSelectedProfileEmail] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
 
-  // Documents modal state
+  // Documents modal state — fetched on demand, only for whichever employee
+  // is currently selected (see useProfileDocuments in hrData.ts).
   const [selectedDocsEmp, setSelectedDocsEmp] = useState<Profile | null>(null);
+  const { data: selectedDocs } = useProfileDocuments(selectedDocsEmp?.id);
 
   useEffect(() => {
     const email = getSessionEmail();
@@ -95,22 +98,27 @@ export default function ReportsPage() {
   };
 
   const handleSaveAssignment = async () => {
-    if (!selectedEmp) return;
+    if (!selectedEmp || isSavingAssignment) return;
 
-    const assignedWh = selectedRegion === 'Pakistan' ? [] : selectedWarehouses;
+    setIsSavingAssignment(true);
+    try {
+      const assignedWh = selectedRegion === 'Pakistan' ? [] : selectedWarehouses;
 
-    await hrActions.updateProfileDetails(selectedEmp.id, {
-      region: selectedRegion,
-      assignedWarehouses: assignedWh,
-      trackingEnabled: trackingEnabled
-    });
+      await hrActions.updateProfileDetails(selectedEmp.id, {
+        region: selectedRegion,
+        assignedWarehouses: assignedWh,
+        trackingEnabled: trackingEnabled
+      });
 
-    refetchProfiles();
-    setSuccessMsg(`Successfully updated assignment for ${selectedEmp.fullName}`);
-    setTimeout(() => {
-      setSelectedEmp(null);
-      setSuccessMsg('');
-    }, 1500);
+      refetchProfiles();
+      setSuccessMsg(`Successfully updated assignment for ${displayName(selectedEmp, 'admin')}`);
+      setTimeout(() => {
+        setSelectedEmp(null);
+        setSuccessMsg('');
+      }, 1500);
+    } finally {
+      setIsSavingAssignment(false);
+    }
   };
 
   const handleOpenReviewModal = (emp: Profile) => {
@@ -152,7 +160,7 @@ export default function ReportsPage() {
         </div>
         <button
           onClick={exportCSV}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm self-start md:self-auto"
+          className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform flex items-center gap-1.5 shadow-sm self-start md:self-auto"
         >
           <Download className="h-4 w-4" /> Export Report (CSV)
         </button>
@@ -202,7 +210,7 @@ export default function ReportsPage() {
       <Card className="overflow-hidden p-0 border border-slate-200">
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full min-w-[950px] text-sm text-left border-collapse">
-            <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
+            <thead className="text-xs font-bold text-slate-600 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
               <tr>
                 <th className="px-6 py-4">Employee</th>
                 <th className="px-6 py-4">Region</th>
@@ -219,8 +227,8 @@ export default function ReportsPage() {
                     <div className="flex items-center gap-3">
                       <Avatar src={emp.profilePicture} name={emp.fullName} size={28} />
                       <div>
-                        <div className="font-semibold text-slate-900">{emp.fullName}</div>
-                        <div className="text-xs text-slate-450">{emp.email} · <span className="font-bold text-orange-600">{emp.jobTitle || 'Staff'}</span></div>
+                        <div className="font-semibold text-slate-900">{displayName(emp, 'admin')}</div>
+                        <div className="text-xs text-slate-400">{emp.email} · <span className="font-bold text-orange-600">{emp.jobTitle || 'Staff'}</span></div>
                       </div>
                     </div>
                   </td>
@@ -233,10 +241,10 @@ export default function ReportsPage() {
                   </td>
                   <td className="px-6 py-4">
                     {emp.bankName ? (
-                      <div className="text-xs text-slate-655 leading-relaxed font-semibold">
-                        <div>🏦 <span className="text-slate-900">{emp.bankName}</span></div>
+                      <div className="text-xs text-slate-600 leading-relaxed font-semibold">
+                        <div className="flex items-center gap-1"><Landmark className="h-3 w-3 text-slate-400" /> <span className="text-slate-900">{emp.bankName}</span></div>
                         <div>Acc: <span className="text-slate-500 font-medium">{emp.accountNumber}</span></div>
-                        <div>IBAN: <span className="text-slate-550 font-mono text-[10px]">{emp.iban}</span></div>
+                        <div>IBAN: <span className="text-slate-600 font-mono text-[10px]">{emp.iban}</span></div>
                       </div>
                     ) : (
                       <span className="text-xs text-slate-400 font-semibold italic">Details pending</span>
@@ -246,19 +254,19 @@ export default function ReportsPage() {
                     <div className="flex flex-col sm:flex-row justify-center gap-2">
                       <button
                         onClick={() => handleOpenAssignModal(emp)}
-                        className="text-[10px] font-bold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1.5"
+                        className="text-[10px] font-bold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2 py-1.5 rounded-lg active:scale-97 transition-colors transition-transform flex items-center gap-1.5"
                       >
                         <MapPin className="h-3.5 w-3.5" /> Assignment
                       </button>
                       <button
                         onClick={() => handleOpenReviewModal(emp)}
-                        className="text-[10px] font-bold text-slate-650 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1.5"
+                        className="text-[10px] font-bold text-slate-600 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg active:scale-97 transition-colors transition-transform flex items-center gap-1.5"
                       >
                         <FileText className="h-3.5 w-3.5" /> Review Tracker
                       </button>
                       <button
                         onClick={() => setSelectedDocsEmp(emp)}
-                        className="text-[10px] font-bold text-blue-650 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1.5"
+                        className="text-[10px] font-bold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2 py-1.5 rounded-lg active:scale-97 transition-colors transition-transform flex items-center gap-1.5"
                       >
                         <Download className="h-3.5 w-3.5" /> Documents
                       </button>
@@ -283,7 +291,7 @@ export default function ReportsPage() {
               <div className="flex items-center gap-3 cursor-pointer" onClick={() => setSelectedProfileEmail(emp.email)}>
                 <Avatar src={emp.profilePicture} name={emp.fullName} size={36} />
                 <div className="flex-1 min-w-0">
-                  <div className="font-bold text-slate-900 text-sm truncate">{emp.fullName}</div>
+                  <div className="font-bold text-slate-900 text-sm truncate">{displayName(emp, 'admin')}</div>
                   <div className="text-[10px] text-slate-500 truncate">{emp.email}</div>
                 </div>
                 <Badge variant={emp.onboardingCompleted ? 'success' : 'warning'} className="shrink-0">
@@ -309,13 +317,13 @@ export default function ReportsPage() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
-                <button onClick={() => handleOpenAssignModal(emp)} className="flex-1 text-[10px] font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 py-2 rounded-lg flex items-center justify-center gap-1.5 active:scale-97 transition-all">
+                <button onClick={() => handleOpenAssignModal(emp)} className="flex-1 text-[10px] font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 py-2 rounded-lg flex items-center justify-center gap-1.5 active:scale-97 transition-colors transition-transform">
                   <MapPin className="h-3.5 w-3.5" /> Assign
                 </button>
-                <button onClick={() => handleOpenReviewModal(emp)} className="flex-1 text-[10px] font-bold text-slate-650 bg-slate-100 hover:bg-slate-200 py-2 rounded-lg flex items-center justify-center gap-1.5 active:scale-97 transition-all">
+                <button onClick={() => handleOpenReviewModal(emp)} className="flex-1 text-[10px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 py-2 rounded-lg flex items-center justify-center gap-1.5 active:scale-97 transition-colors transition-transform">
                   <FileText className="h-3.5 w-3.5" /> Tracker
                 </button>
-                <button onClick={() => setSelectedDocsEmp(emp)} className="flex-1 text-[10px] font-bold text-blue-650 bg-blue-50 hover:bg-blue-100 py-2 rounded-lg flex items-center justify-center gap-1.5 active:scale-97 transition-all">
+                <button onClick={() => setSelectedDocsEmp(emp)} className="flex-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 py-2 rounded-lg flex items-center justify-center gap-1.5 active:scale-97 transition-colors transition-transform">
                   <Download className="h-3.5 w-3.5" /> Docs
                 </button>
               </div>
@@ -334,13 +342,13 @@ export default function ReportsPage() {
         <Modal isOpen onClose={() => setSelectedEmp(null)} title="Modify Regional & Warehouse Assignment">
           <div className="space-y-4 pt-1 font-sans">
             {successMsg && (
-              <div className="bg-emerald-50 text-emerald-800 border border-emerald-250 p-2.5 rounded-lg text-xs font-semibold">
+              <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 p-2.5 rounded-lg text-xs font-semibold">
                 {successMsg}
               </div>
             )}
             <div>
               <p className="text-xs text-slate-500 font-semibold mb-1">Employee</p>
-              <p className="text-sm font-bold text-slate-800">{selectedEmp.fullName} ({selectedEmp.email})</p>
+              <p className="text-sm font-bold text-slate-800">{displayName(selectedEmp, 'admin')} ({selectedEmp.email})</p>
             </div>
 
             <div className="space-y-2">
@@ -349,7 +357,7 @@ export default function ReportsPage() {
                 <button
                   type="button"
                   onClick={() => setSelectedRegion('Pakistan')}
-                  className={`py-2 px-3 text-xs font-bold border rounded-lg transition-all ${selectedRegion === 'Pakistan'
+                  className={`py-2 px-3 text-xs font-bold border rounded-lg transition-colors ${selectedRegion === 'Pakistan'
                     ? 'border-orange-500 bg-orange-50 text-orange-600'
                     : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                     }`}
@@ -359,7 +367,7 @@ export default function ReportsPage() {
                 <button
                   type="button"
                   onClick={() => setSelectedRegion('USA')}
-                  className={`py-2 px-3 text-xs font-bold border rounded-lg transition-all ${selectedRegion === 'USA'
+                  className={`py-2 px-3 text-xs font-bold border rounded-lg transition-colors ${selectedRegion === 'USA'
                     ? 'border-orange-500 bg-orange-50 text-orange-600'
                     : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                     }`}
@@ -393,16 +401,16 @@ export default function ReportsPage() {
 
             {/* Workstation Tracking Activation Switch */}
             <div className="space-y-2 pt-2 border-t border-slate-100">
-              <label className="flex items-center gap-2.5 text-xs font-bold text-slate-800 cursor-pointer select-none bg-orange-50/40 border border-orange-100/50 p-3 rounded-xl hover:bg-orange-50/70 transition-all">
+              <label className="flex items-center gap-2.5 text-xs font-bold text-slate-800 cursor-pointer select-none bg-orange-50/40 border border-orange-100/50 p-3 rounded-xl hover:bg-orange-50/70 transition-colors">
                 <input
                   type="checkbox"
                   checked={trackingEnabled}
                   onChange={(e) => setTrackingEnabled(e.target.checked)}
-                  className="rounded border-slate-350 text-orange-600 focus:ring-orange-500 h-4 w-4"
+                  className="rounded border-slate-300 text-orange-600 focus:ring-orange-500 h-4 w-4"
                 />
                 <div>
                   <span className="text-slate-900 block font-bold text-[11px] uppercase tracking-wide">Enable Workstation Monitoring</span>
-                  <span className="text-[10px] text-slate-450 font-medium leading-tight block mt-0.5">Activate screenshot captures, activity timeline logs, and active application checks.</span>
+                  <span className="text-[10px] text-slate-400 font-medium leading-tight block mt-0.5">Activate screenshot captures, activity timeline logs, and active application checks.</span>
                 </div>
               </label>
             </div>
@@ -410,15 +418,18 @@ export default function ReportsPage() {
             <div className="flex justify-end gap-2 pt-4 border-t border-slate-200">
               <button
                 onClick={() => setSelectedEmp(null)}
-                className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs"
+                disabled={isSavingAssignment}
+                className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSaveAssignment}
-                className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-lg text-xs"
+                disabled={isSavingAssignment}
+                className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-lg text-xs disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
               >
-                Save Assignment
+                {isSavingAssignment && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {isSavingAssignment ? 'Saving…' : 'Save Assignment'}
               </button>
             </div>
           </div>
@@ -432,8 +443,8 @@ export default function ReportsPage() {
             <div className="flex justify-between items-start bg-slate-50 p-4 border border-slate-200 rounded-xl">
               <div>
                 <p className="text-xs text-slate-500 font-semibold">Reviewing Employee</p>
-                <p className="text-sm font-bold text-slate-900">{selectedReviewEmp.fullName}</p>
-                <p className="text-[10px] text-slate-450 font-bold">{selectedReviewEmp.email} · {selectedReviewEmp.jobTitle || 'Staff'}</p>
+                <p className="text-sm font-bold text-slate-900">{displayName(selectedReviewEmp, 'admin')}</p>
+                <p className="text-[10px] text-slate-400 font-bold">{selectedReviewEmp.email} · {selectedReviewEmp.jobTitle || 'Staff'}</p>
               </div>
               <Badge variant={selectedReviewEmp.region === 'USA' ? 'default' : 'success'}>
                 {selectedReviewEmp.region === 'USA' ? 'USA Operations' : 'Pakistan Remote'}
@@ -446,7 +457,7 @@ export default function ReportsPage() {
                 <button
                   onClick={exportTrackingCSV}
                   disabled={reviewEntries.length === 0}
-                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-3 py-1.5 rounded-lg text-[10px] active:scale-97 transition-all shadow-sm"
+                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-3 py-1.5 rounded-lg text-[10px] active:scale-97 transition-colors transition-transform shadow-sm"
                 >
                   <Download className="h-3.5 w-3.5" /> Export CSV
                 </button>
@@ -454,7 +465,7 @@ export default function ReportsPage() {
               <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
                 <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-xs text-left border-collapse">
-                    <thead className="font-bold text-slate-550 bg-slate-50 border-b border-slate-200 uppercase tracking-widest text-[9px]">
+                    <thead className="font-bold text-slate-600 bg-slate-50 border-b border-slate-200 uppercase tracking-widest text-[9px]">
                       <tr>
                         <th className="px-4 py-2.5">Date</th>
                         <th className="px-4 py-2.5">Clock In</th>
@@ -463,7 +474,7 @@ export default function ReportsPage() {
                         <th className="px-4 py-2.5 text-right">Status</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-150">
+                    <tbody className="divide-y divide-slate-200">
                       {reviewEntries.map((entry) => (
                         <tr key={entry.id} className="hover:bg-slate-50/50">
                           <td className="px-4 py-3 font-bold text-slate-700">{localShiftDate(entry.clockIn, entry.date)}</td>
@@ -521,10 +532,10 @@ export default function ReportsPage() {
             <div className="space-y-3">
               <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Workspace Screenshots</h4>
               <div className="border border-slate-200 p-6 rounded-xl bg-slate-50/50 text-center space-y-2 font-sans">
-                <Monitor className="h-6 w-6 text-slate-350 mx-auto" />
+                <Monitor className="h-6 w-6 text-slate-300 mx-auto" />
                 <div>
                   <h5 className="text-xs font-bold text-slate-700">Managed from Screen Tracking</h5>
-                  <p className="text-[10px] text-slate-450 leading-relaxed font-semibold mt-1">
+                  <p className="text-[10px] text-slate-400 leading-relaxed font-semibold mt-1">
                     Enable tracking, set the capture interval, and browse/export this employee&apos;s screenshots from the Screen Tracking page in the sidebar.
                   </p>
                   <a
@@ -562,7 +573,7 @@ export default function ReportsPage() {
         />
       )}
 
-      <DocumentsModal employee={selectedDocsEmp} onClose={() => setSelectedDocsEmp(null)} />
+      <DocumentsModal employee={selectedDocsEmp ? { ...selectedDocsEmp, ...selectedDocs } : null} onClose={() => setSelectedDocsEmp(null)} />
     </div>
   );
 }

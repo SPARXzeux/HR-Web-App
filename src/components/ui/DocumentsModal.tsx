@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Modal } from '@/components/ui/Modal';
-import { Profile } from '@/lib/hrData';
+import { Profile, displayName } from '@/lib/hrData';
 import { FileText, Download, Eye } from 'lucide-react';
 
 interface DocumentsModalProps {
@@ -42,13 +42,13 @@ function DocRow({ label, fileName, fileData }: { label: string; fileName?: strin
       <div className="flex items-center gap-2 shrink-0">
         <button
           onClick={() => window.open(fileData, '_blank')}
-          className="text-[10px] font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1"
+          className="text-[10px] font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg active:scale-97 transition-colors transition-transform transition-shadow flex items-center gap-1"
         >
           <Eye className="h-3.5 w-3.5" /> View
         </button>
         <button
           onClick={() => downloadDataUrl(fileData, fileName || `${label}.dat`)}
-          className="text-[10px] font-bold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1"
+          className="text-[10px] font-bold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2 py-1.5 rounded-lg active:scale-97 transition-colors transition-transform transition-shadow flex items-center gap-1"
         >
           <Download className="h-3.5 w-3.5" /> Download
         </button>
@@ -59,7 +59,9 @@ function DocRow({ label, fileName, fileData }: { label: string; fileName?: strin
 
 export function DocumentsModal({ employee, onClose }: DocumentsModalProps) {
   return (
-    <Modal isOpen={!!employee} onClose={onClose} title={employee ? `${employee.fullName} — Documents` : 'Documents'}>
+    // HR/Admin-only viewer (see comment above), so the real name + alias
+    // are always safe to show together here — see displayName() in hrData.ts.
+    <Modal isOpen={!!employee} onClose={onClose} title={employee ? `${displayName(employee, 'hr')} — Documents` : 'Documents'}>
       {employee && (
         <div className="space-y-3">
           <DocRow label="CV / Resume" fileName={employee.cvFileName} fileData={employee.cvFileData} />

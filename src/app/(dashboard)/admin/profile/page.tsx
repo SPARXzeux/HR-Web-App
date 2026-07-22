@@ -27,6 +27,7 @@ export default function AdminProfilePage() {
   const [confirmPass, setConfirmPass] = useState('');
   const [resetError, setResetError] = useState('');
   const [resetSuccess, setResetSuccess] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
   // Profile Edit states
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -35,6 +36,7 @@ export default function AdminProfilePage() {
   const [editGender, setEditGender] = useState<'male' | 'female'>('male');
   const [editTitle, setEditTitle] = useState('');
   const [editSuccess, setEditSuccess] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   const [email, setEmail] = useState<string | null>(null);
   useEffect(() => {
@@ -86,6 +88,7 @@ export default function AdminProfilePage() {
     setResetError('');
     setResetSuccess('');
 
+    if (isResetting) return;
     if (!currentPass || !newPass || !confirmPass) {
       setResetError('Please fill in all fields.');
       return;
@@ -104,6 +107,7 @@ export default function AdminProfilePage() {
     }
 
     if (profile) {
+      setIsResetting(true);
       try {
         await hrActions.resetPassword(profile.id, newPass);
         refetchProfiles();
@@ -113,29 +117,36 @@ export default function AdminProfilePage() {
       } catch (err) {
         console.error('[Admin Profile] Password update error:', err);
         setResetError('Failed to update password. Please try again.');
+      } finally {
+        setIsResetting(false);
       }
     }
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editName) return;
+    if (!editName || isSavingEdit) return;
 
-    const target = targetEmail === 'admin@delcargo.us' ? profile : hrProfile;
-    if (target) {
-      await hrActions.updateProfileDetails(target.id, {
-        fullName: editName,
-        gender: editGender,
-        jobTitle: editTitle
-      });
+    setIsSavingEdit(true);
+    try {
+      const target = targetEmail === 'admin@delcargo.us' ? profile : hrProfile;
+      if (target) {
+        await hrActions.updateProfileDetails(target.id, {
+          fullName: editName,
+          gender: editGender,
+          jobTitle: editTitle
+        });
+      }
+
+      refetchProfiles();
+      setEditSuccess('Profile updated successfully!');
+      setTimeout(() => {
+        setIsEditOpen(false);
+        setEditSuccess('');
+      }, 1200);
+    } finally {
+      setIsSavingEdit(false);
     }
-
-    refetchProfiles();
-    setEditSuccess('Profile updated successfully!');
-    setTimeout(() => {
-      setIsEditOpen(false);
-      setEditSuccess('');
-    }, 1200);
   };
 
   if (!profile) {
@@ -169,7 +180,7 @@ export default function AdminProfilePage() {
             setTargetEmail(profile.email);
             setIsEditOpen(true);
           }}
-          className="flex items-center justify-center gap-1.5 text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-97 self-stretch sm:self-auto"
+          className="flex items-center justify-center gap-1.5 text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white px-4 py-2.5 rounded-xl transition-colors transition-transform shadow-md active:scale-97 self-stretch sm:self-auto"
         >
           <Edit2 className="h-3.5 w-3.5" /> Edit System Profiles
         </button>
@@ -177,7 +188,7 @@ export default function AdminProfilePage() {
 
       {/* Avatar + Name card */}
       <Card className="p-0 overflow-hidden border border-slate-200">
-        <div className="h-24 bg-gradient-to-r from-orange-600 to-orange-500" />
+        <div className="h-24 bg-orange-600" />
         <div className="px-6 pb-6">
           <div className="-mt-10 mb-4 flex items-end justify-between">
             <div className="relative group">
@@ -185,26 +196,26 @@ export default function AdminProfilePage() {
                 <img
                   src={profile.profilePicture}
                   alt="Profile"
-                  className="h-20 w-20 rounded-full bg-white border-4 border-white shadow-md object-cover"
+                  className="h-16 w-16 md:h-20 md:w-20 rounded-full bg-white border-4 border-white shadow-md object-cover"
                 />
               ) : (
-                <div className="h-20 w-20 rounded-full bg-white border-4 border-white shadow-md flex items-center justify-center text-2xl font-bold text-orange-600 bg-orange-50">
+                <div className="h-16 w-16 md:h-20 md:w-20 rounded-full bg-white border-4 border-white shadow-md flex items-center justify-center text-xl md:text-2xl font-bold text-orange-600 bg-orange-50">
                   {profile.fullName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
                 </div>
               )}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 title="Change profile picture"
-                className="absolute bottom-0 right-0 h-7 w-7 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center shadow-md border-2 border-white transition-all active:scale-90"
+                className="absolute bottom-0 right-0 h-5 w-5 md:h-7 md:w-7 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center shadow-md border-2 border-white transition-colors transition-transform active:scale-90"
               >
-                <Camera className="h-3.5 w-3.5" />
+                <Camera className="h-2.5 w-2.5 md:h-3.5 md:w-3.5" />
               </button>
               <input ref={fileInputRef} type="file" accept="image/*" onChange={handlePhotoInputChange} className="hidden" />
             </div>
             <div className="flex gap-2">
               <button
                 onClick={() => setIsResetOpen(true)}
-                className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition-all border border-slate-200 active:scale-97"
+                className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition-colors transition-transform border border-slate-200 active:scale-97"
               >
                 <KeyRound className="h-3.5 w-3.5" /> Reset Password
               </button>
@@ -257,7 +268,7 @@ export default function AdminProfilePage() {
           )}
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Select Profile to Edit</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Select Profile to Edit</label>
             <select
               value={targetEmail}
               onChange={e => setTargetEmail(e.target.value)}
@@ -269,7 +280,7 @@ export default function AdminProfilePage() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Full Name</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Full Name</label>
             <input
               type="text"
               value={editName}
@@ -281,7 +292,7 @@ export default function AdminProfilePage() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Gender</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Gender</label>
             <select
               value={editGender}
               onChange={e => setEditGender(e.target.value as any)}
@@ -293,7 +304,7 @@ export default function AdminProfilePage() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Job Title</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Job Title</label>
             <input
               type="text"
               value={editTitle}
@@ -305,9 +316,10 @@ export default function AdminProfilePage() {
 
           <button
             type="submit"
-            className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-lg text-sm active:scale-97 transition-all mt-4"
+            disabled={isSavingEdit}
+            className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-lg text-sm active:scale-97 transition-colors transition-transform mt-4 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Save Profile Changes
+            {isSavingEdit ? 'Saving…' : 'Save Profile Changes'}
           </button>
         </form>
       </Modal>
@@ -327,7 +339,7 @@ export default function AdminProfilePage() {
           )}
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Current Password</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Current Password</label>
             <PasswordInput
               value={currentPass}
               onChange={setCurrentPass}
@@ -336,7 +348,7 @@ export default function AdminProfilePage() {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">New Password</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">New Password</label>
             <PasswordInput
               value={newPass}
               onChange={setNewPass}
@@ -345,7 +357,7 @@ export default function AdminProfilePage() {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Confirm New Password</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Confirm New Password</label>
             <PasswordInput
               value={confirmPass}
               onChange={setConfirmPass}
@@ -356,9 +368,10 @@ export default function AdminProfilePage() {
 
           <button
             type="submit"
-            className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 rounded-lg text-sm active:scale-97 transition-all mt-4"
+            disabled={isResetting}
+            className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform mt-4 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Update Password
+            {isResetting ? 'Updating…' : 'Update Password'}
           </button>
         </form>
       </Modal>

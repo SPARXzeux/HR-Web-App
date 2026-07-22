@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Task, hrActions } from '@/lib/hrData';
-import { Trash2, CheckCircle2, RotateCcw, Clock, AlertTriangle, Briefcase, Calendar, User, Tag, Flag, ArrowRight } from 'lucide-react';
+import { Trash2, CheckCircle2, RotateCcw, Clock, AlertTriangle, Briefcase, Calendar, User, Tag, Flag, ArrowRight, Building2, Loader2 } from 'lucide-react';
 
 interface TaskBoardProps {
   tasks: Task[];
@@ -22,7 +22,7 @@ const PRIORITY_STYLES: Record<Task['priority'], string> = {
 
 const STATUS_STYLES: Record<Task['status'], string> = {
   todo:        'bg-amber-50 text-amber-700 border-amber-200',
-  in_progress: 'bg-blue-50 text-blue-700 border-blue-200',
+  in_progress: 'bg-indigo-50 text-indigo-700 border-indigo-200',
   done:        'bg-emerald-50 text-emerald-700 border-emerald-200',
 };
 
@@ -50,26 +50,43 @@ function TaskDetailModal({ task, onClose, onUpdate, canDelete, readOnly }: {
   const isOverdue = task.status !== 'done' && new Date(task.dueDate) < new Date();
   const isDueSoon = !isOverdue && task.status !== 'done' &&
     (new Date(task.dueDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24) <= 3;
+  const [isWorking, setIsWorking] = useState(false);
 
   const cycleStatus = async () => {
-    if (readOnly) return;
-    const next = STATUS_SEQUENCE[(STATUS_SEQUENCE.indexOf(task.status) + 1) % STATUS_SEQUENCE.length];
-    await hrActions.updateTaskStatus(task.id, next);
-    onUpdate();
-    onClose();
+    if (readOnly || isWorking) return;
+    setIsWorking(true);
+    try {
+      const next = STATUS_SEQUENCE[(STATUS_SEQUENCE.indexOf(task.status) + 1) % STATUS_SEQUENCE.length];
+      await hrActions.updateTaskStatus(task.id, next);
+      onUpdate();
+      onClose();
+    } finally {
+      setIsWorking(false);
+    }
   };
 
   const handleDelete = async () => {
-    if (!canDelete) return;
-    await hrActions.deleteTask(task.id);
-    onUpdate();
-    onClose();
+    if (!canDelete || isWorking) return;
+    setIsWorking(true);
+    try {
+      await hrActions.deleteTask(task.id);
+      onUpdate();
+      onClose();
+    } finally {
+      setIsWorking(false);
+    }
   };
 
   const handleReset = async () => {
-    await hrActions.updateTaskStatus(task.id, 'todo');
-    onUpdate();
-    onClose();
+    if (isWorking) return;
+    setIsWorking(true);
+    try {
+      await hrActions.updateTaskStatus(task.id, 'todo');
+      onUpdate();
+      onClose();
+    } finally {
+      setIsWorking(false);
+    }
   };
 
   return (
@@ -132,26 +149,29 @@ function TaskDetailModal({ task, onClose, onUpdate, canDelete, readOnly }: {
           {!readOnly && task.status !== 'done' && (
             <button
               onClick={cycleStatus}
-              className="flex items-center justify-center gap-1.5 bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-3 md:py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm min-h-[44px] md:min-h-0 w-full md:w-auto"
+              disabled={isWorking}
+              className="flex items-center justify-center gap-1.5 bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-3 md:py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform shadow-sm min-h-[44px] md:min-h-0 w-full md:w-auto disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <CheckCircle2 className="h-4 w-4" />
+              {isWorking ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               Mark as {STATUS_LABELS[STATUS_SEQUENCE[(STATUS_SEQUENCE.indexOf(task.status) + 1) % STATUS_SEQUENCE.length]]}
             </button>
           )}
           {!readOnly && task.status !== 'todo' && (
             <button
               onClick={handleReset}
-              className="flex items-center justify-center gap-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-lg text-sm active:scale-97 transition-all min-h-[44px] md:min-h-0 w-full md:w-auto"
+              disabled={isWorking}
+              className="flex items-center justify-center gap-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-3 md:py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform min-h-[44px] md:min-h-0 w-full md:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <RotateCcw className="h-4 w-4" /> Reset to To Do
+              {isWorking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Reset to To Do
             </button>
           )}
           {canDelete && (
             <button
               onClick={handleDelete}
-              className="flex items-center justify-center gap-1.5 bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 font-semibold px-4 py-3 md:py-2 rounded-lg text-sm active:scale-97 transition-all md:ml-auto min-h-[44px] md:min-h-0 w-full md:w-auto"
+              disabled={isWorking}
+              className="flex items-center justify-center gap-1.5 bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 font-semibold px-4 py-3 md:py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform md:ml-auto min-h-[44px] md:min-h-0 w-full md:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Trash2 className="h-4 w-4" /> Delete Task
+              {isWorking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Delete Task
             </button>
           )}
         </div>
@@ -224,7 +244,7 @@ export function TaskBoard({ tasks, onUpdate, filterEmails, canDelete = true, rea
       <div className="flex flex-wrap gap-2 md:gap-3 text-xs font-semibold text-slate-500">
         <span>{filtered.filter(t => t.status === 'todo').length} to do</span>
         <span className="text-slate-300">·</span>
-        <span className="text-blue-600">{filtered.filter(t => t.status === 'in_progress').length} in progress</span>
+        <span className="text-indigo-600">{filtered.filter(t => t.status === 'in_progress').length} in progress</span>
         <span className="text-slate-300">·</span>
         <span className="text-emerald-600">{filtered.filter(t => t.status === 'done').length} done</span>
         <span className="text-slate-300">·</span>
@@ -237,7 +257,7 @@ export function TaskBoard({ tasks, onUpdate, filterEmails, canDelete = true, rea
           <Card
             key={task.id}
             onClick={() => setSelectedTask(task)}
-            className={`p-4 border transition-all cursor-pointer group ${
+            className={`p-4 border transition-colors transition-shadow cursor-pointer group ${
               isOverdue(task.dueDate, task.status)
                 ? 'border-rose-200 bg-rose-50/30 hover:bg-rose-50/60'
                 : task.status === 'done'
@@ -247,13 +267,13 @@ export function TaskBoard({ tasks, onUpdate, filterEmails, canDelete = true, rea
           >
             <div className="flex items-start gap-3 md:gap-4">
               {/* Status circle — slightly larger on mobile for touch */}
-              <div className={`flex-shrink-0 mt-0.5 h-6 w-6 md:h-5 md:w-5 rounded-full border-2 flex items-center justify-center transition-all ${
+              <div className={`flex-shrink-0 mt-0.5 h-6 w-6 md:h-5 md:w-5 rounded-full border-2 flex items-center justify-center transition-colors ${
                 task.status === 'done'        ? 'bg-emerald-500 border-emerald-500 text-white' :
-                task.status === 'in_progress' ? 'border-blue-400 bg-blue-50' :
+                task.status === 'in_progress' ? 'border-indigo-400 bg-indigo-50' :
                 'border-slate-300 bg-white group-hover:border-orange-400'
               }`}>
                 {task.status === 'done'        && <CheckCircle2 className="h-3 w-3" />}
-                {task.status === 'in_progress' && <div className="h-2 w-2 rounded-full bg-blue-400" />}
+                {task.status === 'in_progress' && <div className="h-2 w-2 rounded-full bg-indigo-400" />}
               </div>
 
               <div className="flex-1 min-w-0">
@@ -276,9 +296,9 @@ export function TaskBoard({ tasks, onUpdate, filterEmails, canDelete = true, rea
                 )}
 
                 <div className="flex flex-wrap gap-2 md:gap-3 text-[10px] text-slate-400 font-semibold">
-                  <span>👤 {task.assignedTo}</span>
-                  <span>🏢 {task.team}</span>
-                  <span>📅 Due: {new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                  <span className="flex items-center gap-1"><User className="h-3 w-3" /> {task.assignedTo}</span>
+                  <span className="flex items-center gap-1"><Building2 className="h-3 w-3" /> {task.team}</span>
+                  <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> Due: {new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                 </div>
               </div>
 

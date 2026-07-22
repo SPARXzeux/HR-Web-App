@@ -11,7 +11,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Avatar } from '@/components/ui/Avatar';
-import { Clock, CheckCircle2, ChevronRight, AlertTriangle, Briefcase, Calendar, User, Flag, Monitor, MapPin, LocateFixed, Wifi, WifiOff, Smartphone } from 'lucide-react';
+import { Clock, CheckCircle2, ChevronRight, AlertTriangle, Briefcase, Calendar, User, Flag, Monitor, MapPin, LocateFixed, Wifi, WifiOff, Smartphone, Landmark, Gift, Star, Loader2 } from 'lucide-react';
 import { isNativeMobileApp } from '@/lib/trackerSetup';
 import { checkGeofence } from '@/lib/geofence';
 import { useRouter } from 'next/navigation';
@@ -19,12 +19,12 @@ import { useRouter } from 'next/navigation';
 const PRIORITY_STYLES: Record<Task['priority'], string> = {
   high:   'bg-rose-100 text-rose-800 border-rose-200',
   medium: 'bg-orange-100 text-orange-800 border-orange-200',
-  low:    'bg-slate-100 text-slate-650 border-slate-200',
+  low:    'bg-slate-100 text-slate-600 border-slate-200',
 };
 
 const STATUS_STYLES: Record<Task['status'], string> = {
   todo:        'bg-amber-50 text-amber-700 border-amber-200',
-  in_progress: 'bg-blue-50 text-blue-700 border-blue-200',
+  in_progress: 'bg-indigo-50 text-indigo-700 border-indigo-200',
   done:        'bg-emerald-50 text-emerald-700 border-emerald-200',
 };
 
@@ -279,10 +279,17 @@ export default function EmployeeDashboard() {
     };
   }, [userProfile?.email, userProfile?.region]);
 
+  const [isUpdatingTaskStatus, setIsUpdatingTaskStatus] = useState(false);
   const handleUpdateTaskStatus = async (taskId: string, nextStatus: Task['status']) => {
-    await hrActions.updateTaskStatus(taskId, nextStatus);
-    await refetchTasks();
-    setSelectedTask(null);
+    if (isUpdatingTaskStatus) return;
+    setIsUpdatingTaskStatus(true);
+    try {
+      await hrActions.updateTaskStatus(taskId, nextStatus);
+      await refetchTasks();
+      setSelectedTask(null);
+    } finally {
+      setIsUpdatingTaskStatus(false);
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -312,6 +319,15 @@ export default function EmployeeDashboard() {
     emp.leadTeams?.some(t => myTeams.includes(t))
   );
 
+  // Overdue or due-within-3-days, not-done tasks — surfaced as a single
+  // at-a-glance count in the stats row (replaces the old "Shift Status"
+  // tile, which just duplicated the new Shift Control card above).
+  const tasksNeedingAttention = myTasks.filter(t => {
+    if (t.status === 'done') return false;
+    const daysUntil = (new Date(t.dueDate).getTime() - Date.now()) / (1000 * 3600 * 24);
+    return daysUntil <= 3;
+  }).length;
+
   // Filter announcements for current employee
   const myAnnouncements = announcements.filter(ann => {
     if (ann.target === 'all') return true;
@@ -330,14 +346,155 @@ export default function EmployeeDashboard() {
         <div className="flex items-center gap-3 md:gap-4">
           <Avatar src={userProfile?.profilePicture} name={userProfile?.fullName || 'Employee'} size={56} className="border-2 border-orange-500" />
           <div>
-            <h1 className="text-lg md:text-xl font-bold text-slate-900">{userProfile?.fullName || 'Employee'}</h1>
-            <p className="text-xs text-slate-500 font-semibold">{userProfile?.jobTitle || 'Team Member'} · <span className="text-orange-655 font-bold">{userProfile?.region === 'USA' ? 'USA Operations' : 'Pakistan (Remote)'}</span></p>
+            <h1 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight" style={{ textWrap: 'balance' as any }}>{userProfile?.fullName || 'Employee'}</h1>
+            <p className="text-xs text-slate-500 font-semibold">{userProfile?.jobTitle || 'Team Member'} · <span className="text-orange-600 font-bold">{userProfile?.region === 'USA' ? 'USA Operations' : 'Pakistan (Remote)'}</span></p>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-xs bg-slate-50 border border-slate-200 px-3.5 py-2.5 md:py-2 rounded-xl font-bold text-slate-600">
-          🏦 {userProfile?.bankName ? `${userProfile.bankName} (Verified)` : 'Bank details pending'}
+        <div className="flex items-center gap-1.5 text-xs bg-slate-50 border border-slate-200 px-3.5 py-2.5 md:py-2 rounded-xl font-bold text-slate-600">
+          <Landmark className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+          {userProfile?.bankName ? `${userProfile.bankName} (Verified)` : 'Bank details pending'}
         </div>
       </div>
+
+      {/* Shift Control — this used to be split across a passive "Shift
+          Status" stat tile up top AND a separate buried widget in the right
+          rail mislabeled "Geofencing Tracker" (which didn't even apply to
+          manual/Pakistan employees — there's no geofence for them, just a
+          button). Starting/ending a shift is the single most frequent,
+          highest-stakes action on this whole page, so it now gets one
+          unmissable, honestly-labeled, full-width place instead of being
+          buried under an unrelated heading in a sidebar. */}
+      <Card className={`border-2 transition-colors ${shiftActive ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-200 bg-white'}`}>
+        <CardContent className="p-4 md:p-5">
+          <div className="flex flex-col md:flex-row md:items-center gap-4">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className={`h-11 w-11 rounded-xl flex items-center justify-center shrink-0 ${shiftActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                <Flag className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className={`h-2 w-2 rounded-full shrink-0 ${shiftActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+                  <p className={`font-display font-bold text-lg tracking-tight ${shiftActive ? 'text-emerald-700' : 'text-slate-700'}`}>
+                    {shiftActive ? 'On Shift' : 'Off Shift'}
+                  </p>
+                </div>
+                <p className="text-xs text-slate-500 font-semibold mt-0.5 truncate">
+                  {userProfile?.region === 'USA'
+                    ? (geoPermission === 'unsupported' || geoPermission === 'denied'
+                        ? 'Automatic GPS check-in unavailable — see details below'
+                        : liveDistance
+                          ? `${liveDistance.isInside ? 'Inside' : `${liveDistance.meters}m from`} ${liveDistance.warehouseName} · auto check-in`
+                          : 'Waiting for GPS signal to auto check-in…')
+                    : 'Manual shift control — start and end your shift below'}
+                </p>
+              </div>
+            </div>
+
+            {/* USA employees: fully automatic, no manual control — the
+                button real-estate instead explains that plainly so it
+                doesn't read as "missing" a Start Shift button. */}
+            {userProfile?.region === 'USA' ? (
+              <div className="shrink-0 text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 flex items-center gap-1.5">
+                <LocateFixed className="h-3.5 w-3.5" /> Auto Geofencing
+              </div>
+            ) : (
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={async () => {
+                    if (!userProfile?.email) return;
+                    if (isTrackingLiveFor(userProfile) && isMobileApp) {
+                      setShowMobileBlockedModal(true);
+                      return;
+                    }
+                    if (isTrackingLiveFor(userProfile)) {
+                      setCheckingTracker(true);
+                      const freshHeartbeat = await hrActions.getTrackerHeartbeat(userProfile.email);
+                      setTrackerHeartbeat(freshHeartbeat);
+                      setCheckingTracker(false);
+                      if (!hrActions.isHeartbeatLive(freshHeartbeat)) {
+                        setShowTrackerRequiredModal(true);
+                        return;
+                      }
+                    }
+                    setShiftActive(true);
+                    setGeofenceStatus('Shift Active');
+                    await hrActions.clockIn(userProfile.email);
+                    await refetchTimesheets();
+                    await hrActions.addNotification(userProfile.email, 'employee', 'Shift started manually. Screen tracking is now active for this shift.');
+                    await hrActions.addNotification('all', 'hr', `${userProfile.fullName} started shift manually.`);
+                    await hrActions.addNotification('all', 'admin', `${userProfile.fullName} started shift manually.`);
+                  }}
+                  disabled={shiftActive || checkingTracker || (!!userProfile && isTrackingLiveFor(userProfile) && isMobileApp)}
+                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-2.5 px-5 rounded-xl text-sm transition-colors transition-transform active:scale-97 shadow-sm"
+                >
+                  {checkingTracker ? 'Checking tracker…' : 'Start Shift'}
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!userProfile?.email) return;
+                    setShiftActive(false);
+                    setGeofenceStatus('Shift Ended');
+                    await hrActions.clockOut(userProfile.email);
+                    await refetchTimesheets();
+                    await hrActions.addNotification(userProfile.email, 'employee', 'Shift ended manually. Screen tracking has stopped.');
+                    await hrActions.addNotification('all', 'hr', `${userProfile.fullName} ended shift manually.`);
+                    await hrActions.addNotification('all', 'admin', `${userProfile.fullName} ended shift manually.`);
+                  }}
+                  disabled={!shiftActive}
+                  className="bg-white hover:bg-rose-50 disabled:opacity-40 disabled:cursor-not-allowed text-rose-600 border border-rose-200 font-bold py-2.5 px-5 rounded-xl text-sm transition-colors transition-transform active:scale-97"
+                >
+                  End Shift
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Diagnostic / secondary detail — tucked below the primary
+              status+action row instead of competing with it for attention.
+              This is exactly the stuff that used to be the WHOLE widget. */}
+          {userProfile?.region === 'USA' ? (
+            <div className="mt-4 pt-4 border-t border-slate-100 space-y-1.5">
+              {(!userProfile.assignedWarehouses || userProfile.assignedWarehouses.length === 0) ? (
+                <p className="text-[10px] text-slate-400 italic">No warehouses assigned by HR yet — geofenced check-in will activate once a warehouse is assigned to your profile.</p>
+              ) : geoPermission === 'unsupported' ? (
+                <p className="text-[10px] text-rose-600 font-semibold leading-relaxed">Your browser/device does not support GPS location. Automatic geofenced check-in is unavailable here — please use a modern mobile or desktop browser.</p>
+              ) : geoPermission === 'denied' ? (
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] text-rose-700 font-semibold leading-relaxed">{geoErrorMsg}</p>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="shrink-0 bg-rose-600 hover:bg-rose-700 text-white font-bold py-1.5 px-3 rounded-lg text-[10px] transition-colors transition-transform active:scale-97"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <p className="text-[9px] text-slate-400 leading-relaxed">Your shift starts and ends automatically as you enter or leave an assigned warehouse's geofence — no manual check-in needed.</p>
+              )}
+            </div>
+          ) : (
+            <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+              {userProfile && isTrackingLiveFor(userProfile) && isMobileApp && !shiftActive && (
+                <div className="flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-[10px] font-bold bg-rose-50 border-rose-200 text-rose-700">
+                  <Smartphone className="h-3 w-3 shrink-0" />
+                  Screen tracking is enabled for your account — shifts can only be started from a desktop computer, not the mobile app.
+                </div>
+              )}
+              {userProfile && isTrackingLiveFor(userProfile) && !isMobileApp && !shiftActive && (
+                <div className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-[10px] font-bold ${hrActions.isHeartbeatLive(trackerHeartbeat) ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+                  {hrActions.isHeartbeatLive(trackerHeartbeat) ? <Wifi className="h-3 w-3 shrink-0" /> : <WifiOff className="h-3 w-3 shrink-0" />}
+                  {hrActions.isHeartbeatLive(trackerHeartbeat)
+                    ? 'Tracker app connected — you can start your shift.'
+                    : 'Tracker app not connected. Open the DelCargo Tracker app before starting your shift.'}
+                </div>
+              )}
+              <p className="text-[9px] text-slate-400 leading-relaxed">
+                If your account has screen tracking configured by HR/Admin, starting a shift activates it for the duration of your shift; ending your shift turns it off.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
 
@@ -345,48 +502,48 @@ export default function EmployeeDashboard() {
         <div className="lg:col-span-8 space-y-6">
           
           {/* Stats grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <Card>
-              <CardContent className="pt-5">
-                <div className="flex items-center justify-between">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <Card className="col-span-1 sm:col-span-1 stagger-item" style={{ animationDelay: '0ms' }}>
+              <CardContent className="pt-4 md:pt-5 px-3 md:px-5">
+                <div className="flex flex-col-reverse md:flex-row md:items-center justify-between gap-2">
                   <div>
-                    <p className="text-xs font-semibold text-slate-500">Leave Balance (PTO + Sick)</p>
-                    <p className="text-2xl font-bold text-slate-900 mt-1">
-                      {userProfile ? Math.max(0, calculatePTOAccrued(getPTOAccrualDate(userProfile)) - (allLeaves || []).filter(l => l.employeeName === userProfile.fullName && l.status === 'approved' && ['PTO', 'Sick Leave'].includes(l.type)).length) : 0} Days
+                    <p className="text-[10px] md:text-xs font-semibold text-slate-500">Leave Balance</p>
+                    <p className="text-xl md:text-2xl font-bold text-slate-900 mt-0.5 md:mt-1 tracking-tight">
+                      {userProfile ? Math.max(0, calculatePTOAccrued(getPTOAccrualDate(userProfile)) - (allLeaves || []).filter(l => l.employeeName === userProfile.fullName && l.status === 'approved' && ['PTO', 'Sick Leave'].includes(l.type)).length) : 0} <span className="text-xs md:text-base font-medium">Days</span>
                     </p>
                   </div>
-                  <div className="h-10 w-10 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-orange-600">
-                    <Clock className="h-5 w-5" />
+                  <div className="h-8 w-8 md:h-10 md:w-10 rounded-lg md:rounded-xl bg-orange-50 flex items-center justify-center text-orange-600 self-end md:self-auto">
+                    <Clock className="h-4 w-4 md:h-5 md:w-5" />
                   </div>
                 </div>
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="pt-5">
-                <div className="flex items-center justify-between">
+            <Card className="col-span-1 sm:col-span-1 stagger-item" style={{ animationDelay: '50ms' }}>
+              <CardContent className="pt-4 md:pt-5 px-3 md:px-5">
+                <div className="flex flex-col-reverse md:flex-row md:items-center justify-between gap-2">
                   <div>
-                    <p className="text-xs font-semibold text-slate-500">Total Accrued This Cycle</p>
-                    <p className="text-2xl font-bold text-slate-900 mt-1">
-                      {userProfile ? calculatePTOAccrued(getPTOAccrualDate(userProfile)) : 0} Days
+                    <p className="text-[10px] md:text-xs font-semibold text-slate-500">Accrued</p>
+                    <p className="text-xl md:text-2xl font-bold text-slate-900 mt-0.5 md:mt-1 tracking-tight">
+                      {userProfile ? calculatePTOAccrued(getPTOAccrualDate(userProfile)) : 0} <span className="text-xs md:text-base font-medium">Days</span>
                     </p>
                   </div>
-                  <div className="h-10 w-10 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
-                    <CheckCircle2 className="h-5 w-5" />
+                  <div className="h-8 w-8 md:h-10 md:w-10 rounded-lg md:rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 self-end md:self-auto">
+                    <CheckCircle2 className="h-4 w-4 md:h-5 md:w-5" />
                   </div>
                 </div>
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="pt-5">
+            <Card className="col-span-2 sm:col-span-1 stagger-item" style={{ animationDelay: '100ms' }}>
+              <CardContent className="pt-4 md:pt-5 px-4 md:px-5">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-semibold text-slate-500">Shift Status</p>
-                    <p className={`text-2xl font-bold mt-1 ${shiftActive ? 'text-emerald-600' : 'text-slate-500'}`}>
-                      {shiftActive ? 'ON SHIFT' : 'OFF SHIFT'}
+                    <p className="text-xs font-semibold text-slate-500">Tasks Needing Attention</p>
+                    <p className={`text-2xl font-bold mt-1 tracking-tight ${tasksNeedingAttention > 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                      {tasksNeedingAttention} {tasksNeedingAttention === 1 ? 'Task' : 'Tasks'}
                     </p>
                   </div>
-                  <div className={`h-10 w-10 rounded-full flex items-center justify-center border ${shiftActive ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
-                    <Flag className="h-5 w-5" />
+                  <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${tasksNeedingAttention > 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-400'}`}>
+                    <AlertTriangle className="h-5 w-5" />
                   </div>
                 </div>
               </CardContent>
@@ -405,7 +562,7 @@ export default function EmployeeDashboard() {
                     <Card 
                       key={task.id} 
                       onClick={() => setSelectedTask(task)}
-                      className={`p-4 border transition-all cursor-pointer hover:border-orange-350 hover:shadow-sm group ${isOverdue ? 'border-rose-250 bg-rose-50/10' : task.status === 'done' ? 'opacity-70 border-emerald-100 bg-emerald-50/5' : 'border-slate-200 bg-white'}`}
+                      className={`p-4 border transition-colors transition-shadow cursor-pointer hover:border-orange-300 hover:shadow-sm group ${isOverdue ? 'border-rose-300 bg-rose-50/10' : task.status === 'done' ? 'opacity-70 border-emerald-100 bg-emerald-50/5' : 'border-slate-200 bg-white'}`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
@@ -416,11 +573,11 @@ export default function EmployeeDashboard() {
                             {isDueSoon && <span className="text-[9px] font-bold text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.2 rounded-full">DUE SOON</span>}
                           </div>
                           {task.description && <p className="text-xs text-slate-500 mb-1.5 line-clamp-1">{task.description}</p>}
-                          <p className="text-[10px] text-slate-400 font-semibold">📅 Due: {new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {task.team}</p>
+                          <p className="text-[10px] text-slate-400 font-semibold flex items-center gap-1"><Calendar className="h-3 w-3 shrink-0" /> Due: {new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {task.team}</p>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${STATUS_STYLES[task.status]}`}>{STATUS_LABELS[task.status]}</span>
-                          <ChevronRight className="h-4 w-4 text-slate-350 group-hover:text-orange-500 transition-colors" />
+                          <ChevronRight className="h-4 w-4 text-slate-400 group-hover:text-orange-500 transition-colors" />
                         </div>
                       </div>
                     </Card>
@@ -437,7 +594,7 @@ export default function EmployeeDashboard() {
               {/* Desktop table */}
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full min-w-[500px] text-xs text-left border-collapse">
-                  <thead className="font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
+                  <thead className="font-bold text-slate-600 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
                     <tr>
                       <th className="px-5 py-3">Type</th>
                       <th className="px-5 py-3">Duration</th>
@@ -500,170 +657,10 @@ export default function EmployeeDashboard() {
           </div>
         </div>
 
-        {/* Right Column (4 cols): Geofencing, Announcements, Team, Referral */}
+        {/* Right Column (4 cols): Announcements, Team, Referral — Shift
+            Control moved to its own full-width card above the stats grid;
+            see that section's comment for why. */}
         <div className="lg:col-span-4 space-y-6">
-          
-          {/* Geofencing & Location Check-In Widget */}
-          <Card className="border border-slate-200 bg-white">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
-                <Flag className="h-4 w-4 text-orange-600" /> Geofencing Tracker
-              </h3>
-              <span className={`h-2.5 w-2.5 rounded-full ${shiftActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-350'}`} />
-            </div>
-            <CardContent className="p-5 space-y-4">
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-150 text-xs">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-slate-500">Location Status:</span>
-                  <span className={`font-bold px-2 py-0.5 rounded-md ${shiftActive ? 'text-emerald-700 bg-emerald-50 border border-emerald-250' : 'text-slate-600 bg-slate-100'}`}>
-                    {geofenceStatus}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center mt-2.5 pt-2.5 border-t border-slate-100">
-                  <span className="font-bold text-slate-500">Auto Shift Logic:</span>
-                  <span className="text-slate-450 font-bold">
-                    {userProfile?.region === 'USA' ? 'Enabled (Geofencing)' : 'Disabled (Manual)'}
-                  </span>
-                </div>
-              </div>
-
-              {userProfile?.region === 'USA' ? (
-                <div className="space-y-2.5">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <LocateFixed className="h-3 w-3" /> Live GPS Geofencing
-                  </p>
-
-                  {(!userProfile.assignedWarehouses || userProfile.assignedWarehouses.length === 0) ? (
-                    <p className="text-[10px] text-slate-400 italic">No warehouses assigned by HR yet — geofenced check-in will activate once a warehouse is assigned to your profile.</p>
-                  ) : geoPermission === 'unsupported' ? (
-                    <p className="text-[10px] text-rose-600 font-semibold leading-relaxed">
-                      Your browser/device does not support GPS location. Automatic geofenced check-in is unavailable here — please use a modern mobile or desktop browser.
-                    </p>
-                  ) : geoPermission === 'denied' ? (
-                    <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-150 space-y-2">
-                      <p className="text-[10px] text-rose-700 font-semibold leading-relaxed">{geoErrorMsg}</p>
-                      <button
-                        onClick={() => window.location.reload()}
-                        className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-2 rounded-lg text-[10px] transition-all active:scale-97"
-                      >
-                        Retry Location Access
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-150 space-y-1.5">
-                      <p className="text-[10px] text-slate-500 font-semibold leading-relaxed flex items-center gap-1">
-                        <MapPin className="h-3 w-3 text-orange-500 shrink-0" />
-                        {geoPermission === 'requesting' && !liveDistance
-                          ? 'Acquiring your location…'
-                          : liveDistance
-                            ? `${liveDistance.isInside ? 'Inside' : liveDistance.meters + 'm from'} ${liveDistance.warehouseName}`
-                            : 'Waiting for GPS signal…'}
-                      </p>
-                      <p className="text-[9px] text-slate-400 leading-relaxed">
-                        Your shift starts and ends automatically as you enter or leave an assigned warehouse's geofence — no manual check-in needed.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Shift Controls</p>
-
-                  {/* Mobile-app block — takes priority over the tracker-connection
-                      notice below. Screen tracking requires the desktop agent,
-                      which can never run inside the native mobile app, so a
-                      tracked employee must switch to a desktop browser (or the
-                      desktop tracker app) to start their shift at all. */}
-                  {userProfile && isTrackingLiveFor(userProfile) && isMobileApp && !shiftActive && (
-                    <div className="flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-[10px] font-bold bg-rose-50 border-rose-150 text-rose-700">
-                      <Smartphone className="h-3 w-3 shrink-0" />
-                      Screen tracking is enabled for your account — shifts can only be started from a desktop computer, not the mobile app.
-                    </div>
-                  )}
-
-                  {/* Tracker-required notice — only for employees HR/Admin has
-                      enabled screen tracking for. Blocks manual Start Shift
-                      until the desktop agent is actually connected, so a
-                      shift can never run un-monitored just because the
-                      employee forgot to open the tracker. */}
-                  {userProfile && isTrackingLiveFor(userProfile) && !isMobileApp && !shiftActive && (
-                    <div className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-[10px] font-bold ${hrActions.isHeartbeatLive(trackerHeartbeat) ? 'bg-emerald-50 border-emerald-150 text-emerald-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
-                      {hrActions.isHeartbeatLive(trackerHeartbeat) ? <Wifi className="h-3 w-3 shrink-0" /> : <WifiOff className="h-3 w-3 shrink-0" />}
-                      {hrActions.isHeartbeatLive(trackerHeartbeat)
-                        ? 'Tracker app connected — you can start your shift.'
-                        : 'Tracker app not connected. Open the DelCargo Tracker app before starting your shift.'}
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={async () => {
-                        if (!userProfile?.email) return;
-                        // Gate 1: screen tracking + mobile app is a hard block —
-                        // there's no desktop agent to connect to on a phone, so
-                        // never even attempt the tracker-connection check below.
-                        if (isTrackingLiveFor(userProfile) && isMobileApp) {
-                          setShowMobileBlockedModal(true);
-                          return;
-                        }
-                        // Gate 2: if this account has screen tracking enabled,
-                        // the desktop agent must be connected first — never
-                        // silently allow a shift to start un-monitored.
-                        // Re-checked live here (not just the last 30s-old
-                        // poll) so the answer reflects reality at the exact
-                        // moment Start Shift is pressed — the agent could
-                        // have been closed seconds ago, before the next
-                        // scheduled poll would have caught it.
-                        if (isTrackingLiveFor(userProfile)) {
-                          setCheckingTracker(true);
-                          const freshHeartbeat = await hrActions.getTrackerHeartbeat(userProfile.email);
-                          setTrackerHeartbeat(freshHeartbeat);
-                          setCheckingTracker(false);
-                          if (!hrActions.isHeartbeatLive(freshHeartbeat)) {
-                            setShowTrackerRequiredModal(true);
-                            return;
-                          }
-                        }
-                        setShiftActive(true);
-                        setGeofenceStatus('Shift Active');
-                        await hrActions.clockIn(userProfile.email);
-                        await refetchTimesheets();
-                        // Screen tracking (if this employee has the desktop
-                        // agent installed) automatically follows the active shift state
-                        // via the timesheets table check inside the agent itself.
-                        await hrActions.addNotification(userProfile.email, 'employee', 'Shift started manually. Screen tracking is now active for this shift.');
-                        await hrActions.addNotification('all', 'hr', `${userProfile.fullName} started shift manually.`);
-                        await hrActions.addNotification('all', 'admin', `${userProfile.fullName} started shift manually.`);
-                      }}
-                      disabled={shiftActive || checkingTracker || (!!userProfile && isTrackingLiveFor(userProfile) && isMobileApp)}
-                      className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold py-2 px-3 rounded-lg text-xs transition-all active:scale-97 text-center shadow-sm"
-                    >
-                      {checkingTracker ? 'Checking tracker…' : 'Start Shift'}
-                    </button>
-                    <button
-                      onClick={async () => {
-                        if (!userProfile?.email) return;
-                        setShiftActive(false);
-                        setGeofenceStatus('Shift Ended');
-                        await hrActions.clockOut(userProfile.email);
-                        await refetchTimesheets();
-                        await hrActions.addNotification(userProfile.email, 'employee', 'Shift ended manually. Screen tracking has stopped.');
-                        await hrActions.addNotification('all', 'hr', `${userProfile.fullName} ended shift manually.`);
-                        await hrActions.addNotification('all', 'admin', `${userProfile.fullName} ended shift manually.`);
-                      }}
-                      disabled={!shiftActive}
-                      className="bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold py-2 px-3 rounded-lg text-xs transition-all active:scale-97 text-center shadow-sm"
-                    >
-                      End Shift
-                    </button>
-                  </div>
-                  <p className="text-[9px] text-slate-400 leading-relaxed">
-                    If your account has screen tracking configured by HR/Admin, starting a shift activates it for the duration of your shift; ending your shift turns it off.
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
 
           {/* Announcements Feed Widget */}
           <Card className="border border-slate-200 bg-white">
@@ -672,12 +669,12 @@ export default function EmployeeDashboard() {
             </div>
             <CardContent className="p-4 space-y-3 max-h-64 overflow-y-auto">
               {myAnnouncements.map(ann => (
-                <div key={ann.id} className="p-3 rounded-lg border border-slate-150 bg-slate-50/50 text-xs">
+                <div key={ann.id} className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 text-xs">
                   <div className="flex justify-between items-center mb-1">
                     <span className="font-bold text-slate-900 truncate pr-2" title={ann.title}>{ann.title}</span>
                     <span className="text-[9px] text-slate-400 font-medium shrink-0">{ann.timestamp.split(' ')[0]}</span>
                   </div>
-                  <p className="text-slate-550 leading-relaxed mt-1 font-medium">{ann.content}</p>
+                  <p className="text-slate-600 leading-relaxed mt-1 font-medium">{ann.content}</p>
                 </div>
               ))}
               {myAnnouncements.length === 0 && (
@@ -686,33 +683,36 @@ export default function EmployeeDashboard() {
             </CardContent>
           </Card>
 
-          {/* Team Monitor (For Team Leads Only) */}
+          {/* Team Monitor (For Team Leads Only) — list rows now share a
+              single divider line instead of each being its own nested
+              bordered/tinted box inside the outer Card (nested cards read
+              as "boxes within boxes" clutter, not real content grouping). */}
           {userProfile?.isTeamLead && (
-            <Card className="border-t-4 border-t-purple-500 bg-white">
+            <Card className="bg-white">
               <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                 <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
-                  ⭐ Team Tracker Monitor
+                  <Star className="h-3.5 w-3.5 text-purple-500" /> Team Tracker Monitor
                 </h3>
                 <Badge variant="default">Lead</Badge>
               </div>
-              <CardContent className="p-4 space-y-3">
-                <p className="text-[10px] text-slate-500 leading-relaxed font-semibold">Monitor the active workstation tracking logs of the members you lead:</p>
-                <div className="space-y-2 max-h-56 overflow-y-auto">
+              <CardContent className="p-0">
+                <p className="text-[10px] text-slate-500 leading-relaxed font-semibold px-4 pt-3.5 pb-1">Monitor the active workstation tracking logs of the members you lead:</p>
+                <div className="max-h-56 overflow-y-auto divide-y divide-slate-100">
                   {allEmployees
                     .filter(emp => emp.id !== userProfile.id && emp.teams && emp.teams.some(t => userProfile.leadTeams?.includes(t)))
                     .map(member => (
-                      <div key={member.id} className="flex items-center justify-between p-2.5 rounded-xl border border-slate-150 bg-slate-50/50 text-xs font-semibold">
-                        <div className="flex items-center gap-2">
-                        <Avatar src={member.profilePicture} name={displayName(member, userProfile?.role)} size={24} />
+                      <div key={member.id} className="flex items-center justify-between gap-2 px-4 py-2.5 text-xs font-semibold">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Avatar src={member.profilePicture} name={displayName(member, userProfile?.role)} size={24} />
                           <div className="truncate max-w-[110px]">
                             <div className="font-bold text-slate-800 truncate">{displayName(member, userProfile?.role)}</div>
-                            <div className="text-[9px] text-slate-450 font-semibold truncate">{member.jobTitle || 'Staff'}</div>
+                            <div className="text-[9px] text-slate-400 font-semibold truncate">{member.jobTitle || 'Staff'}</div>
                           </div>
                         </div>
                         {isTrackingLiveFor(member) ? (
                           <button
                             onClick={() => handleOpenReviewModal(member)}
-                            className="text-[9px] font-bold text-slate-650 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1 shrink-0"
+                            className="text-[9px] font-bold text-slate-600 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg active:scale-97 transition-colors transition-transform flex items-center gap-1 shrink-0"
                           >
                             Review
                           </button>
@@ -731,16 +731,18 @@ export default function EmployeeDashboard() {
             <div className="px-5 py-4 border-b border-slate-100">
               <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">My Team ({userProfile?.teams.join(', ')})</h3>
             </div>
-            <CardContent className="p-4 space-y-3">
-              {/* Team Lead */}
-              <div>
+            <CardContent className="p-0">
+              {/* Team Lead — a single highlighted row, not a boxed card;
+                  the tint alone is enough to set it apart from the plain
+                  co-worker rows below. */}
+              <div className="px-4 pt-4 pb-3 border-b border-slate-100">
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Team Lead</p>
                 {teamLead ? (
-                  <div className="flex items-center gap-2.5 bg-purple-50/80 border border-purple-100 p-2.5 rounded-lg text-xs">
-                  <Avatar src={teamLead.profilePicture} name={displayName(teamLead, userProfile?.role)} size={24} />
+                  <div className="flex items-center gap-2.5 bg-purple-50/60 rounded-lg p-2 text-xs -mx-2">
+                    <Avatar src={teamLead.profilePicture} name={displayName(teamLead, userProfile?.role)} size={24} />
                     <div>
-                      <div className="font-bold text-slate-800">⭐ {displayName(teamLead, userProfile?.role)}</div>
-                      <div className="text-[10px] text-slate-450 font-semibold">{teamLead.email}</div>
+                      <div className="font-bold text-slate-800 flex items-center gap-1"><Star className="h-3 w-3 text-purple-500 shrink-0" /> {displayName(teamLead, userProfile?.role)}</div>
+                      <div className="text-[10px] text-slate-400 font-semibold">{teamLead.email}</div>
                     </div>
                   </div>
                 ) : (
@@ -748,13 +750,13 @@ export default function EmployeeDashboard() {
                 )}
               </div>
 
-              {/* Members */}
+              {/* Members — plain divided list, not a stack of mini-cards. */}
               <div>
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Co-Workers</p>
-                <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest px-4 pt-3 pb-1">Co-Workers</p>
+                <div className="max-h-40 overflow-y-auto divide-y divide-slate-100">
                   {teamMembers.map(member => (
-                    <div key={member.id} className="flex items-center gap-2 p-2 rounded-lg border border-slate-100 bg-white text-xs">
-                    <Avatar src={member.profilePicture} name={displayName(member, userProfile?.role)} size={20} />
+                    <div key={member.id} className="flex items-center gap-2 px-4 py-2 text-xs">
+                      <Avatar src={member.profilePicture} name={displayName(member, userProfile?.role)} size={20} />
                       <div className="truncate">
                         <div className="font-semibold text-slate-800 truncate">{displayName(member, userProfile?.role)}</div>
                         <div className="text-[9px] text-slate-400 truncate">{member.email}</div>
@@ -762,7 +764,7 @@ export default function EmployeeDashboard() {
                     </div>
                   ))}
                   {teamMembers.length === 0 && (
-                    <span className="text-xs text-slate-400 italic font-semibold">You are the only member in this team.</span>
+                    <span className="text-xs text-slate-400 italic font-semibold px-4 pb-3 block">You are the only member in this team.</span>
                   )}
                 </div>
               </div>
@@ -774,14 +776,14 @@ export default function EmployeeDashboard() {
             <div className="px-5 py-4 border-b border-slate-100">
               <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Candidate Referrals</h3>
             </div>
-            <CardContent className="p-5 space-y-3.5 text-xs text-slate-655 leading-relaxed font-semibold">
+            <CardContent className="p-5 space-y-3.5 text-xs text-slate-600 leading-relaxed font-semibold">
               <p>Refer candidates to our open positions! If your referral gets hired and completes <strong>6 months</strong> of service, you will receive a bonus reward:</p>
-              <div className="bg-emerald-50 border border-emerald-150 text-emerald-800 p-3 rounded-xl font-bold text-center text-sm">
-                🎁 Referral Bonus: PKR 10,000
+              <div className="flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-xl font-bold text-center text-sm">
+                <Gift className="h-4 w-4 shrink-0" /> Referral Bonus: PKR 10,000
               </div>
               <button 
                 onClick={() => router.push('/employee/careers')} 
-                className="w-full bg-slate-50 border border-slate-200 text-slate-700 font-bold py-2.5 md:py-2 rounded-lg text-xs hover:bg-slate-100 transition-all active:scale-97 text-center"
+                className="w-full bg-slate-50 border border-slate-200 text-slate-700 font-bold py-2.5 md:py-2 rounded-lg text-xs hover:bg-slate-100 transition-colors transition-transform active:scale-97 text-center"
               >
                 View open positions to refer →
               </button>
@@ -797,7 +799,7 @@ export default function EmployeeDashboard() {
       {showMobileBlockedModal && (
         <Modal isOpen onClose={() => setShowMobileBlockedModal(false)} title="Desktop Required for This Shift">
           <div className="space-y-4">
-            <div className="flex items-start gap-3 bg-rose-50 border border-rose-150 p-4 rounded-xl">
+            <div className="flex items-start gap-3 bg-rose-50 border border-rose-200 p-4 rounded-xl">
               <Smartphone className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />
               <p className="text-xs text-slate-700 font-semibold leading-relaxed">
                 Your account has screen tracking enabled by HR/Admin. Since the DelCargo Tracker app only runs on Windows/Mac, shifts for tracked accounts can&apos;t be started from the mobile app. Please start your shift from a desktop computer with the tracker app installed and running.
@@ -806,7 +808,7 @@ export default function EmployeeDashboard() {
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
               <button
                 onClick={() => setShowMobileBlockedModal(false)}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-colors transition-transform active:scale-97"
               >
                 Close
               </button>
@@ -821,7 +823,7 @@ export default function EmployeeDashboard() {
       {showTrackerRequiredModal && (
         <Modal isOpen onClose={() => setShowTrackerRequiredModal(false)} title="Tracker App Required">
           <div className="space-y-4">
-            <div className="flex items-start gap-3 bg-amber-50 border border-amber-150 p-4 rounded-xl">
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 p-4 rounded-xl">
               <WifiOff className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
               <p className="text-xs text-slate-700 font-semibold leading-relaxed">
                 Your account has screen tracking enabled by HR/Admin, so your shift can only be started once the DelCargo Tracker desktop app is installed and running. Open the app (check your system tray / menu bar if it's already installed) and try starting your shift again.
@@ -830,13 +832,13 @@ export default function EmployeeDashboard() {
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
               <button
                 onClick={() => router.push('/employee/tracker')}
-                className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
+                className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition-colors transition-transform active:scale-97"
               >
                 Go to Tracker Setup
               </button>
               <button
                 onClick={() => setShowTrackerRequiredModal(false)}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-colors transition-transform active:scale-97"
               >
                 Close
               </button>
@@ -851,7 +853,7 @@ export default function EmployeeDashboard() {
       {shiftStopModal && (
         <Modal isOpen onClose={() => setShiftStopModal(false)} title="Tracker Closed — Shift Ended">
           <div className="space-y-4">
-            <div className="flex items-start gap-3 bg-amber-50 border border-amber-150 p-4 rounded-xl">
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 p-4 rounded-xl">
               <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
               <p className="text-xs text-slate-700 font-semibold leading-relaxed">
                 The DelCargo Tracker app on your computer was closed while your shift was active, so your shift has been automatically ended. If this wasn't intentional, reopen the tracker app and start a new shift to resume being tracked.
@@ -860,13 +862,13 @@ export default function EmployeeDashboard() {
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
               <button
                 onClick={() => router.push('/employee/tracker')}
-                className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
+                className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition-colors transition-transform active:scale-97"
               >
                 Go to Tracker Setup
               </button>
               <button
                 onClick={() => setShiftStopModal(false)}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-colors transition-transform active:scale-97"
               >
                 Close
               </button>
@@ -910,22 +912,27 @@ export default function EmployeeDashboard() {
               {selectedTask.status === 'todo' && (
                 <button
                   onClick={() => handleUpdateTaskStatus(selectedTask.id, 'in_progress')}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs"
+                  disabled={isUpdatingTaskStatus}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
                 >
+                  {isUpdatingTaskStatus && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   Start Task
                 </button>
               )}
               {selectedTask.status === 'in_progress' && (
                 <button
                   onClick={() => handleUpdateTaskStatus(selectedTask.id, 'done')}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs"
+                  disabled={isUpdatingTaskStatus}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
                 >
+                  {isUpdatingTaskStatus && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   Mark Completed
                 </button>
               )}
               <button
                 onClick={() => setSelectedTask(null)}
-                className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs"
+                disabled={isUpdatingTaskStatus}
+                className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Close
               </button>
@@ -942,7 +949,7 @@ export default function EmployeeDashboard() {
               <div>
                 <p className="text-xs text-slate-500 font-semibold">Reviewing Employee</p>
                 <p className="text-sm font-bold text-slate-900">{displayName(selectedReviewEmp, userProfile?.role)}</p>
-                <p className="text-[10px] text-slate-455 font-bold">{selectedReviewEmp.email} · {selectedReviewEmp.jobTitle || 'Staff'}</p>
+                <p className="text-[10px] text-slate-500 font-bold">{selectedReviewEmp.email} · {selectedReviewEmp.jobTitle || 'Staff'}</p>
               </div>
               <Badge variant={selectedReviewEmp.region === 'USA' ? 'default' : 'success'}>
                 {selectedReviewEmp.region === 'USA' ? 'USA Operations' : 'Pakistan Remote'}
@@ -955,7 +962,7 @@ export default function EmployeeDashboard() {
                 {/* Desktop table */}
                 <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-xs text-left border-collapse">
-                    <thead className="font-bold text-slate-555 bg-slate-50 border-b border-slate-200 uppercase tracking-widest text-[9px]">
+                    <thead className="font-bold text-slate-500 bg-slate-50 border-b border-slate-200 uppercase tracking-widest text-[9px]">
                       <tr>
                         <th className="px-4 py-2.5">Date</th>
                         <th className="px-4 py-2.5">Clock In</th>
@@ -964,7 +971,7 @@ export default function EmployeeDashboard() {
                         <th className="px-4 py-2.5 text-right">Status</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-150">
+                    <tbody className="divide-y divide-slate-200">
                       {reviewEntries.map((entry, idx) => (
                         <tr key={idx} className="hover:bg-slate-50/50">
                           <td className="px-4 py-3 font-bold text-slate-700">{localShiftDate(entry.clockIn, entry.date)}</td>
@@ -1020,10 +1027,10 @@ export default function EmployeeDashboard() {
               <div className="space-y-3">
               <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Workspace Screenshots</h4>
               <div className="border border-slate-200 p-6 rounded-xl bg-slate-50/50 text-center space-y-2 font-sans">
-                <Monitor className="h-6 w-6 text-slate-350 mx-auto" />
+                <Monitor className="h-6 w-6 text-slate-400 mx-auto" />
                 <div>
                   <h5 className="text-xs font-bold text-slate-700">Desktop Capture Offline</h5>
-                  <p className="text-[10px] text-slate-455 leading-relaxed font-semibold mt-1">
+                  <p className="text-[10px] text-slate-500 leading-relaxed font-semibold mt-1">
                     This feature will be available soon (requires Windows client agent installation).
                   </p>
                 </div>

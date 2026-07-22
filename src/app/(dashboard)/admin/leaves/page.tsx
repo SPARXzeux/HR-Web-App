@@ -3,11 +3,11 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { CheckCircle2, ShieldCheck, List } from 'lucide-react';
-import { useLeaves, useProfiles, hrActions, LeaveApplication } from '@/lib/hrData';
+import { CheckCircle2, ShieldCheck, List, Loader2 } from 'lucide-react';
+import { useLeaves, useProfiles, hrActions, LeaveApplication, Profile, displayName } from '@/lib/hrData';
 
 const TYPE_COLORS: Record<string, string> = {
-  'PTO': 'bg-blue-100 text-blue-800',
+  'PTO': 'bg-indigo-100 text-indigo-800',
   'Sick Leave': 'bg-amber-100 text-amber-800',
   'Urgent': 'bg-rose-100 text-rose-800',
 };
@@ -28,7 +28,15 @@ export default function AdminLeavesPage() {
   const [successMsg, setSuccessMsg] = useState('');
   const [activeTab, setActiveTab] = useState<TabView>('queue');
   const [histFilter, setHistFilter] = useState<LeaveApplication['status'] | 'all'>('all');
+
+  // See the matching comment in hr/leaves/page.tsx — LeaveApplication only
+  // snapshots a fullName, not a live Profile reference.
+  const nameFor = (employeeName: string): string => {
+    const emp = employees.find((e: Profile) => e.fullName === employeeName);
+    return emp ? displayName(emp, 'admin') : employeeName;
+  };
   const [histType, setHistType] = useState<'all' | 'PTO' | 'Sick Leave' | 'Urgent'>('all');
+  const [processingLeaveId, setProcessingLeaveId] = useState<string | null>(null);
 
   useEffect(() => {
     const handleSearch = (e: Event) => setSearchQuery((e as CustomEvent).detail || '');
@@ -37,22 +45,28 @@ export default function AdminLeavesPage() {
   }, []);
 
   const handleCEOAction = async (id: string, action: 'approve' | 'reject') => {
-    const nextStatus = action === 'approve' ? 'approved' : 'rejected';
+    if (processingLeaveId) return;
+    setProcessingLeaveId(id);
+    try {
+      const nextStatus = action === 'approve' ? 'approved' : 'rejected';
 
-    await hrActions.updateLeaveStatus(id, nextStatus);
+      await hrActions.updateLeaveStatus(id, nextStatus);
 
-    const l = leaves.find(lv => lv.id === id);
-    if (l) {
-      const emp = employees.find(e => e.fullName === l.employeeName);
-      if (emp) {
-        await hrActions.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was ${action === 'approve' ? 'approved' : 'rejected'} by the CEO.`);
+      const l = leaves.find(lv => lv.id === id);
+      if (l) {
+        const emp = employees.find(e => e.fullName === l.employeeName);
+        if (emp) {
+          await hrActions.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was ${action === 'approve' ? 'approved' : 'rejected'} by the CEO.`);
+        }
+        await hrActions.addNotification('all', 'hr', `CEO ${action === 'approve' ? 'Approved' : 'Rejected'} leave for ${l.employeeName}.`);
       }
-      await hrActions.addNotification('all', 'hr', `CEO ${action === 'approve' ? 'Approved' : 'Rejected'} leave for ${l.employeeName}.`);
-    }
 
-    refetchLeaves();
-    setSuccessMsg(`Leave ${action === 'approve' ? 'approved' : 'rejected'} by CEO!`);
-    setTimeout(() => setSuccessMsg(''), 1500);
+      refetchLeaves();
+      setSuccessMsg(`Leave ${action === 'approve' ? 'approved' : 'rejected'} by CEO!`);
+      setTimeout(() => setSuccessMsg(''), 1500);
+    } finally {
+      setProcessingLeaveId(null);
+    }
   };
 
   const stats = {
@@ -88,7 +102,7 @@ export default function AdminLeavesPage() {
           <p className="text-slate-500 text-sm">Final CEO decisions on HR-approved leaves. See full org history in the History tab.</p>
         </div>
         {successMsg && (
-          <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 animate-in fade-in duration-150 shadow-sm">
+          <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 fade-enter shadow-sm">
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />{successMsg}
           </div>
         )}
@@ -99,7 +113,7 @@ export default function AdminLeavesPage() {
         {[
           { label: 'Total Requests', value: stats.total,      bg: 'bg-slate-50 border-slate-200',         text: 'text-slate-700'   },
           { label: 'Pending',        value: stats.pending,    bg: 'bg-amber-50 border-amber-200',          text: 'text-amber-700'   },
-          { label: 'Awaiting CEO',   value: stats.hrApproved, bg: 'bg-blue-50 border-blue-200',            text: 'text-blue-700'    },
+          { label: 'Awaiting CEO',   value: stats.hrApproved, bg: 'bg-indigo-50 border-indigo-200',        text: 'text-indigo-700'  },
           { label: 'Approved',       value: stats.approved,   bg: 'bg-emerald-50 border-emerald-200',      text: 'text-emerald-700' },
           { label: 'Rejected',       value: stats.rejected,   bg: 'bg-rose-50 border-rose-200',            text: 'text-rose-700'    },
         ].map(s => (
@@ -116,7 +130,7 @@ export default function AdminLeavesPage() {
       <div className="flex gap-2 border-b border-slate-200">
         <button
           onClick={() => setActiveTab('queue')}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-t-lg border-b-2 transition-all ${
+          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-t-lg border-b-2 transition-colors ${
             activeTab === 'queue'
               ? 'border-orange-500 text-orange-700 bg-orange-50'
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -129,7 +143,7 @@ export default function AdminLeavesPage() {
         </button>
         <button
           onClick={() => setActiveTab('history')}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-t-lg border-b-2 transition-all ${
+          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-t-lg border-b-2 transition-colors ${
             activeTab === 'history'
               ? 'border-orange-500 text-orange-700 bg-orange-50'
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -144,7 +158,7 @@ export default function AdminLeavesPage() {
         <Card className="overflow-hidden p-0 border border-slate-200">
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full min-w-[750px] text-sm text-left border-collapse">
-              <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
+              <thead className="text-xs font-bold text-slate-600 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-4">Employee</th>
                   <th className="px-6 py-4">Type</th>
@@ -156,7 +170,7 @@ export default function AdminLeavesPage() {
               <tbody className="divide-y divide-slate-200">
                 {pendingCEOLeaves.map(leave => (
                   <tr key={leave.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4 font-semibold text-slate-900">{leave.employeeName}</td>
+                    <td className="px-6 py-4 font-semibold text-slate-900">{nameFor(leave.employeeName)}</td>
                     <td className="px-6 py-4">
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${TYPE_COLORS[leave.type] || ''}`}>{leave.type}</span>
                     </td>
@@ -164,11 +178,11 @@ export default function AdminLeavesPage() {
                     <td className="px-6 py-4 text-slate-500 max-w-xs truncate text-xs">{leave.reason}</td>
                     <td className="px-6 py-4 text-center">
                       <div className="flex justify-center gap-2">
-                        <button onClick={() => handleCEOAction(leave.id, 'approve')} className="text-xs font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded transition-all active:scale-97">
-                          CEO Approve
+                        <button onClick={() => handleCEOAction(leave.id, 'approve')} disabled={processingLeaveId !== null} className="text-xs font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded transition-colors transition-transform active:scale-97 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1">
+                          {processingLeaveId === leave.id && <Loader2 className="h-3 w-3 animate-spin" />} CEO Approve
                         </button>
-                        <button onClick={() => handleCEOAction(leave.id, 'reject')} className="text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded transition-all active:scale-97">
-                          Reject
+                        <button onClick={() => handleCEOAction(leave.id, 'reject')} disabled={processingLeaveId !== null} className="text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded transition-colors transition-transform active:scale-97 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1">
+                          {processingLeaveId === leave.id && <Loader2 className="h-3 w-3 animate-spin" />} Reject
                         </button>
                       </div>
                     </td>
@@ -189,7 +203,7 @@ export default function AdminLeavesPage() {
             {pendingCEOLeaves.map(leave => (
               <div key={leave.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-bold text-slate-900">{leave.employeeName}</p>
+                  <p className="text-sm font-bold text-slate-900">{nameFor(leave.employeeName)}</p>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${TYPE_COLORS[leave.type] || ''}`}>{leave.type}</span>
                 </div>
                 <div>
@@ -201,10 +215,10 @@ export default function AdminLeavesPage() {
                   <p className="text-xs text-slate-600 line-clamp-2">{leave.reason}</p>
                 </div>
                 <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                  <button onClick={() => handleCEOAction(leave.id, 'approve')} className="text-xs font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded transition-all active:scale-97">
+                  <button onClick={() => handleCEOAction(leave.id, 'approve')} className="text-xs font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded transition-colors transition-transform active:scale-97">
                     CEO Approve
                   </button>
-                  <button onClick={() => handleCEOAction(leave.id, 'reject')} className="text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded transition-all active:scale-97">
+                  <button onClick={() => handleCEOAction(leave.id, 'reject')} className="text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded transition-colors transition-transform active:scale-97">
                     Reject
                   </button>
                 </div>
@@ -250,7 +264,7 @@ export default function AdminLeavesPage() {
           <Card className="overflow-hidden p-0 border border-slate-200">
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full min-w-[750px] text-sm text-left border-collapse">
-                <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
+                <thead className="text-xs font-bold text-slate-600 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
                   <tr>
                     <th className="px-5 py-4">Employee</th>
                     <th className="px-5 py-4">Type</th>
@@ -262,7 +276,7 @@ export default function AdminLeavesPage() {
                 <tbody className="divide-y divide-slate-100">
                   {historyLeaves.map(l => (
                     <tr key={l.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-5 py-3.5 font-semibold text-slate-900">{l.employeeName}</td>
+                      <td className="px-5 py-3.5 font-semibold text-slate-900">{nameFor(l.employeeName)}</td>
                       <td className="px-5 py-3.5">
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${TYPE_COLORS[l.type] || 'bg-slate-100 text-slate-600'}`}>{l.type}</span>
                       </td>
@@ -288,7 +302,7 @@ export default function AdminLeavesPage() {
               {historyLeaves.map(l => (
                 <div key={l.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-bold text-slate-900">{l.employeeName}</p>
+                    <p className="text-sm font-bold text-slate-900">{nameFor(l.employeeName)}</p>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${TYPE_COLORS[l.type] || 'bg-slate-100 text-slate-600'}`}>{l.type}</span>
                   </div>
                   <div>

@@ -7,16 +7,17 @@ const config: CapacitorConfig = {
   // writes the static site into `out/`, which Capacitor then bundles into
   // the native app as its local web content.
   webDir: 'out',
-  server: {
-    // The app talks directly to PocketBase over plain HTTP
-    // (http://157.230.7.89 — see src/lib/pocketbase.ts). Android 9+ and iOS
-    // both block cleartext HTTP by default, so this must be allowed
-    // explicitly or every API call will silently fail on a real device.
-    // See the Android/iOS setup notes for the manifest/plist changes this
-    // still requires beyond this config file.
-    cleartext: true,
-    androidScheme: 'http',
-  },
+  // The app now talks to PocketBase over HTTPS at pb.delcargo.us (see
+  // src/lib/pocketbase.ts) instead of a bare HTTP IP, so the cleartext
+  // exception this used to need (cleartext: true, androidScheme: 'http' —
+  // plus the matching AndroidManifest.xml usesCleartextTraffic and Info.plist
+  // NSAllowsArbitraryLoads entries, both removed) is gone. Capacitor's
+  // default androidScheme is already 'https', so no server block is needed
+  // at all.
+  //
+  // IMPORTANT: don't build/ship this until pb.delcargo.us is actually live
+  // with a valid HTTPS certificate — see the PocketBase HTTPS migration
+  // notes. Until then the app has no way to reach PocketBase at all.
 };
 
 export default config;

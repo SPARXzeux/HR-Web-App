@@ -137,14 +137,14 @@ export function AvatarCropperModal({ file, onClose, onSave }: AvatarCropperModal
               <button
                 type="button"
                 onClick={() => setRotation(r => r - 90)}
-                className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition-all active:scale-97"
+                className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition-colors transition-transform active:scale-97"
               >
                 <RotateCcw className="h-3.5 w-3.5" /> Rotate Left
               </button>
               <button
                 type="button"
                 onClick={() => setRotation(r => r + 90)}
-                className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition-all active:scale-97"
+                className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition-colors transition-transform active:scale-97"
               >
                 <RotateCw className="h-3.5 w-3.5" /> Rotate Right
               </button>
@@ -155,7 +155,7 @@ export function AvatarCropperModal({ file, onClose, onSave }: AvatarCropperModal
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold py-2.5 rounded-xl text-xs active:scale-97 transition-all"
+              className="flex-1 flex items-center justify-center gap-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold py-2.5 rounded-xl text-xs active:scale-97 transition-colors transition-transform"
             >
               <X className="h-3.5 w-3.5" /> Cancel
             </button>
@@ -163,7 +163,7 @@ export function AvatarCropperModal({ file, onClose, onSave }: AvatarCropperModal
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white font-bold py-2.5 rounded-xl text-xs active:scale-97 transition-all"
+              className="flex-1 flex items-center justify-center gap-1.5 bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white font-bold py-2.5 rounded-xl text-xs active:scale-97 transition-colors transition-transform"
             >
               <Check className="h-3.5 w-3.5" /> {saving ? 'Saving…' : 'Save Photo'}
             </button>

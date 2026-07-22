@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { CheckCircle2, AlertCircle, Download, RefreshCw } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Download, RefreshCw, Loader2 } from 'lucide-react';
 import { formatMoney, hrActions, useLeaves, useProfiles, usePayroll } from '@/lib/hrData';
 
 export default function HRPayrollPage() {
@@ -17,6 +17,7 @@ export default function HRPayrollPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'processed'>('all');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [processingId, setProcessingId] = useState<string | null>(null);
 
   const fetchAllData = async () => {
     await Promise.all([refetchProfiles(), refetchPayroll()]);
@@ -31,24 +32,30 @@ export default function HRPayrollPage() {
   }, []);
 
   const handleProcess = async (employeeId: string) => {
+    if (processingId) return; // a payout is already in flight — never let a double-click fire this twice
     const record = compiledPayrollData.find(r => r.employeeId === employeeId);
     if (!record) return;
-    // Fold any pending anniversary increment into the employee's real base
-    // salary BEFORE marking the record processed — this mirrors Admin's
-    // "Release Monthly Funds" flow. Without this, HR's "Complete Payout"
-    // only marked the payslip as paid; hr_profiles.base_salary and
-    // lastIncrementProcessedYear never actually updated, so the employee's
-    // dashboard kept showing the old base salary and the exact same
-    // "pending increment" forever, even though their receipt said it was
-    // already paid.
-    if (record.incrementAmount > 0) {
-      const emp = employees.find(e => e.id === employeeId);
-      if (emp) await hrActions.applyAnniversaryIncrement(emp, emp.baseSalary, record.incrementAmount);
+    setProcessingId(employeeId);
+    try {
+      // Fold any pending anniversary increment into the employee's real base
+      // salary BEFORE marking the record processed — this mirrors Admin's
+      // "Release Monthly Funds" flow. Without this, HR's "Complete Payout"
+      // only marked the payslip as paid; hr_profiles.base_salary and
+      // lastIncrementProcessedYear never actually updated, so the employee's
+      // dashboard kept showing the old base salary and the exact same
+      // "pending increment" forever, even though their receipt said it was
+      // already paid.
+      if (record.incrementAmount > 0) {
+        const emp = employees.find(e => e.id === employeeId);
+        if (emp) await hrActions.applyAnniversaryIncrement(emp, emp.baseSalary, record.incrementAmount);
+      }
+      await hrActions.upsertPayrollRecord({ ...record, processed: true });
+      setLocalEdits(prev => { const next = { ...prev }; delete next[employeeId]; return next; });
+      await refetchProfiles();
+      refetchPayroll();
+    } finally {
+      setProcessingId(null);
     }
-    await hrActions.upsertPayrollRecord({ ...record, processed: true });
-    setLocalEdits(prev => { const next = { ...prev }; delete next[employeeId]; return next; });
-    await refetchProfiles();
-    refetchPayroll();
   };
 
   const handleUpdateAmount = async (employeeId: string, field: 'bonus' | 'deductions', value: string) => {
@@ -130,7 +137,7 @@ export default function HRPayrollPage() {
               setIsSyncing(false);
             }}
             disabled={isSyncing}
-            className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-semibold px-3 py-2.5 md:py-1.5 rounded-lg text-xs flex items-center gap-1.5 active:scale-97 transition-all shadow-sm"
+            className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-semibold px-3 py-2.5 md:py-1.5 rounded-lg text-xs flex items-center gap-1.5 active:scale-97 transition-colors transition-transform shadow-sm"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin' : ''}`} /> 
             Refresh Ledger
@@ -139,7 +146,7 @@ export default function HRPayrollPage() {
           <button
             onClick={exportPayrollCSV}
             disabled={filteredData.length === 0}
-            className="bg-white hover:bg-slate-50 disabled:opacity-50 border border-slate-200 text-slate-700 font-semibold px-3 py-2.5 md:py-1.5 rounded-lg text-xs flex items-center gap-1.5 active:scale-97 transition-all"
+            className="bg-white hover:bg-slate-50 disabled:opacity-50 border border-slate-200 text-slate-700 font-semibold px-3 py-2.5 md:py-1.5 rounded-lg text-xs flex items-center gap-1.5 active:scale-97 transition-colors transition-transform"
           >
             <Download className="h-3.5 w-3.5" /> Export CSV
           </button>
@@ -147,7 +154,7 @@ export default function HRPayrollPage() {
           <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg">
             <button 
               onClick={() => setActiveTab('all')}
-              className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
+              className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-semibold tracking-wide transition-colors transition-shadow ${
                 activeTab === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-950'
               }`}
             >
@@ -155,7 +162,7 @@ export default function HRPayrollPage() {
             </button>
             <button 
               onClick={() => setActiveTab('pending')}
-              className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
+              className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-semibold tracking-wide transition-colors transition-shadow ${
                 activeTab === 'pending' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-950'
               }`}
             >
@@ -163,7 +170,7 @@ export default function HRPayrollPage() {
             </button>
             <button 
               onClick={() => setActiveTab('processed')}
-              className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-semibold tracking-wide transition-all ${
+              className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-semibold tracking-wide transition-colors transition-shadow ${
                 activeTab === 'processed' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-950'
               }`}
             >
@@ -295,9 +302,11 @@ export default function HRPayrollPage() {
                         ) : (
                           <button
                             onClick={() => handleProcess(emp.employeeId)}
-                            className="text-xs font-semibold text-orange-650 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded transition-all active:scale-97"
+                            disabled={processingId !== null}
+                            className="text-xs font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded transition-colors transition-transform active:scale-97 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
                           >
-                            Complete Payout
+                            {processingId === emp.employeeId && <Loader2 className="h-3 w-3 animate-spin" />}
+                            {processingId === emp.employeeId ? 'Processing…' : 'Complete Payout'}
                           </button>
                         )}
                       </td>
@@ -380,9 +389,11 @@ export default function HRPayrollPage() {
               {!emp.processed && (
                 <button
                   onClick={() => handleProcess(emp.employeeId)}
-                  className="w-full text-xs font-semibold text-orange-650 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-2.5 rounded-lg transition-all active:scale-97 border border-orange-200"
+                  disabled={processingId !== null}
+                  className="w-full text-xs font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-2.5 rounded-lg transition-colors transition-transform active:scale-97 border border-orange-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
                 >
-                  Complete Payout
+                  {processingId === emp.employeeId && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {processingId === emp.employeeId ? 'Processing…' : 'Complete Payout'}
                 </button>
               )}
             </div>

@@ -96,7 +96,7 @@ export default function EmployeeSalaryPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card
-          className="cursor-pointer hover:border-orange-300 hover:shadow-sm transition-all"
+          className="cursor-pointer hover:border-orange-300 hover:shadow-sm transition-colors transition-shadow"
           onClick={() => userProfile && setShowBaseSalaryModal(true)}
         >
           <CardContent className="pt-6">
@@ -119,7 +119,7 @@ export default function EmployeeSalaryPage() {
           </CardContent>
         </Card>
         <Card
-          className={pendingIncrement > 0 ? 'cursor-pointer hover:border-orange-300 hover:shadow-sm transition-all' : ''}
+          className={pendingIncrement > 0 ? 'cursor-pointer hover:border-orange-300 hover:shadow-sm transition-colors transition-shadow' : ''}
           onClick={() => { if (pendingIncrement > 0 && userProfile) setShowPendingIncrementModal(true); }}
         >
           <CardContent className="pt-6">
@@ -139,7 +139,7 @@ export default function EmployeeSalaryPage() {
         {/* Desktop table */}
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full min-w-[750px] text-sm text-left border-collapse">
-            <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
+            <thead className="text-xs font-bold text-slate-600 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
               <tr>
                 <th className="px-6 py-4">Month</th>
                 <th className="px-6 py-4 text-right">Base Amount</th>
@@ -172,7 +172,7 @@ export default function EmployeeSalaryPage() {
                   <td className="px-6 py-4 text-center">
                     <button
                       onClick={() => setSelectedSlip(slip)}
-                      className="text-xs font-semibold text-orange-655 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded transition-all active:scale-97 flex items-center gap-1.5 mx-auto"
+                      className="text-xs font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded transition-colors transition-transform active:scale-97 flex items-center gap-1.5 mx-auto"
                     >
                       <FileText className="h-3.5 w-3.5" /> View Payslip
                     </button>
@@ -223,7 +223,7 @@ export default function EmployeeSalaryPage() {
               </div>
               <button
                 onClick={() => setSelectedSlip(slip)}
-                className="w-full text-xs font-semibold text-orange-655 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-2.5 rounded-lg transition-all active:scale-97 flex items-center justify-center gap-1.5"
+                className="w-full text-xs font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-3 py-2.5 rounded-lg transition-colors transition-transform active:scale-97 flex items-center justify-center gap-1.5"
               >
                 <FileText className="h-3.5 w-3.5" /> View Payslip
               </button>
@@ -262,7 +262,7 @@ export default function EmployeeSalaryPage() {
 
             <div className="space-y-2">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5"><TrendingUp className="h-3.5 w-3.5" /> Increment History</p>
-              <div className="border border-slate-150 rounded-lg divide-y divide-slate-100 bg-white">
+              <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white">
                 {incrementHistory.events.length === 0 ? (
                   <p className="text-xs text-slate-400 italic text-center py-6">No anniversary increments have applied yet.</p>
                 ) : (
@@ -289,14 +289,14 @@ export default function EmployeeSalaryPage() {
       <Modal isOpen={showPendingIncrementModal} onClose={() => setShowPendingIncrementModal(false)} title="Pending Anniversary Increment">
         {userProfile && (
           <div className="space-y-5">
-            <div className="text-center bg-amber-50 border border-amber-150 rounded-xl p-5">
+            <div className="text-center bg-amber-50 border border-amber-200 rounded-xl p-5">
               <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">You will receive</p>
               <p className="text-3xl font-bold text-amber-700 mt-1">+{formatMoney(pendingIncrement, userProfile.region)}</p>
               <p className="text-[10px] text-amber-600 font-semibold mt-1">
                 Covering {missedYears} anniversary year{missedYears !== 1 ? 's' : ''} not yet applied to your base salary
               </p>
             </div>
-            <div className="border border-slate-150 rounded-lg divide-y divide-slate-100 bg-white">
+            <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white">
               {incrementHistory.events.filter(ev => !ev.applied).map(ev => (
                 <div key={ev.year} className="flex justify-between items-center px-4 py-2.5 text-xs">
                   <span className="text-slate-600 font-semibold">{ev.year} Anniversary Increment</span>
@@ -340,14 +340,14 @@ export default function EmployeeSalaryPage() {
               </div>
               <div>
                 <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Confidentiality Code</p>
-                <p className="text-slate-850 font-mono text-[10px] mt-0.5">DC-{userProfile?.id.toUpperCase()}-PAY</p>
+                <p className="text-slate-800 font-mono text-[10px] mt-0.5">DC-{userProfile?.id.toUpperCase()}-PAY</p>
               </div>
             </div>
 
             {/* Calculations Breakdown */}
             <div className="space-y-2">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Salary Breakdown</p>
-              <div className="space-y-2 divide-y divide-slate-100 text-xs border border-slate-150 rounded-lg p-4 bg-white">
+              <div className="space-y-2 divide-y divide-slate-100 text-xs border border-slate-200 rounded-lg p-4 bg-white">
                 <div className="flex justify-between items-center py-1">
                   <span className="text-slate-500 font-semibold">Base salary</span>
                   <span className="text-slate-900 font-semibold">{formatMoney(selectedSlip.base, userProfile?.region)}</span>
@@ -382,7 +382,7 @@ export default function EmployeeSalaryPage() {
               </div>
               <button 
                 onClick={() => window.print()}
-                className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-xs active:scale-97 transition-all flex items-center gap-1.5"
+                className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-xs active:scale-97 transition-colors transition-transform flex items-center gap-1.5"
               >
                 <Printer className="h-4 w-4" /> Print Receipt
               </button>

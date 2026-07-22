@@ -20,7 +20,7 @@ export default function HRTasksPage() {
         </div>
         <button
           onClick={() => setIsTaskOpen(true)}
-          className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+          className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform transition-shadow flex items-center gap-1.5 shadow-sm"
         >
           <ClipboardList className="h-4 w-4" /> Assign New Task
         </button>

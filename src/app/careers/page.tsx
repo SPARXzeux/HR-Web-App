@@ -52,7 +52,7 @@ export default function PublicCareersPage() {
               />
               <button 
                 type="submit" 
-                className="bg-orange-600 hover:bg-orange-700 text-white rounded-lg px-3 py-1.5 text-[11px] font-bold active:scale-97 transition-all shrink-0"
+                className="bg-orange-600 hover:bg-orange-700 text-white rounded-lg px-3 py-1.5 text-[11px] font-bold active:scale-97 transition-colors transition-transform shrink-0"
               >
                 Subscribe
               </button>

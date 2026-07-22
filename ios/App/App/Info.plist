@@ -47,10 +47,13 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-	</dict>
+	<!-- NSAllowsArbitraryLoads (blanket ATS exception) removed — it disabled
+	     HTTPS certificate validation for every domain the app talks to, not
+	     just PocketBase, and Apple App Review commonly flags/rejects this
+	     for apps handling personal data. It's no longer needed once
+	     PocketBase is served over a real HTTPS domain (see
+	     src/lib/pocketbase.ts) instead of a bare HTTP IP — ATS's defaults
+	     allow any HTTPS connection with a valid certificate with no
+	     exception required. -->
 </dict>
 </plist>

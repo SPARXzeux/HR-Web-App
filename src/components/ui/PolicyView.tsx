@@ -2,14 +2,14 @@
 
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
-import { BookOpen, Calendar, HelpCircle, AlertCircle, Award } from 'lucide-react';
+import { BookOpen, Calendar, HelpCircle, AlertCircle, Award, Info } from 'lucide-react';
 
 export function PolicyView() {
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">DelCargo Company Policy Handbook</h1>
-        <p className="text-slate-555 text-sm">Official company time-off, accrual rules, settlements, and benefits guidelines.</p>
+        <p className="text-slate-500 text-sm">Official company time-off, accrual rules, settlements, and benefits guidelines.</p>
       </div>
 
       {/* Accrual Rates Table */}
@@ -25,13 +25,13 @@ export function PolicyView() {
           <div className="hidden md:block overflow-x-auto border border-slate-200 rounded-lg">
             <table className="w-full min-w-[450px] text-xs text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-650 font-bold uppercase tracking-wider">
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider">
                   <th className="px-4 py-3">Years of Service</th>
                   <th className="px-4 py-3 text-center">Annual Days Equivalent</th>
                   <th className="px-4 py-3 text-right">Monthly Accrual Rate</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-150 text-slate-700 font-medium">
+              <tbody className="divide-y divide-slate-200 text-slate-700 font-medium">
                 <tr><td className="px-4 py-2.5">Year 1</td><td className="px-4 py-2.5 text-center">10 days</td><td className="px-4 py-2.5 text-right font-mono">0.83 / mo</td></tr>
                 <tr><td className="px-4 py-2.5">Year 2</td><td className="px-4 py-2.5 text-center">12 days</td><td className="px-4 py-2.5 text-right font-mono">1.00 / mo</td></tr>
                 <tr><td className="px-4 py-2.5">Year 3</td><td className="px-4 py-2.5 text-center">14 days</td><td className="px-4 py-2.5 text-right font-mono">1.17 / mo</td></tr>
@@ -81,12 +81,12 @@ export function PolicyView() {
         </div>
         <CardContent className="p-6 space-y-2.5 text-xs leading-relaxed text-slate-600">
           <p>
-            DelCargo values family integration and supports new parents. Under our updated benefits structure, employees meeting the following conditions can apply for fully paid **Parental Leave**:
+            DelCargo values family integration and supports new parents. Under our updated benefits structure, employees meeting the following conditions can apply for fully paid <strong>Parental Leave</strong>:
           </p>
           <ul className="list-disc pl-5 space-y-1 text-slate-700 font-medium">
             <li>Available exclusively to female employees.</li>
             <li>Requires at least 1 year (12 months) of continuous tenure with DelCargo.</li>
-            <li>Parental leave requests are granted for exactly **30 days** of consecutive calendar rest.</li>
+            <li>Parental leave requests are granted for exactly <strong>30 days</strong> of consecutive calendar rest.</li>
           </ul>
         </CardContent>
       </Card>
@@ -97,25 +97,26 @@ export function PolicyView() {
           <Calendar className="h-5 w-5 text-orange-600" />
           <h3 className="font-bold text-slate-900 text-sm">Settlement & Notices</h3>
         </div>
-        <CardContent className="p-6 space-y-4 text-xs text-slate-650 leading-relaxed">
+        <CardContent className="p-6 space-y-4 text-xs text-slate-600 leading-relaxed">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">
               <h4 className="font-bold text-slate-900 flex items-center gap-1.5">
                 <AlertCircle className="h-4 w-4 text-orange-600" />
                 PTO Application Notice
               </h4>
-              <p>Employees must provide at least **2 weeks (14 days) advance notice** when applying for general PTO. Emergency Urgent requests bypass this timeline but require direct HR review.</p>
+              <p>Employees must provide at least <strong>2 weeks (14 days) advance notice</strong> when applying for general PTO. Emergency Urgent requests bypass this timeline but require direct HR review.</p>
             </div>
             <div className="space-y-1">
               <h4 className="font-bold text-slate-900 flex items-center gap-1.5">
                 <HelpCircle className="h-4 w-4 text-orange-600" />
                 January 31st Settlement
               </h4>
-              <p>On January 31st of every calendar year, unused accrued days can either be rolled over (maximum of **5 days**) or cashed out. The payout rate is computed using the daily rate formula: `Daily Rate = Base Monthly salary ÷ 22`.</p>
+              <p>On January 31st of every calendar year, unused accrued days can either be rolled over (maximum of <strong>5 days</strong>) or cashed out. The payout rate is computed using the daily rate formula: <code className="bg-slate-100 px-1 rounded">Daily Rate = Base Monthly salary ÷ 22</code>.</p>
             </div>
           </div>
-          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-600 font-medium mt-2">
-            ℹ️ <strong>Contract End Payout:</strong> In the event of contract termination or voluntary exit, the remaining accrued PTO balance is paid out in full on the final settlement invoice.
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-600 font-medium mt-2 flex items-start gap-2">
+            <Info className="h-4 w-4 text-slate-400 shrink-0 mt-0.5" />
+            <span><strong>Contract End Payout:</strong> In the event of contract termination or voluntary exit, the remaining accrued PTO balance is paid out in full on the final settlement invoice.</span>
           </div>
         </CardContent>
       </Card>

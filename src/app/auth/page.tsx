@@ -155,7 +155,7 @@ export default function AuthPage() {
   const handleForceLoginEverywhere = () => attemptLogin(true);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4 font-sans animate-in fade-in duration-200">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4 font-sans fade-enter">
       <div className="w-full max-w-5xl mb-4">
         <Link
           href="/"
@@ -164,7 +164,7 @@ export default function AuthPage() {
           <ArrowLeft className="h-3.5 w-3.5" /> Back to Home
         </Link>
       </div>
-      <Card className="w-full max-w-5xl shadow-xl bg-white border border-slate-200 rounded-3xl overflow-hidden grid grid-cols-1 md:grid-cols-2 p-0">
+      <Card className="w-full max-w-5xl bg-white border border-slate-200 rounded-xl overflow-hidden grid grid-cols-1 md:grid-cols-2 p-0">
         {/* Left Side: Premium Image Cover */}
         <div className="relative hidden md:flex flex-col justify-end p-8 bg-slate-900 overflow-hidden">
           <img 
@@ -209,7 +209,7 @@ export default function AuthPage() {
                     type="button"
                     onClick={handleForceLoginEverywhere}
                     disabled={loading}
-                    className="mt-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-60 px-3 py-1.5 rounded-lg transition-all"
+                    className="mt-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-60 px-3 py-1.5 rounded-lg transition-colors"
                   >
                     {loading ? 'Logging out everywhere…' : 'Log out from everywhere and sign in here'}
                   </button>
@@ -219,25 +219,25 @@ export default function AuthPage() {
 
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Email Address</label>
+                <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Email Address</label>
                 <input 
                   type="email" 
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="w-full px-3.5 py-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-100 rounded-xl outline-none text-xs font-semibold transition-all text-slate-900"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-100 rounded-xl outline-none text-xs font-semibold transition-colors text-slate-900"
                   placeholder="you@delcargo.us"
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Password</label>
+                <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Password</label>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    className="w-full px-3.5 py-2.5 pr-10 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-100 rounded-xl outline-none text-xs font-semibold transition-all text-slate-900"
+                    className="w-full px-3.5 py-2.5 pr-10 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-100 rounded-xl outline-none text-xs font-semibold transition-colors text-slate-900"
                     placeholder="••••••••"
                   />
                   <button
@@ -272,7 +272,7 @@ export default function AuthPage() {
               <button
                 type="submit" 
                 disabled={loading}
-                className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-xl transition-all shadow-md shadow-orange-600/10 mt-4 disabled:opacity-70 flex justify-center items-center active:scale-97 text-xs uppercase tracking-wider"
+                className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-xl transition-colors transition-transform shadow-md shadow-orange-600/10 mt-4 disabled:opacity-70 flex justify-center items-center active:scale-97 text-xs uppercase tracking-wider"
               >
                 {loading ? (
                   <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -301,7 +301,7 @@ export default function AuthPage() {
           <div className="flex justify-end pt-2 border-t border-slate-200">
             <button
               onClick={() => setIsForgotOpen(false)}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-colors transition-transform active:scale-97"
             >
               Close
             </button>
@@ -323,7 +323,7 @@ export default function AuthPage() {
                 setShiftStoppedNotice(false);
                 if (pendingDashRoute) router.push(`/${pendingDashRoute}`);
               }}
-              className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition-all active:scale-97"
+              className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition-colors transition-transform active:scale-97"
             >
               Continue to Dashboard
             </button>

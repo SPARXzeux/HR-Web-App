@@ -307,6 +307,19 @@ export interface Ticket {
   status: 'open' | 'closed'; createdAt: string; replies: TicketReply[];
 }
 
+// "Live" presence for a support ticket — lets the employee see when HR
+// currently has their ticket open, same idea as TrackerHeartbeat above but
+// per-ticket instead of per-employee. HR's TicketsView heartbeats this
+// (see touchTicketPresence) while a ticket is selected; the employee's
+// TicketsView polls getAllTicketPresences and shows a "Live" badge for any
+// ticket whose presence hasn't gone stale. KV-backed like everything else
+// here — no real websocket/SSE presence channel in this app.
+export interface TicketPresence {
+  ticketId: string; email: string; role: string; lastSeenAt: string;
+}
+export const TICKET_PRESENCE_STALE_MS = 20 * 1000;
+const ticketPresenceKeyFor = (ticketId: string) => `hr_ticket_presence_${ticketId}`;
+
 // Real hr_teams row — adopted structure (lead + members + warehouse).
 export interface Team {
   id: string; name: string; leadEmail?: string; members: string[]; warehouseId?: string;
@@ -351,6 +364,31 @@ export async function saveProfileExtras(profileId: string, extras: Partial<Profi
   if (!profileId) return;
   const existing = (await pbGetKV(profileExtraKey(profileId))) || {};
   await pbSetKV(profileExtraKey(profileId), { ...existing, ...extras });
+}
+
+// Documents (CV/passport/identity scans) live in their OWN KV prefix,
+// separate from the lightweight hr_profile_extra_ overlay above. These are
+// base64-encoded files up to several MB each — if they lived in
+// hr_profile_extra_ like the rest of the overlay, useProfiles() (which
+// fetches every hr_profile_extra_ row up front, on every dashboard page
+// load, including the login screen) would download every employee's CV,
+// passport, and ID scans on every page load, whether or not anything on
+// that page shows a document. Keeping them in a separate prefix means
+// useProfiles() stays light, and document bytes only get fetched by
+// useProfileDocuments() when a specific employee's documents are actually
+// being viewed.
+const profileDocsKey = (profileId: string) => `hr_profile_docs_${profileId}`;
+const PROFILE_DOC_KEYS: (keyof Profile)[] = ['cvFileName', 'cvFileData', 'identityDocs', 'passportFileName', 'passportFileData'];
+
+export async function getProfileDocuments(profileId: string): Promise<Partial<Profile>> {
+  if (!profileId) return {};
+  return ((await pbGetKV(profileDocsKey(profileId))) as Partial<Profile>) || {};
+}
+
+export async function saveProfileDocuments(profileId: string, docs: Partial<Profile>): Promise<void> {
+  if (!profileId) return;
+  const existing = (await pbGetKV(profileDocsKey(profileId))) || {};
+  await pbSetKV(profileDocsKey(profileId), { ...existing, ...docs });
 }
 
 function toProfile(p: any, extras: Partial<Profile> = {}): Profile {
@@ -409,9 +447,12 @@ function fromProfileFields(p: Partial<Profile>): any {
   return fields;
 }
 
+// NOTE: document fields (cvFileName/cvFileData/identityDocs/passportFileName/
+// passportFileData) are deliberately NOT in this list — they route through
+// PROFILE_DOC_KEYS / saveProfileDocuments instead. See the comment above
+// profileDocsKey.
 const OVERLAY_KEYS: (keyof Profile)[] = [
   'offboarded', 'offboardDate', 'offboardingStatus', 'lastIncrementProcessedYear',
-  'cvFileName', 'cvFileData', 'identityDocs', 'passportFileName', 'passportFileData',
   'accountCreationDate', 'alias', 'approvalStatus', 'approvalReviewedBy',
   'approvalReviewedAt', 'approvalRejectionReason', 'personalPhone', 'companyPhone',
 ];
@@ -509,6 +550,18 @@ export function useProfiles() {
       extraRows.forEach(row => { extrasById[row.key.replace('hr_profile_extra_', '')] = row.value || {}; });
       return records.map((r: any) => toProfile(r, extrasById[r.id] || {}));
     },
+  });
+}
+// Fetches ONE employee's CV/passport/identity-document scans on demand —
+// NOT part of useProfiles(). Only call this where those files are actually
+// about to be shown (a documents review modal, the employee's own profile
+// page), keyed on that one profileId, so nobody pays for every employee's
+// documents just to load a dashboard or list page.
+export function useProfileDocuments(profileId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['hr_profile_docs', profileId],
+    queryFn: () => getProfileDocuments(profileId as string),
+    enabled: !!profileId,
   });
 }
 export function useLeaves() {
@@ -936,13 +989,16 @@ export const hrActions = {
 
   updateProfileDetails: async (profileId: string, updates: Partial<Profile>): Promise<void> => {
     const overlay: Partial<Profile> = {};
+    const docs: Partial<Profile> = {};
     const real: Partial<Profile> = {};
     (Object.keys(updates) as (keyof Profile)[]).forEach(k => {
-      if (OVERLAY_KEYS.includes(k)) (overlay as any)[k] = (updates as any)[k];
+      if (PROFILE_DOC_KEYS.includes(k)) (docs as any)[k] = (updates as any)[k];
+      else if (OVERLAY_KEYS.includes(k)) (overlay as any)[k] = (updates as any)[k];
       else (real as any)[k] = (updates as any)[k];
     });
     if (Object.keys(real).length > 0) await pbUpdate('hr_profiles', profileId, fromProfileFields(real));
     if (Object.keys(overlay).length > 0) await saveProfileExtras(profileId, overlay);
+    if (Object.keys(docs).length > 0) await saveProfileDocuments(profileId, docs);
   },
 
   // Onboarding approval gate — see approvalStatus on Profile and the gate
@@ -1072,13 +1128,13 @@ export const hrActions = {
       }
     }
 
-    // Profile-extras overlay — this is where CV/passport/identity document
-    // data and the offboarded/offboardDate/offboardingStatus flags actually
-    // live (hr_profiles itself has no document/offboarding columns). This
-    // runs LAST, deliberately: if anything above throws, the overlay (and
-    // therefore the "Offboarded" status) must stay intact so a failed,
-    // partial delete doesn't silently revert the employee to "active".
-    await pbDeleteKVByKeys([profileExtraKey(id)]);
+    // Profile-extras overlay (offboarded/offboardDate/offboardingStatus etc.)
+    // and the separate profile-documents overlay (CV/passport/identity
+    // scans — see profileDocsKey). This runs LAST, deliberately: if
+    // anything above throws, the overlay (and therefore the "Offboarded"
+    // status) must stay intact so a failed, partial delete doesn't silently
+    // revert the employee to "active".
+    await pbDeleteKVByKeys([profileExtraKey(id), profileDocsKey(id)]);
   },
 
   // Bundles everything the app knows about one employee into a downloadable
@@ -1093,16 +1149,20 @@ export const hrActions = {
     const zip = new JSZip();
     const email = profile.email;
 
-    const { cvFileData, passportFileData, identityDocs, password, ...profileMeta } = profile as any;
+    const { password, ...profileMeta } = profile as any;
     zip.file('profile.json', JSON.stringify(profileMeta, null, 2));
+
+    // Documents no longer travel with the Profile object (see
+    // profileDocsKey above) — fetch this one employee's on demand here.
+    const { cvFileName, cvFileData, passportFileName, passportFileData, identityDocs } = await getProfileDocuments(profile.id);
 
     const addDataUrlFile = (filename: string | undefined, dataUrl: string | undefined) => {
       if (!dataUrl || !filename) return;
       const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
       zip.file(`documents/${filename}`, base64, { base64: true });
     };
-    addDataUrlFile(profile.cvFileName, cvFileData);
-    addDataUrlFile(profile.passportFileName, passportFileData);
+    addDataUrlFile(cvFileName, cvFileData);
+    addDataUrlFile(passportFileName, passportFileData);
     (identityDocs || []).forEach((doc: { name?: string; data?: string }, i: number) => {
       if (!doc?.data) return;
       const base64 = doc.data.includes(',') ? doc.data.split(',')[1] : doc.data;
@@ -1368,6 +1428,16 @@ export const hrActions = {
     }
     if (mapChanged) await pbSetKV('hr_ticket_closed_at_v1', closedAtMap);
   },
+
+  // ── Ticket "live" presence (see TicketPresence above) ───────────────────
+  touchTicketPresence: (ticketId: string, email: string, role: string): Promise<void> =>
+    pbSetKV(ticketPresenceKeyFor(ticketId), { ticketId, email, role, lastSeenAt: new Date().toISOString() } as TicketPresence),
+  clearTicketPresence: (ticketId: string): Promise<void> =>
+    pbDeleteKVByKeys([ticketPresenceKeyFor(ticketId)]),
+  getAllTicketPresences: async (): Promise<TicketPresence[]> =>
+    (await pbGetKVByPrefix('hr_ticket_presence_')).map(row => row.value as TicketPresence),
+  isTicketPresenceLive: (p: TicketPresence | null | undefined): boolean =>
+    !!p?.lastSeenAt && (Date.now() - new Date(p.lastSeenAt).getTime()) < TICKET_PRESENCE_STALE_MS,
 
   // ── Teams (real hr_teams: name + leadEmail + members + warehouseId) ────
   addTeam: (name: string, warehouseId?: string) => pbCreate('hr_teams', { name, lead_email: '', members: [], warehouse_id: warehouseId || '' }),

@@ -5,14 +5,21 @@ const isCapacitor = process.env.CAPACITOR_BUILD?.trim() === 'true';
 const nextConfig: NextConfig = {
   output: isCapacitor ? 'export' : undefined,
   env: {
-    NEXT_PUBLIC_PB_URL: isCapacitor ? 'http://157.230.7.89' : '',
+    // PocketBase now sits behind Caddy at pb.delcargo.us with a proper
+    // HTTPS certificate, instead of the old bare-IP plain-HTTP address —
+    // see src/lib/pocketbase.ts for why that mattered for the native app.
+    // The web rewrite below is a server-to-server hop (Vercel → PocketBase)
+    // so it was never a browser security issue, but pointing it at the
+    // domain too means it keeps working even if the droplet's IP ever
+    // changes — no redeploy needed, just a DNS update.
+    NEXT_PUBLIC_PB_URL: isCapacitor ? 'https://pb.delcargo.us' : '',
   },
   async rewrites() {
     if (isCapacitor) return [];
     return [
       {
         source: '/api/pb/:path*',
-        destination: 'http://157.230.7.89/:path*',
+        destination: 'https://pb.delcargo.us/:path*',
       },
     ];
   },

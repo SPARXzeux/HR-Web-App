@@ -4,8 +4,8 @@ import React, { useState } from 'react';
 import { TaskBoard } from '@/components/ui/TaskBoard';
 import { TaskModal } from '@/components/ui/TaskModal';
 import { Modal } from '@/components/ui/Modal';
-import { ClipboardList, Star, CheckCircle2, UserCog } from 'lucide-react';
-import { useTasks, useProfiles, useTeams, hrActions } from '@/lib/hrData';
+import { ClipboardList, Star, CheckCircle2, UserCog, Loader2 } from 'lucide-react';
+import { useTasks, useProfiles, useTeams, hrActions, displayName } from '@/lib/hrData';
 
 export default function AdminTasksPage() {
   const { data: tasks = [], refetch: refetchTasks } = useTasks();
@@ -18,14 +18,20 @@ export default function AdminTasksPage() {
   const [leadEmpId, setLeadEmpId] = useState('');
   const [leadTeams, setLeadTeams] = useState<string[]>([]);
   const [leadSuccess, setLeadSuccess] = useState('');
+  const [isSavingLead, setIsSavingLead] = useState(false);
 
   const handleSaveLead = async () => {
-    if (!leadEmpId) return;
-    await hrActions.setTeamLead(leadEmpId, leadTeams);
-    refetchProfiles();
-    const emp = employees.find(e => e.id === leadEmpId);
-    setLeadSuccess(`${emp?.fullName} — team lead updated!`);
-    setTimeout(() => { setIsLeadOpen(false); setLeadSuccess(''); setLeadEmpId(''); setLeadTeams([]); }, 1300);
+    if (!leadEmpId || isSavingLead) return;
+    setIsSavingLead(true);
+    try {
+      await hrActions.setTeamLead(leadEmpId, leadTeams);
+      refetchProfiles();
+      const emp = employees.find(e => e.id === leadEmpId);
+      setLeadSuccess(`${emp ? displayName(emp, 'admin') : ''} — team lead updated!`);
+      setTimeout(() => { setIsLeadOpen(false); setLeadSuccess(''); setLeadEmpId(''); setLeadTeams([]); }, 1300);
+    } finally {
+      setIsSavingLead(false);
+    }
   };
 
   return (
@@ -38,13 +44,13 @@ export default function AdminTasksPage() {
         <div className="flex gap-2 flex-wrap">
           <button
             onClick={() => setIsLeadOpen(true)}
-            className="bg-white hover:bg-amber-50 border border-amber-200 text-amber-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5"
+            className="bg-white hover:bg-amber-50 border border-amber-200 text-amber-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform flex items-center gap-1.5"
           >
             <Star className="h-4 w-4" /> Manage Team Leads
           </button>
           <button
             onClick={() => setIsTaskOpen(true)}
-            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform flex items-center gap-1.5 shadow-sm"
           >
             <ClipboardList className="h-4 w-4" /> Assign New Task
           </button>
@@ -76,7 +82,7 @@ export default function AdminTasksPage() {
           )}
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Select Employee</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Select Employee</label>
             <select
               value={leadEmpId}
               onChange={e => {
@@ -89,7 +95,7 @@ export default function AdminTasksPage() {
               <option value="">— Select employee —</option>
               {employees.filter(e => e.role === 'employee').map(emp => (
                 <option key={emp.id} value={emp.id}>
-                  {emp.fullName} {emp.isTeamLead ? '⭐ (Lead)' : ''} — {emp.teams.join(', ') || 'No team'}
+                  {displayName(emp, 'admin')} {emp.isTeamLead ? '(Lead)' : ''} — {emp.teams.join(', ') || 'No team'}
                 </option>
               ))}
             </select>
@@ -97,7 +103,7 @@ export default function AdminTasksPage() {
 
           {leadEmpId && (
             <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Lead of Teams</label>
+              <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Lead of Teams</label>
               {teams.map(t => (
                 <label key={t.id} className="flex items-center gap-2.5 cursor-pointer group">
                   <input
@@ -117,7 +123,7 @@ export default function AdminTasksPage() {
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Current Team Leads</p>
             {employees.filter(e => e.isTeamLead && (e.leadTeams?.length ?? 0) > 0).map(emp => (
               <div key={emp.id} className="flex items-center justify-between text-xs bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                <span className="font-semibold text-slate-800">⭐ {emp.fullName}</span>
+                <span className="font-semibold text-slate-800 flex items-center gap-1"><Star className="h-3 w-3 text-amber-500" /> {displayName(emp, 'admin')}</span>
                 <span className="text-amber-700 font-semibold">{emp.leadTeams?.join(', ')}</span>
               </div>
             ))}
@@ -127,8 +133,11 @@ export default function AdminTasksPage() {
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-            <button onClick={() => setIsLeadOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
-            <button onClick={handleSaveLead} disabled={!leadEmpId} className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Save</button>
+            <button onClick={() => setIsLeadOpen(false)} disabled={isSavingLead} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
+            <button onClick={handleSaveLead} disabled={!leadEmpId || isSavingLead} className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform shadow-sm disabled:cursor-not-allowed flex items-center justify-center gap-1.5">
+              {isSavingLead && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {isSavingLead ? 'Saving…' : 'Save'}
+            </button>
           </div>
         </div>
       </Modal>

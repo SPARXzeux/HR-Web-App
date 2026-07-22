@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
@@ -15,7 +16,9 @@ import {
   useKVByPrefix,
   useTimesheets,
   hrActions,
+  displayName,
 } from '@/lib/hrData';
+import { pushModal, popModal } from '@/lib/modalStack';
 import { encodeSetupCode, getPocketBaseConfig, TRACKER_DOWNLOAD_WINDOWS_URL, TRACKER_DOWNLOAD_MAC_URL, POCKETBASE_URL } from '@/lib/trackerSetup';
 import { Monitor, Settings, Image as ImageIcon, Download, Copy, RefreshCw, ShieldAlert, Wifi, WifiOff, MousePointerClick, ZoomIn, ZoomOut, X, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
 
@@ -75,6 +78,25 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
   // Screenshot lightbox — full-size view with zoom, opened from a thumbnail.
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
+
+  // This lightbox is a hand-rolled fixed overlay (not the shared Modal.tsx,
+  // not a portal), so it needs to register with the same modal-stack tracker
+  // used there — otherwise the mobile bottom pill nav has no way of knowing
+  // to hide itself while it's open. See lib/modalStack.ts for why.
+  const lightboxOpen = lightboxIndex !== null;
+  useEffect(() => {
+    if (lightboxOpen) {
+      pushModal();
+      return () => popModal();
+    }
+  }, [lightboxOpen]);
+
+  // SSR/hydration-safe createPortal pattern (matches Modal.tsx) — this
+  // lightbox is portaled straight to document.body (see below) instead of
+  // rendered inline, so it can't get trapped inside any ancestor that
+  // becomes an accidental containing block.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Dedicated Mouse Activity modal — same Daily/Weekly/Monthly filter as the
   // screenshot viewer, but a full detail view of inactivity data on its own
@@ -422,7 +444,7 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
             <button
               key={r}
               onClick={() => setRegionFilter(r)}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${regionFilter === r ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors transition-shadow ${regionFilter === r ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
             >
               {r}
             </button>
@@ -477,13 +499,13 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4">
-                      <div className="font-semibold text-slate-900">{emp.fullName}</div>
-                      <div className="text-xs text-slate-450">{emp.email}</div>
+                      <div className="font-semibold text-slate-900">{displayName(emp, role)}</div>
+                      <div className="text-xs text-slate-400">{emp.email}</div>
                     </td>
                     <td className="px-6 py-4 text-slate-600 font-semibold">{emp.region || 'Pakistan'}</td>
                     <td className="px-6 py-4 text-center">
                       {isLive ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-150 px-2 py-1 rounded-full" title={hb?.deviceLabel || ''}>
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full" title={hb?.deviceLabel || ''}>
                           <Wifi className="h-3 w-3" /> Connected
                         </span>
                       ) : (
@@ -539,20 +561,20 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
                         {canManage && (
                         <button
                           onClick={() => handleOpenSetup(emp)}
-                          className="text-[10px] font-bold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1.5"
+                          className="text-[10px] font-bold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2 py-1.5 rounded-lg active:scale-97 transition-colors transition-transform flex items-center gap-1.5"
                         >
                           <Settings className="h-3.5 w-3.5" /> Setup Agent
                         </button>
                         )}
                         <button
                           onClick={() => handleOpenViewer(emp)}
-                          className="text-[10px] font-bold text-slate-650 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1.5"
+                          className="text-[10px] font-bold text-slate-600 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg active:scale-97 transition-colors transition-transform flex items-center gap-1.5"
                         >
                           <ImageIcon className="h-3.5 w-3.5" /> Screenshots
                         </button>
                         <button
                           onClick={() => handleOpenMouseView(emp)}
-                          className="text-[10px] font-bold text-slate-650 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1.5"
+                          className="text-[10px] font-bold text-slate-600 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 rounded-lg active:scale-97 transition-colors transition-transform flex items-center gap-1.5"
                         >
                           <MousePointerClick className="h-3.5 w-3.5" /> Mouse Activity
                         </button>
@@ -582,11 +604,11 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
               <div key={emp.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
                 <div className="flex items-start justify-between">
                   <div>
-                    <p className="text-sm font-bold text-slate-900">{emp.fullName}</p>
+                    <p className="text-sm font-bold text-slate-900">{displayName(emp, role)}</p>
                     <p className="text-[10px] text-slate-500">{emp.email}</p>
                   </div>
                   {isLive ? (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-150 px-2 py-1 rounded-full shrink-0" title={hb?.deviceLabel || ''}>
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full shrink-0" title={hb?.deviceLabel || ''}>
                       <Wifi className="h-3 w-3" /> Connected
                     </span>
                   ) : (
@@ -595,7 +617,7 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
                     </span>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-y-3 gap-x-2 mt-2">
                   <div>
                     <p className="text-[10px] text-slate-400 font-semibold uppercase">Region</p>
                     <p className="text-xs font-semibold text-slate-700">{emp.region || 'Pakistan'}</p>
@@ -606,7 +628,7 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
                       <div className="flex items-center gap-2 mt-0.5">
                         <button
                           onClick={() => handleToggle(emp.email, !settings.enabled)}
-                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                          className={`relative inline-flex h-5 w-9 shrink-0 flex-none items-center rounded-full transition-colors ${settings.enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
                         >
                           <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
                         </button>
@@ -653,7 +675,7 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
                 <div className="grid grid-cols-1 gap-2 pt-2 border-t border-slate-100">
                   <button
                     onClick={() => handleOpenViewer(emp)}
-                    className="w-full text-[10px] font-bold text-slate-650 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 py-2.5 rounded-lg active:scale-97 transition-all flex items-center justify-center gap-1.5"
+                    className="w-full text-[10px] font-bold text-slate-600 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 py-2.5 rounded-lg active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1.5"
                   >
                     <ImageIcon className="h-3.5 w-3.5" /> View Screenshots
                   </button>
@@ -661,14 +683,14 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
                     {canManage && (
                       <button
                         onClick={() => handleOpenSetup(emp)}
-                        className="flex-1 text-[10px] font-bold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 py-2.5 rounded-lg active:scale-97 transition-all flex items-center justify-center gap-1.5"
+                        className="flex-1 text-[10px] font-bold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 py-2.5 rounded-lg active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1.5"
                       >
                         <Settings className="h-3.5 w-3.5" /> Setup Agent
                       </button>
                     )}
                     <button
                       onClick={() => handleOpenMouseView(emp)}
-                      className="flex-1 text-[10px] font-bold text-slate-650 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 py-2.5 rounded-lg active:scale-97 transition-all flex items-center justify-center gap-1.5"
+                      className="flex-1 text-[10px] font-bold text-slate-600 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 py-2.5 rounded-lg active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1.5"
                     >
                       <MousePointerClick className="h-3.5 w-3.5" /> Mouse Activity
                     </button>
@@ -684,7 +706,7 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
       </Card>
 
       {/* Setup Agent Modal */}
-      <Modal isOpen={!!setupEmp} onClose={() => setSetupEmp(null)} title={setupEmp ? `Setup Agent — ${setupEmp.fullName}` : 'Setup Agent'}>
+      <Modal isOpen={!!setupEmp} onClose={() => setSetupEmp(null)} title={setupEmp ? `Setup Agent — ${displayName(setupEmp, role)}` : 'Setup Agent'}>
         {setupEmp && (() => {
           const settings = settingsFor(setupEmp.email);
           return (
@@ -696,13 +718,13 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
                 <div className="flex flex-wrap gap-2">
                   <a
                     href={TRACKER_DOWNLOAD_WINDOWS_URL}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 px-3 py-2 rounded-lg active:scale-97 transition-all"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 px-3 py-2 rounded-lg active:scale-97 transition-colors transition-transform"
                   >
                     <Download className="h-3.5 w-3.5" /> Download for Windows
                   </a>
                   <a
                     href={TRACKER_DOWNLOAD_MAC_URL}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 px-3 py-2 rounded-lg active:scale-97 transition-all"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 px-3 py-2 rounded-lg active:scale-97 transition-colors transition-transform"
                   >
                     <Download className="h-3.5 w-3.5" /> Download for Mac
                   </a>
@@ -719,13 +741,13 @@ export function TrackingView({ role, viewerEmail }: TrackingViewProps) {
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button
                     onClick={() => copySetupCode(settings)}
-                    className="text-xs font-semibold text-white bg-slate-800 hover:bg-slate-900 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-all"
+                    className="text-xs font-semibold text-white bg-slate-800 hover:bg-slate-900 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-colors transition-transform"
                   >
                     <Copy className="h-3.5 w-3.5" /> {copied ? 'Copied!' : 'Copy Setup Code'}
                   </button>
                   <button
                     onClick={() => handleRegenerateToken(setupEmp.email)}
-                    className="text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-all"
+                    className="text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-colors transition-transform"
                   >
                     <RefreshCw className="h-3.5 w-3.5" /> Regenerate Token
                   </button>
@@ -742,14 +764,14 @@ AGENT_TOKEN=${settings.agentToken}`}
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => copyConfig(settings)}
-                      className="text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-all"
+                      className="text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-colors transition-transform"
                     >
                       <Copy className="h-3.5 w-3.5" /> Copy Config
                     </button>
                     <a
                       href={AGENT_SCRIPT_PATH}
                       download
-                      className="text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-all"
+                      className="text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-colors transition-transform"
                     >
                       <Download className="h-3.5 w-3.5" /> Download .py Script
                     </a>
@@ -769,7 +791,7 @@ AGENT_TOKEN=${settings.agentToken}`}
       </Modal>
 
       {/* Screenshot Viewer Modal */}
-      <Modal isOpen={!!viewerEmp} onClose={() => setViewerEmp(null)} title={viewerEmp ? `Screenshots — ${viewerEmp.fullName}` : 'Screenshots'}>
+      <Modal isOpen={!!viewerEmp} onClose={() => setViewerEmp(null)} title={viewerEmp ? `Screenshots — ${displayName(viewerEmp, role)}` : 'Screenshots'}>
         {viewerEmp && (
           <div className="space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-2">
@@ -777,19 +799,19 @@ AGENT_TOKEN=${settings.agentToken}`}
                 <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
                   <button
                     onClick={() => handleRangeChange('day')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewerRange === 'day' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors transition-shadow ${viewerRange === 'day' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
                   >
                     Daily
                   </button>
                   <button
                     onClick={() => handleRangeChange('week')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewerRange === 'week' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors transition-shadow ${viewerRange === 'week' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
                   >
                     Weekly
                   </button>
                   <button
                     onClick={() => handleRangeChange('month')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewerRange === 'month' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors transition-shadow ${viewerRange === 'month' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
                   >
                     Monthly
                   </button>
@@ -807,7 +829,7 @@ AGENT_TOKEN=${settings.agentToken}`}
               <button
                 onClick={handleExportZip}
                 disabled={viewerShots.length === 0 || exporting}
-                className="text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-all"
+                className="text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-colors transition-transform"
               >
                 <Download className="h-3.5 w-3.5" /> {exporting ? 'Exporting…' : `Export ${viewerShots.length} as ZIP`}
               </button>
@@ -873,7 +895,7 @@ AGENT_TOKEN=${settings.agentToken}`}
 
       {/* Mouse Activity Modal — dedicated detail view of inactivity data,
           separate from the Screenshots modal's compact summary. */}
-      <Modal isOpen={!!mouseEmp} onClose={() => setMouseEmp(null)} title={mouseEmp ? `Mouse Activity — ${mouseEmp.fullName}` : 'Mouse Activity'}>
+      <Modal isOpen={!!mouseEmp} onClose={() => setMouseEmp(null)} title={mouseEmp ? `Mouse Activity — ${displayName(mouseEmp, role)}` : 'Mouse Activity'}>
         {mouseEmp && (
           <div className="space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-2">
@@ -881,19 +903,19 @@ AGENT_TOKEN=${settings.agentToken}`}
                 <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
                   <button
                     onClick={() => handleMouseRangeChange('day')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${mouseRange === 'day' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors transition-shadow ${mouseRange === 'day' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
                   >
                     Daily
                   </button>
                   <button
                     onClick={() => handleMouseRangeChange('week')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${mouseRange === 'week' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors transition-shadow ${mouseRange === 'week' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
                   >
                     Weekly
                   </button>
                   <button
                     onClick={() => handleMouseRangeChange('month')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${mouseRange === 'month' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors transition-shadow ${mouseRange === 'month' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
                   >
                     Monthly
                   </button>
@@ -1045,37 +1067,51 @@ AGENT_TOKEN=${settings.agentToken}`}
           separate fixed overlay (not the shared Modal component) since it
           needs to render on top of the Screenshot Viewer modal itself and
           have its own zoom controls. */}
-      {lightboxIndex !== null && viewerShots[lightboxIndex] && (
+      {mounted && lightboxIndex !== null && viewerShots[lightboxIndex] && createPortal(
         <div
           className="fixed inset-0 z-[200] bg-slate-950/90 flex flex-col"
           onClick={closeLightbox}
         >
+          {/* Header controls — bumped to a darker, blurred pill (matching the
+              nav chevrons below) so they stay legible over any content,
+              consistent with the "visible over any image" fix throughout
+              this lightbox. */}
           <div className="flex items-center justify-between px-4 py-3 text-white" onClick={e => e.stopPropagation()}>
             <span className="text-xs font-semibold text-slate-200">
               {new Date(viewerShots[lightboxIndex].timestamp).toLocaleString()} · {lightboxIndex + 1} / {viewerShots.length}
             </span>
             <div className="flex items-center gap-1.5">
-              <button onClick={zoomOut} disabled={zoom <= 1} className="p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 transition-colors">
+              <button onClick={zoomOut} disabled={zoom <= 1} className="p-2 rounded-lg bg-black/40 backdrop-blur-md hover:bg-black/55 disabled:opacity-40 transition-colors">
                 <ZoomOut className="h-4 w-4" />
               </button>
               <span className="text-[10px] font-bold w-10 text-center">{Math.round(zoom * 100)}%</span>
-              <button onClick={zoomIn} disabled={zoom >= 4} className="p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 transition-colors">
+              <button onClick={zoomIn} disabled={zoom >= 4} className="p-2 rounded-lg bg-black/40 backdrop-blur-md hover:bg-black/55 disabled:opacity-40 transition-colors">
                 <ZoomIn className="h-4 w-4" />
               </button>
-              <button onClick={() => setZoom(1)} className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors" title="Reset zoom">
+              <button onClick={() => setZoom(1)} className="p-2 rounded-lg bg-black/40 backdrop-blur-md hover:bg-black/55 transition-colors" title="Reset zoom">
                 <RotateCcw className="h-4 w-4" />
               </button>
-              <button onClick={closeLightbox} className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors ml-1">
+              <button onClick={closeLightbox} className="p-2 rounded-lg bg-black/40 backdrop-blur-md hover:bg-black/55 transition-colors ml-1">
                 <X className="h-4 w-4" />
               </button>
             </div>
           </div>
 
           <div className="flex-1 flex items-center justify-center overflow-auto relative" onClick={e => e.stopPropagation()}>
+            {/* z-10 on both nav buttons — previously the "previous" button
+                was written before the <img> in markup and "next" after it;
+                with neither having an explicit z-index, default stacking
+                order rendered the image on top of "previous" (making it
+                invisible/unclickable) but left "next" on top of the image.
+                Explicit z-10 here (on both, for correctness regardless of
+                markup order) plus a darker blurred pill background (instead
+                of the too-transparent bg-white/10) keeps both buttons
+                visible and tappable over any screenshot, including
+                white/light-background ones. */}
             {lightboxIndex > 0 && (
               <button
                 onClick={() => lightboxNav(-1)}
-                className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                className="absolute left-3 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-black/40 backdrop-blur-md hover:bg-black/55 text-white transition-colors"
               >
                 <ChevronLeft className="h-5 w-5" />
               </button>
@@ -1090,13 +1126,14 @@ AGENT_TOKEN=${settings.agentToken}`}
             {lightboxIndex < viewerShots.length - 1 && (
               <button
                 onClick={() => lightboxNav(1)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-black/40 backdrop-blur-md hover:bg-black/55 text-white transition-colors"
               >
                 <ChevronRight className="h-5 w-5" />
               </button>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

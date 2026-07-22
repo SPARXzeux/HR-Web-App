@@ -28,6 +28,7 @@ export default function HRProfilePage() {
   const [confirmPass, setConfirmPass] = useState('');
   const [resetError, setResetError] = useState('');
   const [resetSuccess, setResetSuccess] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
   useEffect(() => {
     const email = getSessionEmail();
@@ -69,6 +70,7 @@ export default function HRProfilePage() {
     setResetError('');
     setResetSuccess('');
 
+    if (isResetting) return;
     if (!currentPass || !newPass || !confirmPass) {
       setResetError('Please fill in all fields.');
       return;
@@ -88,6 +90,7 @@ export default function HRProfilePage() {
 
     const email = getSessionEmail();
     if (email && profile?.id) {
+      setIsResetting(true);
       try {
         await hrActions.resetPassword(profile.id, newPass);
         refetchProfiles();
@@ -97,6 +100,8 @@ export default function HRProfilePage() {
       } catch (err) {
         console.error('[HR Profile] Password update error:', err);
         setResetError('Failed to update password. Please try again.');
+      } finally {
+        setIsResetting(false);
       }
     }
   };
@@ -129,7 +134,7 @@ export default function HRProfilePage() {
 
       {/* Avatar + Name card */}
       <Card className="p-0 overflow-hidden border border-slate-200">
-        <div className="h-20 md:h-24 bg-gradient-to-r from-orange-600 to-orange-500" />
+        <div className="h-20 md:h-24 bg-orange-600" />
         <div className="px-4 md:px-6 pb-5 md:pb-6">
           <div className="-mt-10 mb-4 flex items-end justify-between">
             <div className="relative group">
@@ -147,15 +152,15 @@ export default function HRProfilePage() {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 title="Change profile picture"
-                className="absolute bottom-0 right-0 h-7 w-7 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center shadow-md border-2 border-white transition-all active:scale-90"
+                className="absolute bottom-0 right-0 h-5 w-5 md:h-7 md:w-7 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center shadow-md border-2 border-white transition-colors transition-transform active:scale-90"
               >
-                <Camera className="h-3.5 w-3.5" />
+                <Camera className="h-2.5 w-2.5 md:h-3.5 md:w-3.5" />
               </button>
               <input ref={fileInputRef} type="file" accept="image/*" onChange={handlePhotoInputChange} className="hidden" />
             </div>
             <button
               onClick={() => setIsResetOpen(true)}
-              className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 md:py-1.5 rounded-lg transition-all border border-slate-200 active:scale-97 min-h-[44px] md:min-h-0"
+              className="flex items-center gap-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 md:py-1.5 rounded-lg transition-colors transition-transform border border-slate-200 active:scale-97 min-h-[44px] md:min-h-0"
             >
               <KeyRound className="h-3.5 w-3.5" /> Reset Password
             </button>
@@ -214,7 +219,7 @@ export default function HRProfilePage() {
           </div>
           <button
             onClick={() => setIsResetOpen(true)}
-            className="flex-shrink-0 bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm min-h-[44px] md:min-h-0"
+            className="flex-shrink-0 bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform shadow-sm min-h-[44px] md:min-h-0"
           >
             Change Password
           </button>
@@ -236,7 +241,7 @@ export default function HRProfilePage() {
           )}
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Current Password</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Current Password</label>
             <PasswordInput
               value={currentPass}
               onChange={setCurrentPass}
@@ -245,7 +250,7 @@ export default function HRProfilePage() {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">New Password</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">New Password</label>
             <PasswordInput
               value={newPass}
               onChange={setNewPass}
@@ -254,7 +259,7 @@ export default function HRProfilePage() {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Confirm New Password</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Confirm New Password</label>
             <PasswordInput
               value={confirmPass}
               onChange={setConfirmPass}
@@ -265,9 +270,10 @@ export default function HRProfilePage() {
 
           <button
             type="submit"
-            className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all mt-4 min-h-[44px] md:min-h-0"
+            disabled={isResetting}
+            className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform mt-4 min-h-[44px] md:min-h-0 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Update Password
+            {isResetting ? 'Updating…' : 'Update Password'}
           </button>
         </form>
       </Modal>

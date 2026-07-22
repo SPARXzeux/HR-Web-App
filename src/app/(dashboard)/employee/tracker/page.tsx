@@ -148,25 +148,25 @@ export default function TrackerPage() {
 
         {/* Current shift status (left 5 cols) */}
         <div className="lg:col-span-5 space-y-6">
-          <Card className={`border-t-4 shadow-md ${openShift ? 'border-t-emerald-500 bg-white' : 'border-t-slate-350 bg-slate-50/50'}`}>
+          <Card className={`border-t-4 shadow-md ${openShift ? 'border-t-emerald-500 bg-white' : 'border-t-slate-300 bg-slate-50/50'}`}>
             <CardContent className="p-6 space-y-6">
               {openShift ? (
                 <div className="text-center space-y-2">
-                  <span className="text-[10px] font-bold text-emerald-650 uppercase tracking-widest bg-emerald-50 border border-emerald-150 px-3 py-1 rounded-full w-fit mx-auto flex items-center gap-1.5 animate-pulse">
+                  <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full w-fit mx-auto flex items-center gap-1.5 animate-pulse">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> On Shift
                   </span>
                   <div className="text-3xl md:text-4xl font-bold text-slate-900 font-mono pt-2 flex items-center justify-center gap-2">
                     <Timer className="h-8 w-8 text-emerald-500" />
                     {elapsedLabel}
                   </div>
-                  <p className="text-[10px] text-slate-450 font-semibold leading-relaxed">
+                  <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
                     Clocked in at {new Date(openShift.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     {profile?.region === 'USA' ? ' via GPS warehouse geofencing.' : ' (manual shift start).'}
                   </p>
                 </div>
               ) : (
                 <div className="text-center py-8 space-y-3 font-sans">
-                  <ShieldAlert className="h-10 w-10 text-slate-350 mx-auto" />
+                  <ShieldAlert className="h-10 w-10 text-slate-300 mx-auto" />
                   <div>
                     <h3 className="text-sm font-bold text-slate-800">Off Shift</h3>
                     <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto leading-relaxed font-semibold">
@@ -204,10 +204,10 @@ export default function TrackerPage() {
               </Badge>
             </div>
             <CardContent className="p-5 space-y-3 font-sans">
-              <p className="text-[10px] text-slate-450 leading-relaxed font-semibold">
+              <p className="text-[10px] text-slate-400 leading-relaxed font-semibold">
                 Install the free DelCargo Tracker app once — it runs quietly in the background (system tray) and only tracks activity while HR/Admin has tracking enabled for you and you&apos;re on a manually-started shift.
               </p>
-              <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-150 rounded-lg px-3 py-2 leading-relaxed font-bold">
+              <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed font-bold">
                 While tracking is active please avoid personal browsing, messages, or accounts on this device while on shift.
               </p>
 
@@ -215,7 +215,7 @@ export default function TrackerPage() {
                   separate from the Active/Off badge above, which only reflects whether
                   HR/Admin has authorized capturing. Sourced from the agent's own
                   periodic heartbeat check-in, not from anything this web page assumes. */}
-              <div className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 ${hrActions.isHeartbeatLive(heartbeat) ? 'bg-emerald-50 border-emerald-150' : 'bg-slate-50 border-slate-200'}`}>
+              <div className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 ${hrActions.isHeartbeatLive(heartbeat) ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
                 <div className="flex items-center gap-1.5">
                   {hrActions.isHeartbeatLive(heartbeat) ? (
                     <Wifi className="h-3.5 w-3.5 text-emerald-600" />
@@ -236,7 +236,7 @@ export default function TrackerPage() {
                 <button
                   onClick={handleReconnectCheck}
                   disabled={heartbeatChecking}
-                  className="text-[9px] font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50 px-2 py-1.5 rounded-md flex items-center gap-1 active:scale-97 transition-all shrink-0"
+                  className="text-[9px] font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50 px-2 py-1.5 rounded-md flex items-center gap-1 active:scale-97 transition-colors transition-transform shrink-0"
                 >
                   <RefreshCw className={`h-3 w-3 ${heartbeatChecking ? 'animate-spin' : ''}`} /> Reconnect
                 </button>
@@ -257,13 +257,13 @@ export default function TrackerPage() {
                   <div className="flex flex-col sm:flex-row gap-2">
                     <a
                       href={TRACKER_DOWNLOAD_WINDOWS_URL}
-                      className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg active:scale-97 transition-all flex-1 justify-center ${detectedOS === 'windows' ? 'text-white bg-orange-600 hover:bg-orange-700' : 'text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200'}`}
+                      className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg active:scale-97 transition-colors transition-transform flex-1 justify-center ${detectedOS === 'windows' ? 'text-white bg-orange-600 hover:bg-orange-700' : 'text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200'}`}
                     >
                       <Download className="h-3.5 w-3.5" /> Download for Windows
                     </a>
                     <a
                       href={TRACKER_DOWNLOAD_MAC_URL}
-                      className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg active:scale-97 transition-all flex-1 justify-center ${detectedOS === 'mac' ? 'text-white bg-orange-600 hover:bg-orange-700' : 'text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200'}`}
+                      className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg active:scale-97 transition-colors transition-transform flex-1 justify-center ${detectedOS === 'mac' ? 'text-white bg-orange-600 hover:bg-orange-700' : 'text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200'}`}
                     >
                       <Download className="h-3.5 w-3.5" /> Download for Mac
                     </a>
@@ -279,13 +279,13 @@ export default function TrackerPage() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={handleCopySetupCode}
-                      className="text-[10px] font-bold text-white bg-slate-800 hover:bg-slate-900 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-all"
+                      className="text-[10px] font-bold text-white bg-slate-800 hover:bg-slate-900 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-colors transition-transform"
                     >
                       <Copy className="h-3.5 w-3.5" /> {codeCopied ? 'Copied!' : 'Copy My Setup Code'}
                     </button>
                     <button
                       onClick={handleRegenerateOwnCode}
-                      className="text-[10px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-all"
+                      className="text-[10px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-2 rounded-lg flex items-center gap-1.5 active:scale-97 transition-colors transition-transform"
                     >
                       <RefreshCw className="h-3.5 w-3.5" /> Regenerate My Code
                     </button>
@@ -313,7 +313,7 @@ export default function TrackerPage() {
               {/* Desktop table */}
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-xs text-left border-collapse">
-                  <thead className="font-bold text-slate-555 bg-slate-50 uppercase tracking-widest border-b border-slate-200">
+                  <thead className="font-bold text-slate-500 bg-slate-50 uppercase tracking-widest border-b border-slate-200">
                     <tr>
                       <th className="px-5 py-3.5">Date</th>
                       <th className="px-5 py-3.5">Clock In</th>
@@ -324,10 +324,10 @@ export default function TrackerPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-200">
                     {timesheetEntries.map((entry) => (
-                      <tr key={entry.id} className="hover:bg-slate-55/30 transition-colors">
+                      <tr key={entry.id} className="hover:bg-slate-100/30 transition-colors">
                         <td className="px-5 py-4 font-bold text-slate-800">{localShiftDate(entry.clockIn, entry.date)}</td>
-                        <td className="px-5 py-4 text-slate-550 font-medium font-mono">{new Date(entry.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-                        <td className="px-5 py-4 text-slate-550 font-medium font-mono">{entry.clockOut ? new Date(entry.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                        <td className="px-5 py-4 text-slate-600 font-medium font-mono">{new Date(entry.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                        <td className="px-5 py-4 text-slate-600 font-medium font-mono">{entry.clockOut ? new Date(entry.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                         <td className="px-5 py-4 text-right font-bold text-slate-900">{entry.duration || '—'}</td>
                         <td className="px-5 py-4 text-right">
                           <Badge variant={entry.status === 'in_progress' ? 'warning' : 'success'}>

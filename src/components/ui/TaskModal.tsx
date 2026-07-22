@@ -2,8 +2,8 @@
 
 import React, { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
-import { Task, Profile, hrActions } from '@/lib/hrData';
-import { CheckCircle2 } from 'lucide-react';
+import { Task, Profile, hrActions, displayName } from '@/lib/hrData';
+import { CheckCircle2, Loader2 } from 'lucide-react';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -21,10 +21,12 @@ export function TaskModal({ isOpen, onClose, employees, createdBy, onTaskAdded }
   const [priority, setPriority] = useState<Task['priority']>('medium');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (isSubmitting) return;
     if (!title || !assignedEmail || !dueDate) {
       setError('Please fill in all required fields.');
       return;
@@ -36,33 +38,41 @@ export function TaskModal({ isOpen, onClose, employees, createdBy, onTaskAdded }
       return;
     }
 
-    const newTask: Omit<Task, 'id'> = {
-      title,
-      description,
-      assignedTo: emp.fullName,
-      assignedEmail: emp.email,
-      team: emp.teams[0] || 'General',
-      dueDate,
-      priority,
-      status: 'todo',
-      createdBy,
-    };
-    // hrActions.addTask persists the task and fires the assignment
-    // notification internally (it does not return the created record).
-    await hrActions.addTask(newTask);
+    setIsSubmitting(true);
+    try {
+      const newTask: Omit<Task, 'id'> = {
+        title,
+        description,
+        assignedTo: emp.fullName,
+        assignedEmail: emp.email,
+        team: emp.teams[0] || 'General',
+        dueDate,
+        priority,
+        status: 'todo',
+        createdBy,
+      };
+      // hrActions.addTask persists the task and fires the assignment
+      // notification internally (it does not return the created record).
+      await hrActions.addTask(newTask);
 
-    setSuccess(`Task "${title}" assigned to ${emp.fullName}!`);
-    onTaskAdded?.({ id: '', ...newTask });
+      setSuccess(`Task "${title}" assigned to ${displayName(emp, createdBy as 'hr' | 'admin')}!`);
+      onTaskAdded?.({ id: '', ...newTask });
 
-    setTimeout(() => {
-      setSuccess('');
-      setTitle('');
-      setDescription('');
-      setAssignedEmail('');
-      setDueDate('');
-      setPriority('medium');
-      onClose();
-    }, 1200);
+      setTimeout(() => {
+        setSuccess('');
+        setTitle('');
+        setDescription('');
+        setAssignedEmail('');
+        setDueDate('');
+        setPriority('medium');
+        onClose();
+      }, 1200);
+    } catch (err) {
+      console.error('Task assignment failed:', err);
+      setError('Could not assign that task. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -78,7 +88,7 @@ export function TaskModal({ isOpen, onClose, employees, createdBy, onTaskAdded }
         )}
 
         <div className="space-y-1">
-          <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Task Title *</label>
+          <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Task Title *</label>
           <input
             type="text"
             value={title}
@@ -89,7 +99,7 @@ export function TaskModal({ isOpen, onClose, employees, createdBy, onTaskAdded }
         </div>
 
         <div className="space-y-1">
-          <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Description</label>
+          <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Description</label>
           <textarea
             value={description}
             onChange={e => setDescription(e.target.value)}
@@ -100,7 +110,7 @@ export function TaskModal({ isOpen, onClose, employees, createdBy, onTaskAdded }
         </div>
 
         <div className="space-y-1">
-          <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Assign To *</label>
+          <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Assign To *</label>
           <select
             value={assignedEmail}
             onChange={e => setAssignedEmail(e.target.value)}
@@ -109,7 +119,7 @@ export function TaskModal({ isOpen, onClose, employees, createdBy, onTaskAdded }
             <option value="">— Select employee —</option>
             {employees.map(emp => (
               <option key={emp.id} value={emp.email}>
-                {emp.fullName} ({emp.teams.join(', ')})
+                {displayName(emp, createdBy as 'hr' | 'admin')} ({emp.teams.join(', ')})
               </option>
             ))}
           </select>
@@ -117,7 +127,7 @@ export function TaskModal({ isOpen, onClose, employees, createdBy, onTaskAdded }
 
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Due Date *</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Due Date *</label>
             <input
               type="date"
               value={dueDate}
@@ -126,7 +136,7 @@ export function TaskModal({ isOpen, onClose, employees, createdBy, onTaskAdded }
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Priority</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Priority</label>
             <select
               value={priority}
               onChange={e => setPriority(e.target.value as Task['priority'])}
@@ -143,15 +153,18 @@ export function TaskModal({ isOpen, onClose, employees, createdBy, onTaskAdded }
           <button
             type="button"
             onClick={onClose}
-            className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all"
+            disabled={isSubmitting}
+            className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm"
+            disabled={isSubmitting}
+            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform shadow-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
           >
-            Assign Task
+            {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+            {isSubmitting ? 'Assigning…' : 'Assign Task'}
           </button>
         </div>
       </form>

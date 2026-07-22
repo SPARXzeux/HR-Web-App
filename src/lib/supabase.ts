@@ -1,6 +1,6 @@
 // This file previously contained the Supabase client used during the
 // Supabase → PocketBase migration. The app now runs entirely on the
-// self-hosted PocketBase instance at http://157.230.7.89.
+// self-hosted PocketBase instance at https://pb.delcargo.us.
 //
 // This file is kept as a stub to avoid breaking any stray imports while the
 // codebase is being cleaned up. The supabase export below is intentionally

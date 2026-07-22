@@ -2,9 +2,11 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, Menu, X, FileText, MapPin, Monitor, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, Clock, LogOut, Wallet, ClipboardList, Star, BookOpen, Briefcase, HelpCircle, Menu, X, FileText, MapPin, Monitor, MessageSquare, ChevronLeft, ChevronRight } from 'lucide-react';
 import { hrActions, useProfiles, useTeams, useTickets, useAllMessages, useKVByPrefix, hasUnseenTicketActivity, hasUnseenMessageActivity, TrackingSettings } from '@/lib/hrData';
 import { getSessionEmail, clearSession } from '@/lib/session';
+import { logoutPush } from '@/lib/push';
+import { useAnyModalOpen } from '@/lib/modalStack';
 
 interface SidebarProps {
   role: 'admin' | 'hr' | 'employee' | 'team_lead';
@@ -16,6 +18,24 @@ export function Sidebar({ role }: SidebarProps) {
   const [isTeamLead, setIsTeamLead] = useState(false);
   const [trackingEnabled, setTrackingEnabled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  // Desktop-only "hide sidebar" toggle — collapses to an icon rail instead
+  // of the full 256px-wide panel. Persisted so it stays collapsed across
+  // page loads/navigation instead of resetting every time. Purely a
+  // layout/CSS change — it doesn't reduce any network fetches — but it
+  // does cut down on rendered DOM (labels, dots) and gives more screen
+  // space, which some people do notice as feeling snappier.
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  useEffect(() => {
+    const saved = typeof window !== 'undefined' ? window.localStorage.getItem('sidebar_collapsed') : null;
+    if (saved === '1') setIsCollapsed(true);
+  }, []);
+  const toggleCollapsed = () => {
+    setIsCollapsed(prev => {
+      const next = !prev;
+      if (typeof window !== 'undefined') window.localStorage.setItem('sidebar_collapsed', next ? '1' : '0');
+      return next;
+    });
+  };
   const [platform, setPlatform] = useState<'ios' | 'android'>('ios');
   const [userEmail, setUserEmail] = useState('');
   const [myTeamIds, setMyTeamIds] = useState<string[] | 'all'>([]);
@@ -99,6 +119,7 @@ export function Sidebar({ role }: SidebarProps) {
 
   const handleSignOut = async () => {
     await hrActions.performLogout(userEmail, role);
+    await logoutPush();
     clearSession();
     router.push('/auth');
   };
@@ -187,19 +208,37 @@ export function Sidebar({ role }: SidebarProps) {
   const mobileQuickLinks = getMobileQuickLinks();
   const mobileSideLinks = links.filter(link => !mobileQuickLinks.some(quick => quick.href === link.href));
   const isChatScreen = pathname.endsWith('/chat') || pathname.endsWith('/team-chats');
+  // Support Tickets has its own bottom-anchored reply composer (like Team
+  // Chat's), so the floating pill nav sitting on top of it is the same
+  // class of overlap problem — hide it there too, not just on chat screens.
+  const isTicketsScreen = pathname.endsWith('/tickets');
+  const hideBottomNav = isChatScreen || isTicketsScreen;
+  // Belt-and-suspenders alongside the page-enter containing-block fix: hides
+  // the floating pill nav whenever any modal (shared Modal.tsx, or a
+  // hand-rolled one like UserProfileModal/the screenshot lightbox) is open,
+  // so it can never visually float on top of one again — see modalStack.ts.
+  const anyModalOpen = useAnyModalOpen();
 
   return (
     <>
-      {/* Desktop Sidebar (hidden on mobile) */}
-      <aside className="hidden md:flex w-64 border-r border-slate-200 bg-white flex-col h-screen sticky top-0">
-        <div className="h-16 flex items-center px-6 border-b border-slate-200">
-          <div className="font-bold text-xl text-orange-600">
-            DelCargo HR
+      {/* Desktop Sidebar (hidden on mobile) — white per DESIGN.md, with the
+          structural improvements kept: refined active state (filled pill +
+          dot, not just a color swap), consistent icon sizing, one-time
+          mount stagger. */}
+      <aside className={`hidden md:flex ${isCollapsed ? 'w-[68px]' : 'w-64'} border-r border-slate-200 bg-white flex-col h-screen sticky top-0 transition-all duration-200 ease-out`}>
+        <div className={`h-16 flex items-center shrink-0 border-b border-slate-200 ${isCollapsed ? 'justify-center px-2' : 'gap-2.5 px-6'}`}>
+          <div className="h-8 w-8 rounded-lg bg-orange-600 flex items-center justify-center shrink-0">
+            <span className="text-white font-black text-sm">D</span>
           </div>
+          {!isCollapsed && (
+            <div className="font-display font-bold text-[15px] text-slate-900 tracking-tight leading-none">
+              DelCargo <span className="text-slate-400 font-semibold">HR</span>
+            </div>
+          )}
         </div>
 
-        <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-1">
-          {links.map((item) => {
+        <nav className={`flex-1 overflow-y-auto py-3 space-y-0.5 ${isCollapsed ? 'px-2' : 'px-3'}`}>
+          {links.map((item, i) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
             const showDot = (item.href.endsWith('/tickets') && hasUnseenTickets) || ((item.href.endsWith('/chat') || item.href.endsWith('/team-chats')) && hasUnseenChat);
@@ -207,137 +246,124 @@ export function Sidebar({ role }: SidebarProps) {
               <Link
                 key={item.name}
                 href={item.href}
-                className={`flex items-center px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 relative ${
+                title={isCollapsed ? item.name : undefined}
+                className={`stagger-item group flex items-center py-2.5 rounded-lg text-sm font-semibold transition-colors duration-200 relative ${
+                  isCollapsed ? 'justify-center px-0' : 'px-3'
+                } ${
                   isActive
                     ? 'bg-orange-50 text-orange-700'
-                    : 'text-slate-650 hover:bg-slate-100 hover:text-slate-900'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
+                style={{ animationDelay: `${Math.min(i, 10) * 35}ms` }}
               >
-                <span className="relative mr-3">
-                  <Icon className={`h-5 w-5 ${isActive ? 'text-orange-700' : 'text-slate-400'}`} />
-                  {showDot && <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-rose-500 border border-white" />}
+                <span className={`relative shrink-0 ${isCollapsed ? '' : 'mr-3'}`}>
+                  <Icon className={`h-[18px] w-[18px] transition-colors ${isActive ? 'text-orange-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
+                  {showDot && <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white presence-dot" />}
                 </span>
-                {item.name}
+                {!isCollapsed && <span className="truncate">{item.name}</span>}
               </Link>
             );
           })}
         </nav>
 
         {/* Bottom Actions section */}
-        <div className="p-4 border-t border-slate-200 space-y-1">
-          <Link
-            href={policyHref}
-            className={`flex items-center px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 ${
-              isPolicyActive
-                ? 'bg-orange-50 text-orange-700'
-                : 'text-slate-650 hover:bg-slate-100 hover:text-slate-900'
+        <div className={`p-3 border-t border-slate-200 space-y-0.5 shrink-0 ${isCollapsed ? 'px-2' : ''}`}>
+          <button
+            onClick={toggleCollapsed}
+            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className={`flex w-full items-center py-2.5 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors duration-200 ${
+              isCollapsed ? 'justify-center px-0' : 'px-3'
             }`}
           >
-            <BookOpen className={`mr-3 h-5 w-5 ${isPolicyActive ? 'text-orange-700' : 'text-slate-400'}`} />
-            Policy Handbook
+            {isCollapsed ? <ChevronRight className="h-[18px] w-[18px] text-slate-400" /> : <ChevronLeft className={`h-[18px] w-[18px] text-slate-400 mr-3`} />}
+            {!isCollapsed && 'Hide sidebar'}
+          </button>
+          <Link
+            href={policyHref}
+            title={isCollapsed ? 'Policy Handbook' : undefined}
+            className={`flex items-center py-2.5 rounded-lg text-sm font-semibold transition-colors duration-200 ${
+              isCollapsed ? 'justify-center px-0' : 'px-3'
+            } ${
+              isPolicyActive
+                ? 'bg-orange-50 text-orange-700'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <BookOpen className={`h-[18px] w-[18px] ${isCollapsed ? '' : 'mr-3'} ${isPolicyActive ? 'text-orange-600' : 'text-slate-400'}`} />
+            {!isCollapsed && 'Policy Handbook'}
           </Link>
           <button
             onClick={handleSignOut}
-            className="flex w-full items-center px-3 py-2.5 rounded-lg text-sm font-semibold text-slate-600 hover:bg-rose-50 hover:text-rose-700 transition-colors duration-150"
+            title={isCollapsed ? 'Sign out' : undefined}
+            className={`flex w-full items-center py-2.5 rounded-lg text-sm font-semibold text-slate-600 hover:bg-rose-50 hover:text-rose-700 transition-colors duration-200 ${
+              isCollapsed ? 'justify-center px-0' : 'px-3'
+            }`}
           >
-            <LogOut className="mr-3 h-5 w-5 text-slate-400" />
-            Sign out
+            <LogOut className={`h-[18px] w-[18px] text-slate-400 ${isCollapsed ? '' : 'mr-3'}`} />
+            {!isCollapsed && 'Sign out'}
           </button>
         </div>
-      </aside>      {/* iOS vs Android Responsive Bottom Tab Bar */}
-      {!isChatScreen && (
-        platform === 'ios' ? (
-          /* iOS Style: Translucent frosted glass tab bar, thin lines, SF Symbols feel */
-          <div 
-            className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/70 backdrop-blur-xl border-t border-slate-200/40 pb-safe shadow-sm flex justify-around items-center pt-2 pb-3 px-3"
-            style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif' }}
-          >
-            {mobileQuickLinks.map(item => {
-              const isActive = pathname === item.href;
-              const Icon = item.icon;
-              const showDot = (item.href.endsWith('/tickets') && hasUnseenTickets) || ((item.href.endsWith('/chat') || item.href.endsWith('/team-chats')) && hasUnseenChat);
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={`flex flex-col items-center gap-1 active:opacity-40 transition-opacity duration-75 relative ${
-                    isActive ? 'text-orange-600' : 'text-slate-400'
-                  }`}
-                >
-                  <span className="relative">
-                    <Icon className="h-5.5 w-5.5 shrink-0" strokeWidth={isActive ? 2.5 : 2} />
-                    {showDot && <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-rose-500 border border-white" />}
-                  </span>
-                  <span className="text-[9px] font-medium tracking-tight">{item.name}</span>
-                </Link>
-              );
-            })}
-            <button
-              onClick={() => setIsMobileMenuOpen(true)}
-              className={`flex flex-col items-center gap-1 active:opacity-40 transition-opacity duration-75 relative ${
-                isMobileMenuOpen ? 'text-orange-600' : 'text-slate-400'
-              }`}
-            >
-              <Menu className="h-5.5 w-5.5 shrink-0" strokeWidth={2} />
-              <span className="text-[9px] font-medium tracking-tight">Menu</span>
-            </button>
-          </div>
-        ) : (
-          /* Android Style: Material Design 3 Solid Tab Bar, Active Highlight Indicator Pills, MD Typography, Light Mode */
-          <div 
-            className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200/80 pb-safe shadow-lg flex justify-around items-center pt-3 pb-4 px-1"
-            style={{ fontFamily: 'Roboto, "Noto Sans", sans-serif' }}
-          >
-            {mobileQuickLinks.map(item => {
-              const isActive = pathname === item.href;
-              const Icon = item.icon;
-              const showDot = (item.href.endsWith('/tickets') && hasUnseenTickets) || ((item.href.endsWith('/chat') || item.href.endsWith('/team-chats')) && hasUnseenChat);
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform duration-100 relative"
-                >
-                  <div className={`relative px-5 py-1 rounded-full flex items-center justify-center transition-all ${
-                    isActive ? 'bg-orange-50 text-orange-700 shadow-sm' : 'bg-transparent text-slate-400'
-                  }`}>
-                    <Icon className="h-5 w-5 shrink-0" />
-                    {showDot && <span className="absolute top-0 right-3 h-2 w-2 rounded-full bg-rose-500 border border-white" />}
+      </aside>
+
+      {/* Floating Pill Bottom Tab Bar */}
+      {!hideBottomNav && !anyModalOpen && (
+        <div 
+          className="md:hidden fixed bottom-6 left-4 right-4 z-40 bg-white/90 backdrop-blur-xl border border-slate-200/50 rounded-full shadow-lg flex justify-around items-center px-2 py-2"
+        >
+          {mobileQuickLinks.map((item) => {
+            const isActive = pathname === item.href;
+            const Icon = item.icon;
+            const showDot = (item.href.endsWith('/tickets') && hasUnseenTickets) || ((item.href.endsWith('/chat') || item.href.endsWith('/team-chats')) && hasUnseenChat);
+            
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className="flex items-center justify-center relative active:scale-95 transition-transform"
+              >
+                {isActive ? (
+                  <div className="h-12 w-12 rounded-full bg-gradient-to-tr from-orange-500 to-orange-600 flex items-center justify-center shadow-md">
+                    <Icon className="h-6 w-6 text-white" strokeWidth={2} />
+                    {showDot && <span className="absolute top-0 right-0 h-2.5 w-2.5 rounded-full bg-rose-500 border-2 border-white presence-dot" />}
                   </div>
-                  <span className={`text-[10px] tracking-wide font-medium ${isActive ? 'text-orange-700 font-bold' : 'text-slate-500'}`}>
-                    {item.name}
-                  </span>
-                </Link>
-              );
-            })}
-            <button
-              onClick={() => setIsMobileMenuOpen(true)}
-              className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform duration-100 relative"
-            >
-              <div className={`px-5 py-1 rounded-full flex items-center justify-center transition-all ${
-                isMobileMenuOpen ? 'bg-orange-50 text-orange-700 shadow-sm' : 'bg-transparent text-slate-400'
-              }`}>
-                <Menu className="h-5 w-5 shrink-0" />
+                ) : (
+                  <div className="flex items-center justify-center h-12 w-12">
+                    <Icon className="h-6 w-6 text-slate-400" strokeWidth={1.5} />
+                    {showDot && <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-rose-500 border border-white presence-dot" />}
+                  </div>
+                )}
+              </Link>
+            );
+          })}
+          
+          <button
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="flex items-center justify-center relative active:scale-95 transition-transform"
+          >
+            {isMobileMenuOpen ? (
+              <div className="h-12 w-12 rounded-full bg-gradient-to-tr from-orange-500 to-orange-600 flex items-center justify-center shadow-md">
+                <Menu className="h-6 w-6 text-white" strokeWidth={2} />
               </div>
-              <span className={`text-[10px] tracking-wide font-medium ${isMobileMenuOpen ? 'text-orange-700 font-bold' : 'text-slate-500'}`}>
-                Menu
-              </span>
-            </button>
-          </div>
-        )
+            ) : (
+              <div className="flex items-center justify-center h-12 w-12">
+                <Menu className="h-6 w-6 text-slate-400" strokeWidth={1.5} />
+              </div>
+            )}
+          </button>
+        </div>
       )}
 
       {/* Mobile Drawer (Left Slide-Out) Styled by Platform */}
       {isMobileMenuOpen && (
         <div className="md:hidden fixed inset-0 z-50 flex">
           <div 
-            className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm animate-in fade-in duration-200"
+            className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm fade-enter"
             onClick={() => setIsMobileMenuOpen(false)}
           />
 
           <div 
             ref={drawerRef}
-            className={`relative flex flex-col w-64 max-w-xs h-full shadow-2xl p-5 z-50 justify-between animate-in slide-in-from-left duration-200 bg-white/95 backdrop-blur-md border-r border-slate-200/50 rounded-r-2xl`}
+            className={`relative flex flex-col w-64 max-w-xs h-full shadow-2xl p-5 z-50 justify-between drawer-enter-left bg-white/95 backdrop-blur-md border-r border-slate-200/50 rounded-r-2xl`}
             style={{ 
               fontFamily: platform === 'ios' 
                 ? '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif' 
@@ -369,17 +395,17 @@ export function Sidebar({ role }: SidebarProps) {
                       key={item.name}
                       href={item.href}
                       onClick={() => setIsMobileMenuOpen(false)}
-                      className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                      className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors ${
                         isActive
                           ? 'bg-orange-50 text-orange-700'
-                          : 'text-slate-650 hover:bg-slate-50'
+                          : 'text-slate-600 hover:bg-slate-50'
                       }`}
                     >
                       <span className="relative">
                         <Icon className={`h-4.5 w-4.5 shrink-0 ${
-                          isActive ? 'text-orange-700' : 'text-slate-450'
+                          isActive ? 'text-orange-700' : 'text-slate-400'
                         }`} />
-                        {showDot && <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-rose-500 border border-white" />}
+                        {showDot && <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-rose-500 border border-white presence-dot" />}
                       </span>
                       {item.name}
                     </Link>
@@ -390,14 +416,14 @@ export function Sidebar({ role }: SidebarProps) {
                 <Link
                   href={policyHref}
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                    isPolicyActive 
+                  className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors ${
+                    isPolicyActive
                       ? 'bg-orange-50 text-orange-700'
-                      : 'text-slate-650 hover:bg-slate-50'
+                      : 'text-slate-600 hover:bg-slate-50'
                   }`}
                 >
                   <BookOpen className={`h-4.5 w-4.5 shrink-0 ${
-                    isPolicyActive ? 'text-orange-700' : 'text-slate-450'
+                    isPolicyActive ? 'text-orange-700' : 'text-slate-400'
                   }`} />
                   Policy Handbook
                 </Link>

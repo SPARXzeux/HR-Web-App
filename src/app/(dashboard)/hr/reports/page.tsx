@@ -4,9 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { Profile, formatMoney, TimesheetEntry, localShiftDate, useProfiles, useTimesheets } from '@/lib/hrData';
+import { Profile, formatMoney, TimesheetEntry, localShiftDate, useProfiles, useProfileDocuments, useTimesheets, displayName } from '@/lib/hrData';
 import { getSessionEmail } from '@/lib/session';
-import { FileText, Search, Filter, ShieldCheck, Download, Monitor, Clock, CheckCircle2, TrendingUp, Calendar } from 'lucide-react';
+import { FileText, Search, Filter, ShieldCheck, Download, Monitor, Clock, CheckCircle2, TrendingUp, Calendar, Landmark } from 'lucide-react';
 import { UserProfileModal } from '@/components/ui/UserProfileModal';
 import { DocumentsModal } from '@/components/ui/DocumentsModal';
 import { Avatar } from '@/components/ui/Avatar';
@@ -23,7 +23,10 @@ export default function ReportsPage() {
 
   const [selectedProfileEmail, setSelectedProfileEmail] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
+  // Fetched on demand, only for whichever employee is currently selected
+  // (see useProfileDocuments in hrData.ts).
   const [selectedDocsEmp, setSelectedDocsEmp] = useState<Profile | null>(null);
+  const { data: selectedDocs } = useProfileDocuments(selectedDocsEmp?.id);
 
   const handleOpenReviewModal = (emp: Profile) => {
     setSelectedReviewEmp(emp);
@@ -127,7 +130,7 @@ export default function ReportsPage() {
         </div>
         <button
           onClick={exportMainCSV}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm self-start md:self-auto"
+          className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform flex items-center gap-1.5 shadow-sm self-start md:self-auto"
         >
           <Download className="h-4 w-4" /> Export Report (CSV)
         </button>
@@ -176,7 +179,7 @@ export default function ReportsPage() {
       <Card className="overflow-hidden p-0 border border-slate-200">
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full min-w-[950px] text-sm text-left border-collapse">
-            <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
+            <thead className="text-xs font-bold text-slate-600 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
               <tr>
                 <th className="px-6 py-4">Employee</th>
                 <th className="px-6 py-4">Region</th>
@@ -193,8 +196,8 @@ export default function ReportsPage() {
                     <div className="flex items-center gap-3">
                       <Avatar src={emp.profilePicture} name={emp.fullName} size={40} />
                       <div>
-                        <div className="font-semibold text-slate-900">{emp.fullName}</div>
-                        <div className="text-xs text-slate-450">{emp.email} · <span className="font-bold text-orange-600">{emp.jobTitle || 'Staff'}</span></div>
+                        <div className="font-semibold text-slate-900">{displayName(emp, 'hr')}</div>
+                        <div className="text-xs text-slate-400">{emp.email} · <span className="font-bold text-orange-600">{emp.jobTitle || 'Staff'}</span></div>
                       </div>
                     </div>
                   </td>
@@ -207,10 +210,10 @@ export default function ReportsPage() {
                   </td>
                   <td className="px-6 py-4">
                     {emp.bankName ? (
-                      <div className="text-xs text-slate-655 leading-relaxed font-semibold">
-                        <div>🏦 <span className="text-slate-900">{emp.bankName}</span></div>
+                      <div className="text-xs text-slate-600 leading-relaxed font-semibold">
+                        <div className="flex items-center gap-1"><Landmark className="h-3 w-3 text-slate-400" /> <span className="text-slate-900">{emp.bankName}</span></div>
                         <div>Acc: <span className="text-slate-500 font-medium">{emp.accountNumber}</span></div>
-                        <div>IBAN: <span className="text-slate-550 font-mono text-[10px]">{emp.iban}</span></div>
+                        <div>IBAN: <span className="text-slate-600 font-mono text-[10px]">{emp.iban}</span></div>
                       </div>
                     ) : (
                       <span className="text-xs text-slate-400 font-semibold italic">Details pending</span>
@@ -220,13 +223,13 @@ export default function ReportsPage() {
                     <div className="flex flex-col sm:flex-row justify-center gap-2">
                       <button
                         onClick={() => handleOpenReviewModal(emp)}
-                        className="text-[10px] font-bold text-slate-650 hover:text-orange-700 bg-slate-100 hover:bg-orange-50 border border-slate-200 hover:border-orange-200 px-2.5 py-1.5 rounded-lg active:scale-97 transition-all inline-flex items-center gap-1.5"
+                        className="text-[10px] font-bold text-slate-600 hover:text-orange-700 bg-slate-100 hover:bg-orange-50 border border-slate-200 hover:border-orange-200 px-2.5 py-1.5 rounded-lg active:scale-97 transition-colors transition-transform inline-flex items-center gap-1.5"
                       >
                         <FileText className="h-3.5 w-3.5" /> View Tracking
                       </button>
                       <button
                         onClick={() => setSelectedDocsEmp(emp)}
-                        className="text-[10px] font-bold text-blue-650 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1.5 rounded-lg active:scale-97 transition-all inline-flex items-center gap-1.5"
+                        className="text-[10px] font-bold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1.5 rounded-lg active:scale-97 transition-colors transition-transform inline-flex items-center gap-1.5"
                       >
                         <Download className="h-3.5 w-3.5" /> Documents
                       </button>
@@ -253,8 +256,8 @@ export default function ReportsPage() {
                 <div className="flex items-center gap-3">
                   <Avatar src={emp.profilePicture} name={emp.fullName} size={40} />
                   <div>
-                    <div className="font-semibold text-slate-900 text-sm">{emp.fullName}</div>
-                    <div className="text-[10px] text-slate-450">{emp.email}</div>
+                    <div className="font-semibold text-slate-900 text-sm">{displayName(emp, 'hr')}</div>
+                    <div className="text-[10px] text-slate-400">{emp.email}</div>
                   </div>
                 </div>
                 <Badge variant={emp.onboardingCompleted ? 'success' : 'warning'} className="shrink-0">
@@ -273,10 +276,10 @@ export default function ReportsPage() {
                 <div className="col-span-2">
                   <p className="text-[10px] text-slate-400 font-semibold uppercase">Bank Details</p>
                   {emp.bankName ? (
-                    <div className="text-[10px] text-slate-655 leading-relaxed font-semibold">
-                      <div>🏦 <span className="text-slate-900">{emp.bankName}</span></div>
+                    <div className="text-[10px] text-slate-600 leading-relaxed font-semibold">
+                      <div className="flex items-center gap-1"><Landmark className="h-3 w-3 text-slate-400" /> <span className="text-slate-900">{emp.bankName}</span></div>
                       <div>Acc: <span className="text-slate-500 font-medium">{emp.accountNumber}</span></div>
-                      <div>IBAN: <span className="text-slate-550 font-mono">{emp.iban}</span></div>
+                      <div>IBAN: <span className="text-slate-600 font-mono">{emp.iban}</span></div>
                     </div>
                   ) : (
                     <span className="text-[10px] text-slate-400 font-semibold italic">Details pending</span>
@@ -286,13 +289,13 @@ export default function ReportsPage() {
               <div className="flex justify-between gap-2 pt-2 border-t border-slate-100">
                 <button
                   onClick={() => handleOpenReviewModal(emp)}
-                  className="flex-1 text-[10px] font-bold text-slate-650 hover:text-orange-700 bg-slate-100 hover:bg-orange-50 border border-slate-200 hover:border-orange-200 py-2 rounded-lg active:scale-97 transition-all flex items-center justify-center gap-1.5"
+                  className="flex-1 text-[10px] font-bold text-slate-600 hover:text-orange-700 bg-slate-100 hover:bg-orange-50 border border-slate-200 hover:border-orange-200 py-2 rounded-lg active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1.5"
                 >
                   <FileText className="h-3.5 w-3.5" /> View Tracking
                 </button>
                 <button
                   onClick={() => setSelectedDocsEmp(emp)}
-                  className="flex-1 text-[10px] font-bold text-blue-650 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 py-2 rounded-lg active:scale-97 transition-all flex items-center justify-center gap-1.5"
+                  className="flex-1 text-[10px] font-bold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 py-2 rounded-lg active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1.5"
                 >
                   <Download className="h-3.5 w-3.5" /> Documents
                 </button>
@@ -317,8 +320,8 @@ export default function ReportsPage() {
               <div className="flex items-center gap-3">
                 <Avatar src={selectedReviewEmp.profilePicture} name={selectedReviewEmp.fullName} size={40} />
                 <div>
-                  <p className="text-sm font-bold text-slate-900">{selectedReviewEmp.fullName}</p>
-                  <p className="text-[10px] text-slate-455 font-bold">{selectedReviewEmp.email} · {selectedReviewEmp.jobTitle || 'Staff'}</p>
+                  <p className="text-sm font-bold text-slate-900">{displayName(selectedReviewEmp, 'hr')}</p>
+                  <p className="text-[10px] text-slate-400 font-bold">{selectedReviewEmp.email} · {selectedReviewEmp.jobTitle || 'Staff'}</p>
                 </div>
               </div>
               <Badge variant={selectedReviewEmp.region === 'USA' ? 'default' : 'success'}>
@@ -328,10 +331,10 @@ export default function ReportsPage() {
 
             {/* Summary stats */}
             <div className="grid grid-cols-3 gap-3">
-              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-center">
-                <Clock className="h-4 w-4 text-blue-500 mx-auto mb-1" />
-                <p className="text-lg font-bold text-blue-900">{Math.floor(totalHours / 60)}h {totalHours % 60}m</p>
-                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Total Time {dateFilter ? '(Filtered)' : `(All ${filteredReviewEntries.length} Shifts)`}</p>
+              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-center">
+                <Clock className="h-4 w-4 text-indigo-500 mx-auto mb-1" />
+                <p className="text-lg font-bold text-indigo-900">{Math.floor(totalHours / 60)}h {totalHours % 60}m</p>
+                <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Total Time {dateFilter ? '(Filtered)' : `(All ${filteredReviewEntries.length} Shifts)`}</p>
               </div>
               <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-center">
                 <TrendingUp className="h-4 w-4 text-emerald-500 mx-auto mb-1" />
@@ -360,7 +363,7 @@ export default function ReportsPage() {
               <button
                 onClick={exportTrackingCSV}
                 disabled={filteredReviewEntries.length === 0}
-                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-4 py-2 rounded-lg text-xs active:scale-97 transition-all shadow-sm whitespace-nowrap"
+                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-4 py-2 rounded-lg text-xs active:scale-97 transition-colors transition-transform shadow-sm whitespace-nowrap"
               >
                 <Download className="h-3.5 w-3.5" /> Export CSV
               </button>
@@ -374,7 +377,7 @@ export default function ReportsPage() {
               </div>
               <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
                 <table className="w-full text-xs text-left border-collapse min-w-[500px]">
-                  <thead className="font-bold text-slate-555 bg-slate-50/80 border-b border-slate-200 uppercase tracking-widest text-[9px] sticky top-0">
+                  <thead className="font-bold text-slate-500 bg-slate-50/80 border-b border-slate-200 uppercase tracking-widest text-[9px] sticky top-0">
                     <tr>
                       <th className="px-4 py-2.5">Date</th>
                       <th className="px-4 py-2.5">Clock In</th>
@@ -412,7 +415,7 @@ export default function ReportsPage() {
             <div className="flex justify-end pt-2">
               <button
                 onClick={() => { setSelectedReviewEmp(null); setReviewEntries([]); }}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-4 py-2 rounded-lg text-xs transition-all"
+                className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-4 py-2 rounded-lg text-xs transition-colors"
               >
                 Close
               </button>
@@ -434,7 +437,7 @@ export default function ReportsPage() {
         />
       )}
 
-      <DocumentsModal employee={selectedDocsEmp} onClose={() => setSelectedDocsEmp(null)} />
+      <DocumentsModal employee={selectedDocsEmp ? { ...selectedDocsEmp, ...selectedDocs } : null} onClose={() => setSelectedDocsEmp(null)} />
     </div>
   );
 }

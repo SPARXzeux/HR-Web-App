@@ -13,7 +13,7 @@ import {
   useTeams,
   hrActions,
 } from '@/lib/hrData';
-import { MapPin, Plus, Trash2, CheckCircle2, ArrowRight, X, Briefcase, FileText, Users, AlertTriangle } from 'lucide-react';
+import { MapPin, Plus, Trash2, CheckCircle2, ArrowRight, X, Briefcase, FileText, Users, AlertTriangle, Gift, Loader2 } from 'lucide-react';
 
 const STATUS_OPTIONS: { value: CareerApplicationStatus; label: string }[] = [
   { value: 'pending', label: 'Pending' },
@@ -25,7 +25,7 @@ const STATUS_OPTIONS: { value: CareerApplicationStatus; label: string }[] = [
 
 const STATUS_STYLES: Record<CareerApplicationStatus, string> = {
   pending: 'bg-slate-100 text-slate-600 border-slate-200',
-  reviewed: 'bg-blue-50 text-blue-700 border-blue-100',
+  reviewed: 'bg-indigo-50 text-indigo-700 border-indigo-100',
   shortlisted: 'bg-amber-50 text-amber-700 border-amber-100',
   rejected: 'bg-rose-50 text-rose-700 border-rose-100',
   hired: 'bg-emerald-50 text-emerald-700 border-emerald-100',
@@ -56,6 +56,8 @@ export function CareersView({ role }: CareersViewProps) {
   const [appStatusFilter, setAppStatusFilter] = useState<CareerApplicationStatus | 'All'>('All');
   const [expandedAppId, setExpandedAppId] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
+  const [isPostingJob, setIsPostingJob] = useState(false);
+  const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
 
   const [title, setTitle] = useState('');
   const [dept, setDept] = useState('Engineering');
@@ -78,31 +80,41 @@ export function CareersView({ role }: CareersViewProps) {
 
   const handleAddJob = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !loc || !desc) return;
-    const requirements = reqsText.split('\n').map(r => r.trim()).filter(Boolean);
-    await hrActions.addCareer({
-      title,
-      department: dept,
-      location: loc,
-      description: desc,
-      requirements,
-    });
-    refetchCareers();
-    setSuccess('Position listed successfully!');
-    setTimeout(() => {
-      setIsAddOpen(false);
-      setTitle('');
-      setLoc('');
-      setDesc('');
-      setReqsText('');
-      setSuccess('');
-    }, 1200);
+    if (!title || !loc || !desc || isPostingJob) return;
+    setIsPostingJob(true);
+    try {
+      const requirements = reqsText.split('\n').map(r => r.trim()).filter(Boolean);
+      await hrActions.addCareer({
+        title,
+        department: dept,
+        location: loc,
+        description: desc,
+        requirements,
+      });
+      refetchCareers();
+      setSuccess('Position listed successfully!');
+      setTimeout(() => {
+        setIsAddOpen(false);
+        setTitle('');
+        setLoc('');
+        setDesc('');
+        setReqsText('');
+        setSuccess('');
+      }, 1200);
+    } finally {
+      setIsPostingJob(false);
+    }
   };
 
   const handleDeleteJob = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this listing?')) return;
-    await hrActions.deleteCareer(id);
-    refetchCareers();
+    if (!window.confirm('Are you sure you want to delete this listing?') || deletingJobId) return;
+    setDeletingJobId(id);
+    try {
+      await hrActions.deleteCareer(id);
+      refetchCareers();
+    } finally {
+      setDeletingJobId(null);
+    }
   };
 
   const handleApplySubmit = async (e: React.FormEvent) => {
@@ -165,7 +177,16 @@ export function CareersView({ role }: CareersViewProps) {
     : positions.filter(j => j.department.toLowerCase() === selectedCategory.toLowerCase());
 
   return (
-    <div className="space-y-16 max-w-6xl mx-auto font-sans">
+    // min-w-0 is required here: this component is rendered as a flex item
+    // inside both the dashboard's flex-col main content wrapper and (via
+    // Card contexts elsewhere) similar flex layouts. Without it, a flex
+    // item's default min-width is its content's intrinsic width — so the
+    // horizontally-scrollable job-card row below (which contains several
+    // 85vw-wide cards side by side) forced this whole div, and therefore
+    // the whole page, to become horizontally scrollable instead of just
+    // the intended row. min-w-0 lets this shrink to the actual viewport
+    // width so overflow-x-auto on the inner row is what scrolls, not body.
+    <div className="space-y-16 max-w-6xl mx-auto font-sans min-w-0">
       
       {/* High-End Editorial Hero Section */}
       <section className="text-center space-y-4 py-8">
@@ -199,22 +220,22 @@ export function CareersView({ role }: CareersViewProps) {
       </div>
 
       {/* Grid listing */}
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
+      <div className="space-y-6 min-w-0">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <h2 className="text-lg font-light text-slate-900 uppercase tracking-widest" style={{ fontFamily: 'Georgia, serif' }}>
             Open Positions ({filteredJobs.length})
           </h2>
           {canEdit && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => setIsApplicationsOpen(true)}
-                className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all flex items-center gap-1 shadow-sm"
+                className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-xl text-xs active:scale-97 transition-colors transition-transform flex items-center gap-1 shadow-sm"
               >
                 <Users className="h-4 w-4" /> Applications ({applications.length})
               </button>
               <button
                 onClick={() => setIsAddOpen(true)}
-                className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all flex items-center gap-1 shadow-sm"
+                className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-xl text-xs active:scale-97 transition-colors transition-transform flex items-center gap-1 shadow-sm"
               >
                 <Plus className="h-4 w-4" /> Post Job
               </button>
@@ -222,11 +243,16 @@ export function CareersView({ role }: CareersViewProps) {
           )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        {/* Mobile: horizontal swipe strip (edge-to-edge, no bleed-margin hack
+            since this component is embedded in containers with different
+            paddings — the public landing page vs the dashboard tab — a fixed
+            -mx-6 assumption broke alignment in whichever context didn't
+            actually have 24px of padding). Desktop: normal 2-col grid. */}
+        <div className="flex overflow-x-auto snap-x scroll-smooth [-webkit-overflow-scrolling:touch] overscroll-x-contain md:grid md:grid-cols-2 gap-4 sm:gap-6 pb-4">
           {filteredJobs.map(job => (
-            <div 
-              key={job.id} 
-              className="bg-white border border-slate-200 hover:border-orange-200 p-6 sm:p-8 flex flex-col justify-between transition-all"
+            <div
+              key={job.id}
+              className="w-[85vw] sm:w-[60vw] shrink-0 snap-center md:w-auto md:shrink bg-white border border-slate-200 hover:border-orange-200 p-6 sm:p-8 flex flex-col justify-between transition-colors"
             >
               <div className="space-y-6">
                 <div className="flex justify-between items-start gap-4">
@@ -240,9 +266,10 @@ export function CareersView({ role }: CareersViewProps) {
                   {canEdit && (
                     <button
                       onClick={() => handleDeleteJob(job.id)}
-                      className="text-slate-350 hover:text-rose-600 p-1 hover:bg-rose-50 rounded transition-all"
+                      disabled={deletingJobId === job.id}
+                      className="text-slate-400 hover:text-rose-600 p-1 hover:bg-rose-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      {deletingJobId === job.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                     </button>
                   )}
                 </div>
@@ -254,7 +281,7 @@ export function CareersView({ role }: CareersViewProps) {
                     <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Requirements</p>
                     <ul className="space-y-1">
                       {job.requirements.map((req: any, idx: number) => (
-                        <li key={idx} className="text-xs text-slate-650 font-medium flex items-start gap-2">
+                        <li key={idx} className="text-xs text-slate-600 font-medium flex items-start gap-2">
                           <span className="h-1 w-1 rounded-full bg-orange-500 mt-1.5 shrink-0" />
                           {req}
                         </li>
@@ -292,7 +319,7 @@ export function CareersView({ role }: CareersViewProps) {
       {role === 'public' && (
         <>
           {/* About Us Section */}
-          <section className="bg-white border border-slate-200 rounded-3xl p-8 sm:p-12 mb-8 shadow-sm overflow-hidden font-sans">
+          <section className="bg-white border border-slate-200 rounded-xl p-8 sm:p-12 mb-8 shadow-sm overflow-hidden font-sans">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
               
               {/* Left Column: Descriptive texts & stats */}
@@ -310,7 +337,7 @@ export function CareersView({ role }: CareersViewProps) {
                   DelCargo is a leading-edge global logistics and software engineering provider. We combine digital shipping architectures with physical distribution hubs to enable intelligent supply chain management. By fusing freight yards with automated tracking platforms, we help scale global commerce.
                 </p>
 
-                <p className="text-xs text-slate-550 leading-relaxed font-medium">
+                <p className="text-xs text-slate-600 leading-relaxed font-medium">
                   We maintain strategic warehousing facilities in major transit centers across North America and remote design cells in South Asia, operating with around-the-clock synchrony to keep supply lines operating optimally.
                 </p>
 
@@ -333,7 +360,7 @@ export function CareersView({ role }: CareersViewProps) {
               </div>
 
               {/* Right Column: Image */}
-              <div className="lg:col-span-5 relative group overflow-hidden rounded-2xl border border-slate-200 shadow">
+              <div className="lg:col-span-5 relative group overflow-hidden rounded-xl border border-slate-200 shadow">
                 <img 
                   src="/delcargo_warehouse_hightech.png" 
                   alt="High Tech Warehouse" 
@@ -380,11 +407,11 @@ export function CareersView({ role }: CareersViewProps) {
 
       {role === 'employee' && (
         /* Referral Program Info Block */
-        <section className="bg-orange-50/40 py-12 px-6 sm:px-12 border border-orange-100 rounded-2xl space-y-4">
+        <section className="bg-orange-50/40 py-12 px-6 sm:px-12 border border-orange-100 rounded-xl space-y-4">
           <h3 className="text-lg font-bold text-slate-950 flex items-center gap-1.5">
-            🎁 Employee Referral Program
+            <Gift className="h-5 w-5 text-orange-600" /> Employee Referral Program
           </h3>
-          <p className="text-xs text-slate-655 max-w-3xl leading-relaxed font-medium">
+          <p className="text-xs text-slate-600 max-w-3xl leading-relaxed font-medium">
             Know someone who would be a perfect fit? Refer them! If your referred candidate gets selected and successfully completes <strong>6 months</strong> of service with DelCargo, you will receive a cash referral reward of <strong>PKR 10,000</strong>. Submissions can be sent directly to HR.
           </p>
         </section>
@@ -494,7 +521,7 @@ export function CareersView({ role }: CareersViewProps) {
               required 
               value={title} 
               onChange={e => setTitle(e.target.value)} 
-              className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+              className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold"
               placeholder="e.g. Lead QA Engineer" 
             />
           </div>
@@ -505,7 +532,7 @@ export function CareersView({ role }: CareersViewProps) {
               <select 
                 value={dept} 
                 onChange={e => setDept(e.target.value)} 
-                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer appearance-none"
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer appearance-none"
                 style={{
                   backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
                   backgroundRepeat: 'no-repeat',
@@ -527,7 +554,7 @@ export function CareersView({ role }: CareersViewProps) {
                 required 
                 value={loc} 
                 onChange={e => setLoc(e.target.value)} 
-                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold"
                 placeholder="e.g. Remote (Pakistan)" 
               />
             </div>
@@ -540,7 +567,7 @@ export function CareersView({ role }: CareersViewProps) {
               rows={3} 
               value={desc} 
               onChange={e => setDesc(e.target.value)} 
-              className="w-full bg-slate-50/50 hover:bg-slate-55 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold resize-none" 
+              className="w-full bg-slate-50/50 hover:bg-slate-100 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold resize-none"
               placeholder="Provide details about the role..." 
             />
           </div>
@@ -551,14 +578,17 @@ export function CareersView({ role }: CareersViewProps) {
               rows={3} 
               value={reqsText} 
               onChange={e => setReqsText(e.target.value)} 
-              className="w-full bg-slate-50/50 hover:bg-slate-55 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+              className="w-full bg-slate-50/50 hover:bg-slate-100 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold"
               placeholder="Requirement 1&#10;Requirement 2&#10;Requirement 3" 
             />
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-            <button type="button" onClick={() => setIsAddOpen(false)} className="bg-white hover:bg-slate-55 border border-slate-200 text-slate-650 hover:text-slate-800 font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all">Cancel</button>
-            <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all shadow-sm">Post Opening</button>
+            <button type="button" disabled={isPostingJob} onClick={() => setIsAddOpen(false)} className="bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 hover:text-slate-800 font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-colors transition-transform disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
+            <button type="submit" disabled={isPostingJob} className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-colors transition-transform shadow-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5">
+              {isPostingJob && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {isPostingJob ? 'Posting…' : 'Post Opening'}
+            </button>
           </div>
         </form>
       </Modal>
@@ -579,40 +609,40 @@ export function CareersView({ role }: CareersViewProps) {
                 </div>
               )}
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-555 uppercase tracking-wider">Full Name *</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Full Name *</label>
                 <input 
                   type="text" 
                   required 
                   value={applicantName} 
                   onChange={e => setApplicantName(e.target.value)} 
-                  className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+                  className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold"
                   placeholder="e.g. John Doe" 
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-555 uppercase tracking-wider">Email Address *</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Email Address *</label>
                 <input 
                   type="email" 
                   required 
                   value={applicantEmail} 
                   onChange={e => setApplicantEmail(e.target.value)} 
-                  className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+                  className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold"
                   placeholder="e.g. applicant@company.com" 
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-555 uppercase tracking-wider">Cover Letter / Note</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Cover Letter / Note</label>
                 <textarea 
                   rows={3} 
                   value={coverLetter} 
                   onChange={e => setCoverLetter(e.target.value)} 
-                  className="w-full bg-slate-50/50 hover:bg-slate-55 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold resize-none" 
+                  className="w-full bg-slate-50/50 hover:bg-slate-100 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold resize-none"
                   placeholder="Say hello or detail your fit..." 
                 />
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-                <button type="button" onClick={() => setIsApplyOpen(false)} className="bg-white hover:bg-slate-55 border border-slate-200 text-slate-650 hover:text-slate-800 font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all">Cancel</button>
-                <button type="submit" disabled={isSubmittingApp} className="bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all shadow-sm">
+                <button type="button" onClick={() => setIsApplyOpen(false)} className="bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 hover:text-slate-800 font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-colors transition-transform">Cancel</button>
+                <button type="submit" disabled={isSubmittingApp} className="bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-colors transition-transform shadow-sm">
                   {isSubmittingApp ? 'Submitting…' : 'Submit Application'}
                 </button>
               </div>

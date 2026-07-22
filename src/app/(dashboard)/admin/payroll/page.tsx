@@ -125,7 +125,7 @@ export default function AdminPayrollPage() {
           <button
             onClick={handleReleaseMonthlyFunds}
             disabled={isReleasing || payroll.length === 0}
-            className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-4 py-2.5 md:py-2 rounded-lg font-semibold transition-colors shadow-sm active:scale-97 duration-150 flex items-center gap-1.5 text-sm min-h-[44px] md:min-h-0 self-start md:self-auto"
+            className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-4 py-2.5 md:py-2 rounded-lg font-semibold transition-colors shadow-sm active:scale-97 duration-200 flex items-center gap-1.5 text-sm min-h-[44px] md:min-h-0 self-start md:self-auto"
           >
             <CheckCircle2 className="h-4 w-4" />
             {isReleasing ? 'Releasing…' : 'Release Monthly Funds'}
@@ -147,7 +147,7 @@ export default function AdminPayrollPage() {
                 <p className="text-xl md:text-2xl font-bold text-slate-900 mt-2">{formatMoney(grandNetUSD, 'USA')}</p>
                 <p className="text-xs md:text-sm font-semibold text-slate-500 mt-1">{formatMoney(grandNetPKR, 'Pakistan')}</p>
               </div>
-              <div className="h-11 w-11 md:h-12 md:w-12 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
+              <div className="h-11 w-11 md:h-12 md:w-12 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
                 <DollarSign className="h-5 w-5 md:h-6 md:w-6" />
               </div>
             </div>
@@ -161,7 +161,7 @@ export default function AdminPayrollPage() {
                 <p className="text-xl md:text-2xl font-bold text-slate-900 mt-2">{formatMoney(grandBonusesUSD, 'USA')}</p>
                 <p className="text-xs md:text-sm font-semibold text-slate-500 mt-1">{formatMoney(grandBonusesPKR, 'Pakistan')}</p>
               </div>
-              <div className="h-11 w-11 md:h-12 md:w-12 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-orange-650">
+              <div className="h-11 w-11 md:h-12 md:w-12 rounded-xl bg-orange-50 flex items-center justify-center text-orange-600">
                 <TrendingUp className="h-5 w-5 md:h-6 md:w-6" />
               </div>
             </div>
@@ -205,7 +205,7 @@ export default function AdminPayrollPage() {
               {summaries.map(s => (
                 <tr key={s.department} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4 font-semibold text-slate-900">{s.department}</td>
-                  <td className="px-6 py-4 text-center font-semibold text-slate-550">{s.headcount}</td>
+                  <td className="px-6 py-4 text-center font-semibold text-slate-600">{s.headcount}</td>
                   <td className="px-6 py-4 text-right text-slate-900 font-medium">
                     {s.totalBaseUSD > 0 && <div>{formatMoney(s.totalBaseUSD, 'USA')}</div>}
                     {s.totalBasePKR > 0 && <div>{formatMoney(s.totalBasePKR, 'Pakistan')}</div>}

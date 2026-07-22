@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { pushModal, popModal } from '@/lib/modalStack';
 
 interface ModalProps {
   isOpen: boolean;
@@ -11,7 +13,52 @@ interface ModalProps {
   className?: string;
 }
 
+// Closing should feel a beat quicker than opening (~10% shorter is the
+// standard modal convention) — see improve-animations plan 002.
+const EXIT_DURATION_MS = 180;
+
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setReduced(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setReduced(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return reduced;
+}
+
 export function Modal({ isOpen, onClose, title, children, className }: ModalProps) {
+  // Mount/exit state machine (plan 002) — Modal used to unmount instantly on
+  // close with no exit transition; this keeps it mounted for the exit
+  // animation's duration before actually unmounting.
+  const [shouldRender, setShouldRender] = useState(isOpen);
+  const [closing, setClosing] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reducedMotion = usePrefersReducedMotion();
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+      setClosing(false);
+      setShouldRender(true);
+    } else if (shouldRender) {
+      setClosing(true);
+      closeTimer.current = setTimeout(() => {
+        setShouldRender(false);
+        setClosing(false);
+      }, EXIT_DURATION_MS);
+    }
+    return () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -26,13 +73,23 @@ export function Modal({ isOpen, onClose, title, children, className }: ModalProp
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  // Registers with the shared modal-stack tracker so the mobile floating
+  // bottom nav (Sidebar.tsx) knows to hide itself — see lib/modalStack.ts
+  // for why this is necessary instead of relying on z-index alone.
+  useEffect(() => {
+    if (isOpen) {
+      pushModal();
+      return () => popModal();
+    }
+  }, [isOpen]);
 
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center md:justify-center p-0 md:p-4">
+  if (!shouldRender || !mounted || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex flex-col justify-end md:items-center md:justify-center p-0 md:p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-200"
+        className={`absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-200 ${closing ? 'opacity-0' : 'opacity-100'}`}
         onClick={onClose}
       />
 
@@ -40,15 +97,14 @@ export function Modal({ isOpen, onClose, title, children, className }: ModalProp
       <div
         className={`
           relative bg-white w-full shadow-2xl overflow-hidden
-          rounded-t-2xl md:rounded-xl
+          rounded-t-[32px] md:rounded-xl
           max-h-[92vh] md:max-h-[85vh]
           md:max-w-lg
           flex flex-col
+          ${closing ? 'md:animate-[exit-modal_180ms_ease-out_forwards] animate-[drawer-exit-bottom_180ms_ease-out_forwards]' : 'md:animate-[enter-modal_200ms_ease-out_forwards] animate-[drawer-in-bottom_320ms_ease-out_forwards]'}
           ${className || ''}
         `}
-        style={{
-          animation: 'enter-modal 200ms cubic-bezier(0.23, 1, 0.32, 1) forwards'
-        }}
+        style={reducedMotion ? { animation: 'none' } : undefined}
         role="dialog"
         aria-modal="true"
       >
@@ -69,10 +125,11 @@ export function Modal({ isOpen, onClose, title, children, className }: ModalProp
         </div>
 
         {/* Content — scrollable */}
-        <div className="px-5 py-4 overflow-y-auto flex-1">
+        <div className="px-5 py-4 pb-safe overflow-y-auto flex-1">
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

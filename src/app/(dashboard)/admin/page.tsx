@@ -6,9 +6,9 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { OrgCalendar } from '@/components/ui/OrgCalendar';
 import { TaskModal } from '@/components/ui/TaskModal';
-import { DollarSign, TrendingUp, Users, Clock, ClipboardList, CheckCircle2, AlertTriangle, PlusCircle } from 'lucide-react';
+import { DollarSign, TrendingUp, Users, Clock, ClipboardList, CheckCircle2, AlertTriangle, PlusCircle, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useProfiles, useLeaves, useTasks, useAnnouncements, useWarehouses, usePayroll, hrActions, formatMoney } from '@/lib/hrData';
+import { useProfiles, useLeaves, useTasks, useAnnouncements, useWarehouses, usePayroll, hrActions, formatMoney, Profile, displayName } from '@/lib/hrData';
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -16,6 +16,12 @@ export default function AdminDashboard() {
   const { data: leaves = [], refetch: refetchLeaves } = useLeaves();
   const { data: payrollRecords = [] } = usePayroll();
   const { data: tasks = [], refetch: refetchTasks } = useTasks();
+
+  // LeaveApplication only snapshots a fullName, not a live Profile reference.
+  const nameFor = (employeeName: string): string => {
+    const emp = employees.find((e: Profile) => e.fullName === employeeName);
+    return emp ? displayName(emp, 'admin') : employeeName;
+  };
   const [isTaskOpen, setIsTaskOpen] = useState(false);
 
   const { data: announcements = [], refetch: refetchAnnouncements } = useAnnouncements();
@@ -28,6 +34,8 @@ export default function AdminDashboard() {
   const [annTargetType, setAnnTargetType] = useState<'all' | 'usa' | 'pakistan' | 'warehouses'>('all');
   const [annSelectedWarehouses, setAnnSelectedWarehouses] = useState<string[]>([]);
   const [annSuccess, setAnnSuccess] = useState('');
+  const [isPostingAnnouncement, setIsPostingAnnouncement] = useState(false);
+  const [processingLeaveId, setProcessingLeaveId] = useState<string | null>(null);
 
   useEffect(() => {
     // Monthly screenshot retention sweep — no-ops if already checked this
@@ -37,38 +45,49 @@ export default function AdminDashboard() {
 
   const handleAnnouncementSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!annTitle.trim() || !annContent.trim()) return;
+    if (isPostingAnnouncement || !annTitle.trim() || !annContent.trim()) return;
 
-    const targetVal = annTargetType === 'warehouses' ? annSelectedWarehouses : annTargetType;
-    await hrActions.addAnnouncement(annTitle, annContent, targetVal, 'CEO Admin');
-    refetchAnnouncements();
-    setAnnSuccess('Announcement posted successfully!');
+    setIsPostingAnnouncement(true);
+    try {
+      const targetVal = annTargetType === 'warehouses' ? annSelectedWarehouses : annTargetType;
+      await hrActions.addAnnouncement(annTitle, annContent, targetVal, 'CEO Admin');
+      refetchAnnouncements();
+      setAnnSuccess('Announcement posted successfully!');
 
-    setTimeout(() => {
-      setIsAnnounceOpen(false);
-      setAnnTitle('');
-      setAnnContent('');
-      setAnnTargetType('all');
-      setAnnSelectedWarehouses([]);
-      setAnnSuccess('');
-    }, 1200);
+      setTimeout(() => {
+        setIsAnnounceOpen(false);
+        setAnnTitle('');
+        setAnnContent('');
+        setAnnTargetType('all');
+        setAnnSelectedWarehouses([]);
+        setAnnSuccess('');
+      }, 1200);
+    } finally {
+      setIsPostingAnnouncement(false);
+    }
   };
 
   const handleCEOAction = async (id: string, action: 'approve' | 'reject') => {
-    const nextStatus = action === 'approve' ? 'approved' : 'rejected';
+    if (processingLeaveId) return;
+    setProcessingLeaveId(id);
+    try {
+      const nextStatus = action === 'approve' ? 'approved' : 'rejected';
 
-    await hrActions.updateLeaveStatus(id, nextStatus);
+      await hrActions.updateLeaveStatus(id, nextStatus);
 
-    const l = leaves.find(lv => lv.id === id);
-    if (l) {
-      const emp = employees.find(e => e.fullName === l.employeeName);
-      if (emp) {
-        await hrActions.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was ${action === 'approve' ? 'approved' : 'rejected'} by CEO.`);
+      const l = leaves.find(lv => lv.id === id);
+      if (l) {
+        const emp = employees.find(e => e.fullName === l.employeeName);
+        if (emp) {
+          await hrActions.addNotification(emp.email, 'employee', `Your leave (${l.duration.split(' - ')[0]}) was ${action === 'approve' ? 'approved' : 'rejected'} by CEO.`);
+        }
+        await hrActions.addNotification('all', 'hr', `CEO ${action === 'approve' ? 'approved' : 'rejected'} leave for ${l.employeeName}.`);
       }
-      await hrActions.addNotification('all', 'hr', `CEO ${action === 'approve' ? 'approved' : 'rejected'} leave for ${l.employeeName}.`);
-    }
 
-    refetchLeaves();
+      refetchLeaves();
+    } finally {
+      setProcessingLeaveId(null);
+    }
   };
 
   // Derived stats — USA (USD) and Pakistan (PKR) salaries must never be
@@ -99,27 +118,31 @@ export default function AdminDashboard() {
         </div>
         <div className="flex flex-wrap gap-2">
           <button
+            onClick={() => router.push('/admin/tasks')}
+            className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs md:text-sm active:scale-97 transition-colors transition-transform transition-shadow min-h-[44px] md:min-h-0"
+          >
+            View All Tasks
+          </button>
+          <button
             onClick={() => setIsAnnounceOpen(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs md:text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm min-h-[44px] md:min-h-0"
+            className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs md:text-sm active:scale-97 transition-colors transition-transform transition-shadow flex items-center gap-1.5 min-h-[44px] md:min-h-0"
           >
             <PlusCircle className="h-4 w-4" /> Post Announcement
           </button>
           <button
             onClick={() => setIsTaskOpen(true)}
-            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs md:text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm min-h-[44px] md:min-h-0"
+            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs md:text-sm active:scale-97 transition-colors transition-transform transition-shadow flex items-center gap-1.5 shadow-sm min-h-[44px] md:min-h-0"
           >
             <ClipboardList className="h-4 w-4" /> Assign Task
-          </button>
-          <button
-            onClick={() => router.push('/admin/tasks')}
-            className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-xs md:text-sm active:scale-97 transition-all min-h-[44px] md:min-h-0"
-          >
-            View All Tasks
           </button>
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Stats — icon colors now semantically consistent: emerald=money,
+          indigo=people, amber=time-sensitive, rose=risk. The "Total
+          Employees" tile used to be an arbitrary Tailwind blue that matched
+          nothing else in the system; indigo is DESIGN.md's actual
+          documented secondary accent. */}
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         <Card>
           <CardContent className="pt-4 md:pt-5">
@@ -129,7 +152,7 @@ export default function AdminDashboard() {
                 <p className="text-sm md:text-lg font-bold text-slate-900 mt-1">{formatMoney(totalPayrollUSD, 'USA')}</p>
                 <p className="text-[10px] md:text-xs font-semibold text-slate-500">{formatMoney(totalPayrollPKR, 'Pakistan')}</p>
               </div>
-              <div className="h-10 w-10 md:h-11 md:w-11 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
+              <div className="h-10 w-10 md:h-11 md:w-11 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 shrink-0">
                 <DollarSign className="h-5 w-5" />
               </div>
             </div>
@@ -142,7 +165,7 @@ export default function AdminDashboard() {
                 <p className="text-[10px] md:text-xs font-semibold text-slate-500">Total Employees</p>
                 <p className="text-base md:text-2xl font-bold text-slate-900 mt-1">{employees.length}</p>
               </div>
-              <div className="h-10 w-10 md:h-11 md:w-11 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
+              <div className="h-10 w-10 md:h-11 md:w-11 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0">
                 <Users className="h-5 w-5" />
               </div>
             </div>
@@ -155,7 +178,7 @@ export default function AdminDashboard() {
                 <p className="text-[10px] md:text-xs font-semibold text-slate-500">Awaiting CEO Approval</p>
                 <p className="text-base md:text-2xl font-bold text-slate-900 mt-1">{hrApprovedLeaves.length}</p>
               </div>
-              <div className="h-10 w-10 md:h-11 md:w-11 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600">
+              <div className="h-10 w-10 md:h-11 md:w-11 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600 shrink-0">
                 <Clock className="h-5 w-5" />
               </div>
             </div>
@@ -169,7 +192,7 @@ export default function AdminDashboard() {
                 <p className="text-base md:text-2xl font-bold text-slate-900 mt-1">{highPriorityTasks}</p>
                 <p className="text-[10px] text-slate-400">{activeTasks} total active</p>
               </div>
-              <div className="h-10 w-10 md:h-11 md:w-11 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600">
+              <div className="h-10 w-10 md:h-11 md:w-11 rounded-xl bg-rose-50 flex items-center justify-center text-rose-600 shrink-0">
                 <AlertTriangle className="h-5 w-5" />
               </div>
             </div>
@@ -177,52 +200,13 @@ export default function AdminDashboard() {
         </Card>
       </div>
 
-      {/* Org Calendar */}
-      <Card className="p-0">
-        <div className="px-4 md:px-6 pt-5 pb-2 border-b border-slate-100">
-          <h2 className="text-sm md:text-base font-bold text-slate-900">Organisation Calendar</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Leave schedules, task deadlines, and conflict indicators across all departments.</p>
-        </div>
-        <div className="p-4 md:p-6">
-          <OrgCalendar leaves={leaves as any} tasks={tasks as any} employees={employees} />
-        </div>
-      </Card>
-
-      {/* Announcements Panel */}
-      <Card className="p-0">
-        <div className="px-4 md:px-6 pt-5 pb-2 border-b border-slate-100 flex justify-between items-center">
-          <div>
-            <h2 className="text-sm md:text-base font-bold text-slate-900">Recent Announcements</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Corporate updates and targeted broadcast messages.</p>
-          </div>
-        </div>
-        <CardContent className="p-4 md:p-6 space-y-4">
-          {announcements.map(ann => (
-            <div key={ann.id} className="p-4 rounded-xl border border-slate-150 bg-slate-50/50 flex flex-col justify-between">
-              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-bold text-slate-900 text-sm">{ann.title}</h4>
-                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">{ann.content}</p>
-                </div>
-                <Badge variant={ann.target === 'all' ? 'default' : 'warning'} className="self-start shrink-0">
-                  Target: {Array.isArray(ann.target) 
-                    ? `Warehouses (${ann.target.map((tId: string) => warehouses.find(w => w.id === tId)?.name || tId).join(', ')})`
-                    : ann.target.toUpperCase()}
-                </Badge>
-              </div>
-              <div className="flex justify-between items-center text-[10px] text-slate-400 font-bold mt-3 pt-2 border-t border-slate-100">
-                <span>By {ann.createdBy}</span>
-                <span>{ann.timestamp}</span>
-              </div>
-            </div>
-          ))}
-          {announcements.length === 0 && (
-            <p className="text-xs text-slate-400 font-semibold italic text-center py-4">No announcements posted yet.</p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* CEO Leave Approval Queue */}
+      {/* CEO Leave Approval Queue — moved up to directly follow the stats.
+          This is the one thing on this page that actually requires the
+          CEO/Admin to DO something; it used to be the last section on the
+          page, below two purely informational widgets (calendar,
+          announcements), which buries the actionable item under passive
+          content — the same "primary action demoted below status noise"
+          problem fixed on the Employee dashboard. */}
       <div className="space-y-3">
         <h2 className="text-sm md:text-base font-bold text-slate-900 flex items-center gap-2">
           Pending CEO Approval
@@ -235,7 +219,7 @@ export default function AdminDashboard() {
           {/* Desktop table */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm text-left border-collapse">
-              <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
+              <thead className="text-xs font-bold text-slate-600 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-4">Employee</th>
                   <th className="px-6 py-4">Type</th>
@@ -247,17 +231,17 @@ export default function AdminDashboard() {
               <tbody className="divide-y divide-slate-200">
                 {hrApprovedLeaves.map(l => (
                   <tr key={l.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4 font-semibold text-slate-900">{l.employeeName}</td>
+                    <td className="px-6 py-4 font-semibold text-slate-900">{nameFor(l.employeeName)}</td>
                     <td className="px-6 py-4">{l.type}</td>
                     <td className="px-6 py-4 text-slate-600 font-medium">{l.duration}</td>
                     <td className="px-6 py-4 text-slate-500 max-w-xs truncate">{l.reason}</td>
                     <td className="px-6 py-4 text-center">
                       <div className="flex justify-center gap-2">
-                        <button onClick={() => handleCEOAction(l.id, 'approve')} className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded transition-all active:scale-97">
-                          CEO Approve
+                        <button onClick={() => handleCEOAction(l.id, 'approve')} disabled={processingLeaveId !== null} className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded transition-colors transition-transform transition-shadow active:scale-97 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1">
+                          {processingLeaveId === l.id && <Loader2 className="h-3 w-3 animate-spin" />} CEO Approve
                         </button>
-                        <button onClick={() => handleCEOAction(l.id, 'reject')} className="text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded transition-all active:scale-97">
-                          Reject
+                        <button onClick={() => handleCEOAction(l.id, 'reject')} disabled={processingLeaveId !== null} className="text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded transition-colors transition-transform transition-shadow active:scale-97 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1">
+                          {processingLeaveId === l.id && <Loader2 className="h-3 w-3 animate-spin" />} Reject
                         </button>
                       </div>
                     </td>
@@ -283,8 +267,8 @@ export default function AdminDashboard() {
                 {hrApprovedLeaves.map(l => (
                   <div key={l.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
                     <div className="flex items-center justify-between">
-                      <p className="text-sm font-bold text-slate-900">{l.employeeName}</p>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">{l.type}</span>
+                      <p className="text-sm font-bold text-slate-900">{nameFor(l.employeeName)}</p>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">{l.type}</span>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
@@ -297,11 +281,11 @@ export default function AdminDashboard() {
                       </div>
                     </div>
                     <div className="flex gap-2 pt-1">
-                      <button onClick={() => handleCEOAction(l.id, 'approve')} className="flex-1 text-xs font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 py-2.5 rounded-lg transition-all active:scale-97">
-                        CEO Approve
+                      <button onClick={() => handleCEOAction(l.id, 'approve')} disabled={processingLeaveId !== null} className="flex-1 text-xs font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 py-2.5 rounded-lg transition-colors transition-transform transition-shadow active:scale-97 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1">
+                        {processingLeaveId === l.id && <Loader2 className="h-3 w-3 animate-spin" />} CEO Approve
                       </button>
-                      <button onClick={() => handleCEOAction(l.id, 'reject')} className="flex-1 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 py-2.5 rounded-lg transition-all active:scale-97">
-                        Reject
+                      <button onClick={() => handleCEOAction(l.id, 'reject')} disabled={processingLeaveId !== null} className="flex-1 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 py-2.5 rounded-lg transition-colors transition-transform transition-shadow active:scale-97 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1">
+                        {processingLeaveId === l.id && <Loader2 className="h-3 w-3 animate-spin" />} Reject
                       </button>
                     </div>
                   </div>
@@ -311,6 +295,52 @@ export default function AdminDashboard() {
           </div>
         </Card>
       </div>
+
+      {/* Org Calendar */}
+      <Card className="p-0">
+        <div className="px-4 md:px-6 pt-5 pb-2 border-b border-slate-100">
+          <h2 className="text-sm md:text-base font-bold text-slate-900">Organisation Calendar</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Leave schedules, task deadlines, and conflict indicators across all departments.</p>
+        </div>
+        <div className="p-4 md:p-6">
+          <OrgCalendar leaves={leaves as any} tasks={tasks as any} employees={employees} />
+        </div>
+      </Card>
+
+      {/* Announcements Panel — rows are a plain divided list now, not each
+          wrapped in its own nested bordered/tinted box inside the Card. */}
+      <Card className="p-0">
+        <div className="px-4 md:px-6 pt-5 pb-2 border-b border-slate-100 flex justify-between items-center">
+          <div>
+            <h2 className="text-sm md:text-base font-bold text-slate-900">Recent Announcements</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Corporate updates and targeted broadcast messages.</p>
+          </div>
+        </div>
+        <CardContent className="p-0 divide-y divide-slate-100">
+          {announcements.map(ann => (
+            <div key={ann.id} className="p-4 md:px-6 flex flex-col justify-between">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-bold text-slate-900 text-sm">{ann.title}</h4>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">{ann.content}</p>
+                </div>
+                <Badge variant={ann.target === 'all' ? 'default' : 'warning'} className="self-start shrink-0">
+                  Target: {Array.isArray(ann.target)
+                    ? `Warehouses (${ann.target.map((tId: string) => warehouses.find(w => w.id === tId)?.name || tId).join(', ')})`
+                    : ann.target.toUpperCase()}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center text-[10px] text-slate-400 font-bold mt-3 pt-2 border-t border-slate-100">
+                <span>By {ann.createdBy}</span>
+                <span>{ann.timestamp}</span>
+              </div>
+            </div>
+          ))}
+          {announcements.length === 0 && (
+            <p className="text-xs text-slate-400 font-semibold italic text-center py-4">No announcements posted yet.</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Announcement Modal */}
       <Modal isOpen={isAnnounceOpen} onClose={() => setIsAnnounceOpen(false)} title="Create New Announcement">
@@ -328,7 +358,7 @@ export default function AdminDashboard() {
               required 
               value={annTitle} 
               onChange={e => setAnnTitle(e.target.value)} 
-              className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+              className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors transition-transform transition-shadow focus:ring-2 focus:ring-orange-100 font-semibold" 
               placeholder="e.g. System Maintenance Notice" 
             />
           </div>
@@ -340,7 +370,7 @@ export default function AdminDashboard() {
               rows={4} 
               value={annContent} 
               onChange={e => setAnnContent(e.target.value)} 
-              className="w-full bg-slate-50/50 hover:bg-slate-55 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold resize-none" 
+              className="w-full bg-slate-50/50 hover:bg-slate-100 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors transition-transform transition-shadow focus:ring-2 focus:ring-orange-100 font-semibold resize-none" 
               placeholder="Type announcement details here..." 
             />
           </div>
@@ -350,7 +380,7 @@ export default function AdminDashboard() {
             <select
               value={annTargetType}
               onChange={e => setAnnTargetType(e.target.value as any)}
-              className="w-full bg-slate-50/50 hover:bg-slate-55 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer"
+              className="w-full bg-slate-50/50 hover:bg-slate-100 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors transition-transform transition-shadow focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer"
             >
               <option value="all">All Employees</option>
               <option value="usa">USA Employees Only</option>
@@ -385,8 +415,11 @@ export default function AdminDashboard() {
           )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-            <button type="button" onClick={() => setIsAnnounceOpen(false)} className="bg-white hover:bg-slate-55 border border-slate-200 text-slate-655 hover:text-slate-800 font-bold px-4 py-2.5 md:py-2 rounded-xl text-xs active:scale-97 transition-all">Cancel</button>
-            <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2.5 md:py-2 rounded-xl text-xs active:scale-97 transition-all shadow-sm">Post Announcement</button>
+            <button type="button" disabled={isPostingAnnouncement} onClick={() => setIsAnnounceOpen(false)} className="bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 hover:text-slate-800 font-bold px-4 py-2.5 md:py-2 rounded-xl text-xs active:scale-97 transition-colors transition-transform transition-shadow disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
+            <button type="submit" disabled={isPostingAnnouncement} className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2.5 md:py-2 rounded-xl text-xs active:scale-97 transition-colors transition-transform transition-shadow shadow-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5">
+              {isPostingAnnouncement && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {isPostingAnnouncement ? 'Posting…' : 'Post Announcement'}
+            </button>
           </div>
         </form>
       </Modal>

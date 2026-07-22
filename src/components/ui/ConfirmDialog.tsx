@@ -13,6 +13,7 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   variant?: 'danger' | 'warning';
   requireTextMatch?: string; // if set, user must type this exact text to enable confirm
+  loading?: boolean; // when true, disables both buttons so a rapid double-click/tap can't fire onConfirm twice
 }
 
 export function ConfirmDialog({
@@ -25,6 +26,7 @@ export function ConfirmDialog({
   cancelLabel = 'Cancel',
   variant = 'danger',
   requireTextMatch,
+  loading = false,
 }: ConfirmDialogProps) {
   const [typedText, setTypedText] = React.useState('');
 
@@ -34,7 +36,7 @@ export function ConfirmDialog({
 
   if (!isOpen) return null;
 
-  const isConfirmDisabled = !!requireTextMatch && typedText.trim() !== requireTextMatch;
+  const isConfirmDisabled = loading || (!!requireTextMatch && typedText.trim() !== requireTextMatch);
 
   const colors = variant === 'danger'
     ? { icon: 'text-rose-600', iconBg: 'bg-rose-50 border-rose-100', button: 'bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300' }
@@ -44,7 +46,7 @@ export function ConfirmDialog({
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} />
       <div
-        className="relative bg-white rounded-2xl p-6 shadow-2xl max-w-sm w-full border border-slate-200 space-y-4"
+        className="relative bg-white rounded-xl p-6 shadow-2xl max-w-sm w-full space-y-4"
         role="alertdialog"
         aria-modal="true"
       >
@@ -76,7 +78,8 @@ export function ConfirmDialog({
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97"
+            disabled={loading}
+            className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-colors transition-transform transition-shadow active:scale-97 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {cancelLabel}
           </button>
@@ -84,7 +87,7 @@ export function ConfirmDialog({
             type="button"
             disabled={isConfirmDisabled}
             onClick={onConfirm}
-            className={`flex-1 text-white font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97 disabled:cursor-not-allowed ${colors.button}`}
+            className={`flex-1 text-white font-bold py-2.5 rounded-xl text-xs transition-colors transition-transform transition-shadow active:scale-97 disabled:cursor-not-allowed ${colors.button}`}
           >
             {confirmLabel}
           </button>

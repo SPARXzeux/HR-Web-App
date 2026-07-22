@@ -15,7 +15,7 @@ export default function Home() {
         </div>
         <Link 
           href="/auth"
-          className="shrink-0 text-[10px] sm:text-xs font-bold text-white bg-orange-600 hover:bg-orange-700 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl transition-all shadow-sm shadow-orange-600/10 active:scale-97 whitespace-nowrap"
+          className="shrink-0 text-[10px] sm:text-xs font-bold text-white bg-orange-600 hover:bg-orange-700 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl transition-colors transition-transform shadow-sm shadow-orange-600/10 active:scale-97 whitespace-nowrap"
         >
           <span className="hidden sm:inline">Sign In to Employee Portal</span><span className="sm:inline md:hidden">Sign In</span> →
         </Link>

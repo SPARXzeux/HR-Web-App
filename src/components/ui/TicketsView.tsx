@@ -4,10 +4,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { useProfiles, useTickets, hrActions, Ticket, Profile, markTicketActivitySeen } from '@/lib/hrData';
+import { useProfiles, useTickets, hrActions, Ticket, TicketPresence, Profile, markTicketActivitySeen, displayName } from '@/lib/hrData';
 import { getSessionEmail } from '@/lib/session';
 import { compressImageToWebP, validatePdfSize, fileToDataUrl, MAX_DOCUMENT_IMAGE_BYTES } from '@/lib/imageCompressor';
-import { HelpCircle, Plus, Send, Lock, RotateCcw, User, Mail, Calendar, Briefcase, Users, Eye, CheckCircle2, AlertCircle, Paperclip, X, FileText, Download } from 'lucide-react';
+import { HelpCircle, Plus, Send, Lock, RotateCcw, User, Mail, Calendar, Briefcase, Users, Eye, CheckCircle2, AlertCircle, Paperclip, X, FileText, Download, Headset, Loader2, ArrowLeft } from 'lucide-react';
+import { Avatar } from '@/components/ui/Avatar';
+import { ImageLightbox } from '@/components/ui/ImageLightbox';
 
 // Converts an uploaded attachment File to a storable data URL: images are
 // compressed to WebP (max 3 MB), PDFs are stored as-is after a size check
@@ -52,6 +54,28 @@ export function TicketsView({ role }: TicketsViewProps) {
   // Modals
   const [isNewOpen, setIsNewOpen] = useState(false);
   const [inspectEmployee, setInspectEmployee] = useState<Profile | null>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxName, setLightboxName] = useState<string | undefined>(undefined);
+
+  const isPrivileged = role === 'hr' || role === 'admin';
+
+  // Ticket/reply records only ever snapshot a name string (employeeName /
+  // senderName), not a live Profile reference, so resolving an alias for
+  // HR/Admin viewers needs a lookup against the current employees list —
+  // falls back to the raw snapshot if no match is found (e.g. a deleted
+  // employee, or one of the "HR Manager"/"System Admin" fallback labels).
+  const nameFor = (name: string): string => {
+    if (!isPrivileged) return name;
+    const emp = employees.find(e => e.fullName === name);
+    return emp ? displayName(emp, role as 'hr' | 'admin') : name;
+  };
+
+  // Same snapshot-name lookup as nameFor(), but returns the matched profile
+  // itself so the description/reply avatars below can show the sender's
+  // real photo instead of a bare initials circle — that was the actual gap
+  // here, not a rendering bug: these avatars never pulled from a Profile at
+  // all before this.
+  const profileFor = (name: string): Profile | undefined => employees.find(e => e.fullName === name);
 
   // Form states
   const [title, setTitle] = useState('');
@@ -65,6 +89,8 @@ export function TicketsView({ role }: TicketsViewProps) {
   const [replyFile, setReplyFile] = useState<File | null>(null);
   const [replyFileError, setReplyFileError] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
+  const [isOpeningTicket, setIsOpeningTicket] = useState(false);
+  const [updatingTicketStatusId, setUpdatingTicketStatusId] = useState<string | null>(null);
   const newTicketFileInputRef = useRef<HTMLInputElement>(null);
   const replyFileInputRef = useRef<HTMLInputElement>(null);
   const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -122,6 +148,48 @@ export function TicketsView({ role }: TicketsViewProps) {
     hrActions.checkTicketAttachmentRetention().then(() => refetchTickets());
   }, []);
 
+  // HR side: heartbeat "I have this ticket open" while it's selected, so
+  // the employee's view can show a Live badge (see TicketPresence in
+  // hrData.ts). Only HR heartbeats here — Admin is read-only on tickets and
+  // isn't the one actually chatting with the employee. Clears the presence
+  // row on cleanup (switching tickets, closing the ticket, or leaving the
+  // page) so the badge disappears promptly rather than waiting out the
+  // staleness window.
+  useEffect(() => {
+    if (role !== 'hr' || !selectedTicket || selectedTicket.status === 'closed') return;
+    const ticketId = selectedTicket.id;
+    const email = currentEmail;
+    const beat = () => hrActions.touchTicketPresence(ticketId, email, role);
+    beat();
+    const interval = setInterval(beat, 8000);
+    return () => {
+      clearInterval(interval);
+      hrActions.clearTicketPresence(ticketId);
+    };
+  }, [role, selectedTicket?.id, selectedTicket?.status, currentEmail]);
+
+  // Employee/team-lead side: poll every ticket's live presence so the
+  // conversation panel (and the ticket list) can show a "Live — HR is
+  // chatting" badge. Cheap best-effort polling (no realtime channel in this
+  // app — see TicketPresence's doc comment).
+  const [ticketPresences, setTicketPresences] = useState<TicketPresence[]>([]);
+  useEffect(() => {
+    if (role !== 'employee' && role !== 'team_lead') return;
+    let cancelled = false;
+    const poll = async () => {
+      const all = await hrActions.getAllTicketPresences();
+      if (!cancelled) setTicketPresences(all);
+    };
+    poll();
+    const interval = setInterval(poll, 8000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [role]);
+
+  const isTicketLiveWithHR = (ticketId: string): boolean => {
+    const presence = ticketPresences.find(entry => entry.ticketId === ticketId && entry.role === 'hr');
+    return hrActions.isTicketPresenceLive(presence);
+  };
+
   const handleNewTicketFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -140,45 +208,50 @@ export function TicketsView({ role }: TicketsViewProps) {
 
   const handleOpenTicket = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !desc || !userProfile) return;
+    if (isOpeningTicket || !title || !desc || !userProfile) return;
     setNewTicketFileError('');
 
-    let attachment: { data: string; error: string | null } | null = null;
-    if (newTicketFile) {
-      attachment = await fileToStoredAttachment(newTicketFile);
-      if (attachment.error) { setNewTicketFileError(attachment.error); return; }
-    }
+    setIsOpeningTicket(true);
+    try {
+      let attachment: { data: string; error: string | null } | null = null;
+      if (newTicketFile) {
+        attachment = await fileToStoredAttachment(newTicketFile);
+        if (attachment.error) { setNewTicketFileError(attachment.error); return; }
+      }
 
-    const created = await hrActions.createTicket({
-      employeeName: userProfile.fullName,
-      employeeEmail: userProfile.email,
-      title,
-      description: desc,
-    });
-
-    // hr_tickets has no attachment column, so a file selected at filing time
-    // is attached as an immediate follow-up reply on the freshly created
-    // ticket instead (see createTicket's comment in hrData.ts).
-    if (attachment && !attachment.error) {
-      await hrActions.addTicketReply(created, {
-        senderName: userProfile.fullName,
-        senderRole: role,
-        message: '',
-        attachmentName: newTicketFile!.name,
-        attachmentUrl: attachment.data,
-        attachmentSize: newTicketFile!.size,
+      const created = await hrActions.createTicket({
+        employeeName: userProfile.fullName,
+        employeeEmail: userProfile.email,
+        title,
+        description: desc,
       });
-    }
 
-    refetchTickets();
-    setSuccess('Support ticket opened successfully!');
-    setTimeout(() => {
-      setIsNewOpen(false);
-      setTitle('');
-      setDesc('');
-      setNewTicketFile(null);
-      setSuccess('');
-    }, 1200);
+      // hr_tickets has no attachment column, so a file selected at filing time
+      // is attached as an immediate follow-up reply on the freshly created
+      // ticket instead (see createTicket's comment in hrData.ts).
+      if (attachment && !attachment.error) {
+        await hrActions.addTicketReply(created, {
+          senderName: userProfile.fullName,
+          senderRole: role,
+          message: '',
+          attachmentName: newTicketFile!.name,
+          attachmentUrl: attachment.data,
+          attachmentSize: newTicketFile!.size,
+        });
+      }
+
+      refetchTickets();
+      setSuccess('Support ticket opened successfully!');
+      setTimeout(() => {
+        setIsNewOpen(false);
+        setTitle('');
+        setDesc('');
+        setNewTicketFile(null);
+        setSuccess('');
+      }, 1200);
+    } finally {
+      setIsOpeningTicket(false);
+    }
   };
 
   // Shared by both the form's onSubmit and the textarea's Enter-to-send
@@ -219,19 +292,31 @@ export function TicketsView({ role }: TicketsViewProps) {
   };
 
   const handleCloseTicket = async (id: string) => {
+    if (updatingTicketStatusId) return;
     if (!window.confirm('Are you sure you want to mark this support ticket as closed?')) return;
     const ticket = tickets.find(t => t.id === id) || selectedTicket;
     if (!ticket) return;
-    await hrActions.updateTicketStatus(ticket, 'closed');
-    refetchTickets();
+    setUpdatingTicketStatusId(id);
+    try {
+      await hrActions.updateTicketStatus(ticket, 'closed');
+      refetchTickets();
+    } finally {
+      setUpdatingTicketStatusId(null);
+    }
   };
 
   const handleReopenTicket = async (id: string) => {
+    if (updatingTicketStatusId) return;
     if (!window.confirm('Are you sure you want to re-open this ticket?')) return;
     const ticket = tickets.find(t => t.id === id) || selectedTicket;
     if (!ticket) return;
-    await hrActions.updateTicketStatus(ticket, 'open');
-    refetchTickets();
+    setUpdatingTicketStatusId(id);
+    try {
+      await hrActions.updateTicketStatus(ticket, 'open');
+      refetchTickets();
+    } finally {
+      setUpdatingTicketStatusId(null);
+    }
   };
 
   const handleInspectApplicant = (email: string) => {
@@ -254,7 +339,7 @@ export function TicketsView({ role }: TicketsViewProps) {
         {isEmp && (
           <button
             onClick={() => setIsNewOpen(true)}
-            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform flex items-center gap-1.5 shadow-sm"
           >
             <Plus className="h-4.5 w-4.5" /> File a Ticket
           </button>
@@ -263,7 +348,7 @@ export function TicketsView({ role }: TicketsViewProps) {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Tickets List */}
-        <div className="lg:col-span-5 space-y-3">
+        <div className={`lg:col-span-5 space-y-3 ${selectedTicket ? 'hidden lg:block' : 'block'}`}>
           <h3 className="font-bold text-xs text-slate-500 uppercase tracking-wider">Active Tickets ({tickets.length})</h3>
           <div className="space-y-2 max-h-[550px] overflow-y-auto pr-1">
             {tickets.map(t => {
@@ -272,19 +357,26 @@ export function TicketsView({ role }: TicketsViewProps) {
                 <Card
                   key={t.id}
                   onClick={() => setSelectedTicket(t)}
-                  className={`border transition-all cursor-pointer p-4 ${
+                  className={`border transition-colors cursor-pointer p-4 ${
                     active ? 'border-orange-500 bg-orange-50/20' : 'border-slate-200 bg-white hover:border-slate-300'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <span className="font-bold text-slate-900 text-sm line-clamp-1">{t.title}</span>
+                    <span className="font-bold text-slate-900 text-sm line-clamp-1 flex items-center gap-1.5">
+                      {t.title}
+                      {isEmp && isTicketLiveWithHR(t.id) && (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full shrink-0">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> LIVE
+                        </span>
+                      )}
+                    </span>
                     <Badge variant={t.status === 'open' ? 'warning' : 'success'}>
                       {t.status === 'open' ? 'Open' : 'Closed'}
                     </Badge>
                   </div>
                   <p className="text-xs text-slate-500 line-clamp-1 mb-2">{t.description}</p>
                   <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold">
-                    <span>👤 {t.employeeName}</span>
+                    <span className="flex items-center gap-1"><User className="h-3 w-3" /> {nameFor(t.employeeName)}</span>
                     <span>{t.createdAt}</span>
                   </div>
                 </Card>
@@ -299,71 +391,84 @@ export function TicketsView({ role }: TicketsViewProps) {
         </div>
 
         {/* Conversation Chat Panel */}
-        <div className="lg:col-span-7">
+        <div className={`lg:col-span-7 ${!selectedTicket ? 'hidden lg:block' : 'block fixed inset-x-0 top-0 bottom-[64px] z-40 bg-white lg:static lg:z-auto lg:bg-transparent'}`}>
           {selectedTicket ? (
-            <Card className="border border-slate-200 overflow-hidden flex flex-col min-h-[480px]">
+            <div className="border-0 lg:border border-slate-200 overflow-hidden flex flex-col h-full lg:h-[calc(100vh-220px)] min-h-[560px] lg:rounded-xl bg-white">
               {/* Header */}
-              <div className="px-5 py-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                    {selectedTicket.title}
+              <div className="px-3.5 lg:px-5 py-2.5 lg:py-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 md:gap-4">
+                <div className="flex items-start gap-2 flex-1 min-w-0 basis-full lg:basis-auto lg:items-center">
+                  <button onClick={() => setSelectedTicket(null)} className="lg:hidden h-8 w-8 shrink-0 flex items-center justify-center rounded-lg bg-slate-200 text-slate-600 hover:bg-slate-300">
+                    <ArrowLeft className="h-5 w-5" />
+                  </button>
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2 truncate">
+                    <span className="truncate">{selectedTicket.title}</span>
+                    {isEmp && isTicketLiveWithHR(selectedTicket.id) && (
+                      <span className="inline-flex shrink-0 items-center gap-1 text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                        <Headset className="h-3 w-3" /> Live
+                      </span>
+                    )}
                   </h3>
-                  <div className="text-[10px] text-slate-550 font-bold mt-0.5 flex items-center gap-1.5">
-                    <span>Opened by:</span>
-                    <button 
+                  <div className="text-[10px] text-slate-600 font-bold mt-0.5 flex items-center gap-1.5 min-w-0">
+                    <span className="shrink-0 whitespace-nowrap">Opened by:</span>
+                    <button
                       onClick={() => handleInspectApplicant(selectedTicket.employeeEmail)}
-                      className="text-orange-700 hover:underline flex items-center gap-0.5"
+                      className="text-orange-700 hover:underline flex items-center gap-0.5 min-w-0"
                     >
-                      {selectedTicket.employeeName} ({selectedTicket.employeeEmail}) <Eye className="h-3 w-3 inline" />
+                      <span className="truncate">{nameFor(selectedTicket.employeeName)} ({selectedTicket.employeeEmail})</span>
+                      <Eye className="h-3 w-3 shrink-0" />
                     </button>
                   </div>
                 </div>
+                </div>
 
                 {/* Operations */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0 ml-10 lg:ml-0">
                   {isHR && !isClosed && (
                     <button
                       onClick={() => handleCloseTicket(selectedTicket.id)}
-                      className="text-xs font-semibold bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 px-3 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1"
+                      disabled={updatingTicketStatusId === selectedTicket.id}
+                      title="Close Ticket"
+                      className="h-8 w-8 lg:w-auto lg:px-3 lg:py-1.5 text-xs font-semibold bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 rounded-lg active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <Lock className="h-3.5 w-3.5" /> Close Ticket
+                      {updatingTicketStatusId === selectedTicket.id ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" /> : <Lock className="h-3.5 w-3.5 shrink-0" />}
+                      <span className="hidden lg:inline">Close Ticket</span>
                     </button>
                   )}
                   {isHR && isClosed && (
                     <button
                       onClick={() => handleReopenTicket(selectedTicket.id)}
-                      className="text-xs font-semibold bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-lg active:scale-97 transition-all flex items-center gap-1"
+                      disabled={updatingTicketStatusId === selectedTicket.id}
+                      title="Re-open Ticket"
+                      className="h-8 w-8 lg:w-auto lg:px-3 lg:py-1.5 text-xs font-semibold bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <RotateCcw className="h-3.5 w-3.5" /> Re-open Ticket
+                      {updatingTicketStatusId === selectedTicket.id ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" /> : <RotateCcw className="h-3.5 w-3.5 shrink-0" />}
+                      <span className="hidden lg:inline">Re-open Ticket</span>
                     </button>
                   )}
                   {isClosed && !isHR && (
-                    <span className="text-[10px] font-bold text-rose-800 bg-rose-50 border border-rose-200 px-2 py-1 rounded-full uppercase tracking-wider">
-                      🔒 CLOSED BY HR
+                    <span className="text-[10px] font-bold text-rose-800 bg-rose-50 border border-rose-200 px-2 py-1 rounded-full uppercase tracking-wider flex items-center gap-1">
+                      <Lock className="h-3 w-3" /> Closed by HR
                     </span>
                   )}
                 </div>
               </div>
 
               {/* Chat replies log */}
-              <div className="flex-1 p-5 space-y-4 max-h-[300px] overflow-y-auto bg-slate-50/30">
+              <div className="flex-1 min-h-0 p-5 space-y-4 overflow-y-auto bg-slate-50/30">
                 {/* Employee Description */}
                 {(() => {
                   const isAuthorSelf = role === 'employee' || role === 'team_lead';
                   return (
                     <div className={`flex items-start gap-2.5 max-w-[85%] ${isAuthorSelf ? 'ml-auto flex-row-reverse' : ''}`}>
-                      <div className={`h-7 w-7 rounded-full flex items-center justify-center font-bold text-xs uppercase flex-shrink-0 ${
-                        isAuthorSelf ? 'bg-orange-100 text-orange-700' : 'bg-slate-200 text-slate-700'
-                      }`}>
-                        {selectedTicket.employeeName[0]}
-                      </div>
+                      <Avatar src={profileFor(selectedTicket.employeeName)?.profilePicture} name={selectedTicket.employeeName} size={28} className="flex-shrink-0" />
                       <div className={`rounded-2xl p-3 shadow-sm text-xs ${
                         isAuthorSelf 
                           ? 'bg-orange-600 text-white rounded-tr-none' 
-                          : 'bg-white border border-slate-200 text-slate-850 rounded-tl-none'
+                          : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none'
                       }`}>
                         <p className={`font-bold text-[10px] mb-0.5 ${isAuthorSelf ? 'text-orange-200' : 'text-slate-500'}`}>
-                          {selectedTicket.employeeName} (Author)
+                          {nameFor(selectedTicket.employeeName)} (Author)
                         </p>
                         <p className="font-medium leading-relaxed">{selectedTicket.description}</p>
                         <span className={`block text-[9px] mt-1 text-right ${isAuthorSelf ? 'text-orange-200' : 'text-slate-400'}`}>
@@ -391,37 +496,39 @@ export function TicketsView({ role }: TicketsViewProps) {
                         isSenderSelf ? 'ml-auto flex-row-reverse' : ''
                       }`}
                     >
-                      <div className={`h-7 w-7 rounded-full flex items-center justify-center font-bold text-xs uppercase flex-shrink-0 ${
-                        isSenderSelf 
-                          ? 'bg-orange-100 text-orange-700' 
-                          : isAdminViewer && isHrSender
-                            ? 'bg-orange-200 text-orange-850 border border-orange-300'
-                            : 'bg-slate-200 text-slate-750'
-                      }`}>
-                        {rep.senderName[0]}
-                      </div>
+                      <Avatar src={profileFor(rep.senderName)?.profilePicture} name={rep.senderName} size={28} className="flex-shrink-0" />
                       <div className={`rounded-2xl p-3 shadow-sm text-xs ${
                         isSenderSelf 
                           ? 'bg-orange-600 text-white rounded-tr-none' 
                           : isAdminViewer && isHrSender
-                            ? 'bg-orange-50/80 border-2 border-orange-300/80 text-slate-850 rounded-tl-none shadow-orange-100/50'
-                            : 'bg-white border border-slate-200 text-slate-850 rounded-tl-none'
+                            ? 'bg-orange-50/80 border-2 border-orange-300/80 text-slate-800 rounded-tl-none shadow-orange-100/50'
+                            : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none'
                       }`}>
                         <p className={`font-bold text-[10px] mb-0.5 ${
                           isSenderSelf 
                             ? 'text-orange-200' 
                             : isAdminViewer && isHrSender 
                               ? 'text-orange-800' 
-                              : 'text-slate-550'
+                              : 'text-slate-600'
                         }`}>
-                          {rep.senderName} ({rep.senderRole.toUpperCase()}) {isAdminViewer && isHrSender && '★'}
+                          {nameFor(rep.senderName)} ({rep.senderRole.toUpperCase()}) {isAdminViewer && isHrSender && '★'}
                         </p>
                         {rep.message && <p className="font-medium leading-relaxed">{rep.message}</p>}
                         {rep.attachmentUrl && (
                           isImageAttachment(rep.attachmentName) ? (
-                            <a href={rep.attachmentUrl} target="_blank" rel="noreferrer" className={rep.message ? 'block mt-2' : 'block'}>
+                            // Opens in the in-app lightbox instead of
+                            // <a target="_blank"> — that used to hand the
+                            // base64 data: URL off to an external browser
+                            // intent, which on Android/Capacitor either
+                            // fails silently or opens a blank tab, since
+                            // there's no real document to navigate to.
+                            <button
+                              type="button"
+                              onClick={() => { setLightboxSrc(rep.attachmentUrl!); setLightboxName(rep.attachmentName); }}
+                              className={rep.message ? 'block mt-2' : 'block'}
+                            >
                               <img src={rep.attachmentUrl} alt={rep.attachmentName || 'attachment'} className="rounded-lg max-h-56 object-cover" />
-                            </a>
+                            </button>
                           ) : (
                             <a
                               href={rep.attachmentUrl}
@@ -451,7 +558,7 @@ export function TicketsView({ role }: TicketsViewProps) {
               </div>
 
               {/* Chat input bar */}
-              <div className="p-4 border-t border-slate-200 bg-white">
+              <div className="p-3 md:p-4 border-t border-slate-200 bg-white pb-safe">
                 {isClosed ? (
                   <div className="text-xs text-slate-400 font-semibold italic text-center py-2 bg-slate-50 border border-slate-100 rounded-lg flex items-center justify-center gap-1 flex-wrap">
                     <Lock className="h-3.5 w-3.5 shrink-0" /> This support ticket is closed and read-only.
@@ -460,8 +567,8 @@ export function TicketsView({ role }: TicketsViewProps) {
                     )}
                   </div>
                 ) : isAdmin ? (
-                  <div className="text-xs text-slate-400 font-semibold italic text-center py-2 bg-slate-50 border border-slate-100 rounded-lg">
-                    🔒 Admins can only view logs and history. Replies are disabled.
+                  <div className="text-xs text-slate-400 font-semibold italic text-center py-2 bg-slate-50 border border-slate-100 rounded-lg flex items-center justify-center gap-1.5">
+                    <Lock className="h-3.5 w-3.5 shrink-0" /> Admins can only view logs and history. Replies are disabled.
                   </div>
                 ) : (
                   <form onSubmit={handleSendReply} className="space-y-2">
@@ -478,34 +585,36 @@ export function TicketsView({ role }: TicketsViewProps) {
                         </button>
                       </div>
                     )}
-                    <div className="flex gap-2 items-end">
-                      <button
-                        type="button"
-                        onClick={() => replyFileInputRef.current?.click()}
+                    <div className="flex items-center gap-1.5 md:gap-2">
+                      <label
                         title="Attach a file"
-                        className="p-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 transition-all active:scale-95 shrink-0"
+                        className="h-8 w-8 md:h-9 md:w-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 transition-colors cursor-pointer shrink-0 flex items-center justify-center"
                       >
                         <Paperclip className="h-4 w-4" />
-                      </button>
-                      <input ref={replyFileInputRef} type="file" accept="image/*,application/pdf" onChange={handleReplyFileChange} className="hidden" />
-                      <textarea
-                        ref={replyTextareaRef}
-                        value={replyMsg}
-                        onChange={e => setReplyMsg(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            sendReply();
-                          }
-                        }}
-                        placeholder="Type your support message... (Shift+Enter for a new line)"
-                        rows={1}
-                        className="flex-1 bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs focus:border-orange-500 outline-none text-slate-900 resize-none max-h-28"
-                      />
+                        <input ref={replyFileInputRef} type="file" accept="image/*,application/pdf" onChange={handleReplyFileChange} className="hidden" />
+                      </label>
+                      
+                      <div className="flex-1 flex items-center bg-slate-50 border border-slate-200 rounded-3xl pr-2 md:pr-3">
+                        <textarea
+                          ref={replyTextareaRef}
+                          value={replyMsg}
+                          onChange={e => setReplyMsg(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              sendReply();
+                            }
+                          }}
+                          placeholder="Type your reply..."
+                          rows={1}
+                          className="flex-1 bg-transparent py-3 px-3 md:px-4 text-xs md:text-sm outline-none text-slate-900 resize-none max-h-28 min-h-[40px] w-full"
+                        />
+                      </div>
+
                       <button
                         type="submit"
                         disabled={(!replyMsg.trim() && !replyFile) || sendingReply}
-                        className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-semibold p-2.5 rounded-lg active:scale-97 transition-all flex items-center justify-center shadow-sm shrink-0"
+                        className="h-8 w-8 md:h-9 md:w-9 rounded-full bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-semibold active:scale-97 transition-colors transition-transform flex items-center justify-center shadow-sm shrink-0"
                       >
                         <Send className="h-4 w-4" />
                       </button>
@@ -513,7 +622,7 @@ export function TicketsView({ role }: TicketsViewProps) {
                   </form>
                 )}
               </div>
-            </Card>
+            </div>
           ) : (
             <div className="border-2 border-dashed border-slate-200 rounded-xl bg-white/50 py-32 text-center text-slate-400 font-semibold italic text-sm">
               Select a support ticket from the list to view history and chat logs.
@@ -532,17 +641,17 @@ export function TicketsView({ role }: TicketsViewProps) {
           )}
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Ticket Title / Topic *</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Ticket Title / Topic *</label>
             <input type="text" required value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900" placeholder="e.g. Salary discrepancy / System access issues" />
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Describe the Problem *</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Describe the Problem *</label>
             <textarea required rows={4} value={desc} onChange={e => setDesc(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm focus:border-orange-500 outline-none text-slate-900 resize-none" placeholder="Explain the situation in details so HR can assist you..." />
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Attachment (optional)</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Attachment (optional)</label>
             {newTicketFileError && (
               <div className="p-2 text-[10px] bg-rose-50 text-rose-600 border border-rose-100 rounded-lg font-semibold flex items-center gap-1.5">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />{newTicketFileError}
@@ -559,7 +668,7 @@ export function TicketsView({ role }: TicketsViewProps) {
               <button
                 type="button"
                 onClick={() => newTicketFileInputRef.current?.click()}
-                className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold bg-slate-50 hover:bg-slate-100 text-slate-600 px-3 py-2.5 rounded-lg transition-all border border-dashed border-slate-250 active:scale-97"
+                className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold bg-slate-50 hover:bg-slate-100 text-slate-600 px-3 py-2.5 rounded-lg transition-colors transition-transform border border-dashed border-slate-300 active:scale-97"
               >
                 <Paperclip className="h-3.5 w-3.5" /> Attach a screenshot or document
               </button>
@@ -568,8 +677,11 @@ export function TicketsView({ role }: TicketsViewProps) {
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-            <button type="button" onClick={() => { setIsNewOpen(false); setNewTicketFile(null); setNewTicketFileError(''); }} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
-            <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">File Ticket</button>
+            <button type="button" disabled={isOpeningTicket} onClick={() => { setIsNewOpen(false); setNewTicketFile(null); setNewTicketFileError(''); }} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
+            <button type="submit" disabled={isOpeningTicket} className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform shadow-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5">
+              {isOpeningTicket && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {isOpeningTicket ? 'Filing…' : 'File Ticket'}
+            </button>
           </div>
         </form>
       </Modal>
@@ -579,30 +691,39 @@ export function TicketsView({ role }: TicketsViewProps) {
         <Modal isOpen={true} onClose={() => setInspectEmployee(null)} title="Employee Profile Inspector">
           <div className="space-y-4">
             <div className="flex items-center gap-4 bg-slate-50 p-4 border border-slate-200 rounded-xl">
-              <div className="h-12 w-12 rounded-full bg-orange-100 flex items-center justify-center font-bold text-orange-700 text-sm">
-                {inspectEmployee.fullName.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase()}
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isPrivileged || !inspectEmployee.profilePicture) return;
+                  setLightboxSrc(inspectEmployee.profilePicture);
+                  setLightboxName(`${inspectEmployee.fullName}.jpg`);
+                }}
+                title={isPrivileged && inspectEmployee.profilePicture ? 'View full size' : undefined}
+                className={isPrivileged && inspectEmployee.profilePicture ? 'cursor-zoom-in' : 'cursor-default'}
+              >
+                <Avatar src={inspectEmployee.profilePicture} name={inspectEmployee.fullName} size={48} />
+              </button>
               <div>
-                <h4 className="font-bold text-slate-900 text-sm">{inspectEmployee.fullName}</h4>
+                <h4 className="font-bold text-slate-900 text-sm">{isPrivileged ? displayName(inspectEmployee, role as 'hr' | 'admin') : inspectEmployee.fullName}</h4>
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{inspectEmployee.jobTitle || inspectEmployee.role}</p>
               </div>
             </div>
 
             <div className="space-y-2.5 divide-y divide-slate-100 text-xs font-semibold">
               <div className="flex items-center justify-between py-2">
-                <span className="text-slate-450 uppercase text-[9px] tracking-wider">Email Address</span>
+                <span className="text-slate-400 uppercase text-[9px] tracking-wider">Email Address</span>
                 <span className="text-slate-800 font-medium">{inspectEmployee.email}</span>
               </div>
               <div className="flex items-center justify-between py-2">
-                <span className="text-slate-450 uppercase text-[9px] tracking-wider">Department Teams</span>
-                <span className="text-slate-850">{inspectEmployee.teams.join(', ') || 'No Team'}</span>
+                <span className="text-slate-400 uppercase text-[9px] tracking-wider">Department Teams</span>
+                <span className="text-slate-800">{inspectEmployee.teams.join(', ') || 'No Team'}</span>
               </div>
               <div className="flex items-center justify-between py-2">
-                <span className="text-slate-450 uppercase text-[9px] tracking-wider">Service Start Date</span>
+                <span className="text-slate-400 uppercase text-[9px] tracking-wider">Service Start Date</span>
                 <span className="text-slate-800">{new Date(inspectEmployee.joinedDate).toLocaleDateString('en-US', { dateStyle: 'medium' })}</span>
               </div>
               <div className="flex items-center justify-between py-2">
-                <span className="text-slate-450 uppercase text-[9px] tracking-wider">Gender</span>
+                <span className="text-slate-400 uppercase text-[9px] tracking-wider">Gender</span>
                 <span className="text-slate-800 capitalize">{inspectEmployee.gender || 'male'}</span>
               </div>
             </div>
@@ -615,6 +736,13 @@ export function TicketsView({ role }: TicketsViewProps) {
           </div>
         </Modal>
       )}
+
+      <ImageLightbox
+        src={lightboxSrc}
+        alt={lightboxName}
+        downloadName={lightboxName}
+        onClose={() => { setLightboxSrc(null); setLightboxName(undefined); }}
+      />
     </div>
   );
 }

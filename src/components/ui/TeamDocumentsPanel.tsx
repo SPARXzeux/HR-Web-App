@@ -134,7 +134,7 @@ export function TeamDocumentsPanel({ team, currentUserEmail, currentUserRole, cu
         {canManage && (
           <button
             onClick={() => setShowUpload(v => !v)}
-            className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg bg-orange-600 text-white hover:bg-orange-700 transition-all shrink-0"
+            className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg bg-orange-600 text-white hover:bg-orange-700 transition-colors transition-transform transition-shadow shrink-0"
           >
             <Upload className="h-3 w-3" /> Upload
           </button>
@@ -203,7 +203,7 @@ export function TeamDocumentsPanel({ team, currentUserEmail, currentUserRole, cu
           {documents.map(doc => {
             const kind = docKind(doc.fileName);
             return (
-              <div key={doc.id} className="border border-slate-200 rounded-xl p-3 bg-white hover:border-orange-300 transition-all group">
+              <div key={doc.id} className="border border-slate-200 rounded-xl p-3 bg-white hover:border-orange-300 transition-colors transition-transform transition-shadow group">
                 <div className="flex items-start gap-2.5">
                   <div className="shrink-0 h-9 w-9 rounded-lg bg-slate-50 flex items-center justify-center">
                     <DocIcon kind={kind} />

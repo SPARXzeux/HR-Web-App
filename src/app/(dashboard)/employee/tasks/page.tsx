@@ -5,7 +5,7 @@ import { useProfiles, useTasks, Task, Profile, displayName } from '@/lib/hrData'
 import { getSessionEmail } from '@/lib/session';
 import { TaskBoard } from '@/components/ui/TaskBoard';
 import { Badge } from '@/components/ui/Badge';
-import { Users } from 'lucide-react';
+import { Users, Star } from 'lucide-react';
 
 export default function TeamLeadTasksPage() {
   const { data: allProfiles = [] } = useProfiles();
@@ -58,7 +58,7 @@ export default function TeamLeadTasksPage() {
         <div className="flex flex-wrap items-center gap-2 mt-1">
           <p className="text-slate-500 text-sm">You are Team Lead of:</p>
           {leadTeams.map(t => (
-            <Badge key={t} variant="default" className="text-xs">⭐ {t}</Badge>
+            <Badge key={t} variant="default" className="text-xs flex items-center gap-1"><Star className="h-3 w-3" /> {t}</Badge>
           ))}
         </div>
       </div>
@@ -67,7 +67,7 @@ export default function TeamLeadTasksPage() {
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => setTeamFilter('all')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors transition-shadow ${
             teamFilter === 'all' ? 'bg-orange-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
           }`}
         >
@@ -75,7 +75,7 @@ export default function TeamLeadTasksPage() {
         </button>
         <button
           onClick={() => setTeamFilter('my')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors transition-shadow ${
             teamFilter === 'my' ? 'bg-orange-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
           }`}
         >
@@ -85,7 +85,7 @@ export default function TeamLeadTasksPage() {
           <button
             key={t}
             onClick={() => setTeamFilter(t)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors transition-shadow ${
               teamFilter === t ? 'bg-orange-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >

@@ -89,7 +89,7 @@ export function ToastNotification() {
       {toasts.map(toast => (
         <div
           key={toast.id}
-          className={`pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 shadow-xl rounded-xl p-4 flex gap-3 items-start transition-all duration-300 transform ${
+          className={`pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 shadow-xl rounded-xl p-4 flex gap-3 items-start transition-all duration-300 transform motion-reduce:transition-none motion-reduce:transform-none ${
             toast.visible 
               ? 'translate-y-0 sm:translate-x-0 opacity-100 scale-100' 
               : 'translate-y-[-12px] sm:translate-x-12 opacity-0 scale-95'

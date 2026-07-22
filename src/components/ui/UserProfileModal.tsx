@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Profile,
   formatMoney,
@@ -19,7 +20,9 @@ import {
 import { Badge } from './Badge';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Avatar } from './Avatar';
-import { X, User, Mail, Shield, ShieldAlert, Key, DollarSign, Calendar, MapPin, Landmark, Briefcase, FileText, CheckSquare, Square, Trash2, Download, Phone } from 'lucide-react';
+import { ImageLightbox } from './ImageLightbox';
+import { pushModal, popModal } from '@/lib/modalStack';
+import { X, User, Mail, Shield, ShieldAlert, Key, DollarSign, Calendar, MapPin, Landmark, Briefcase, FileText, CheckSquare, Square, Trash2, Download, Phone, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 
 interface UserProfileModalProps {
   isOpen: boolean;
@@ -46,6 +49,11 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
   const [hasDownloadedArchive, setHasDownloadedArchive] = useState(false);
   const [isExportingArchive, setIsExportingArchive] = useState(false);
   const [isApplyingIncrement, setIsApplyingIncrement] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isConfirmingOffboard, setIsConfirmingOffboard] = useState(false);
+  const [isReactivating, setIsReactivating] = useState(false);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxName, setLightboxName] = useState<string | undefined>(undefined);
 
   // Edit fields
   const [fullName, setFullName] = useState('');
@@ -76,6 +84,21 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
   const { data: allLeaves } = useLeaves();
   const warehouses = allWarehouses || [];
   const leaves = allLeaves || [];
+
+  // This modal is hand-rolled (not the shared Modal.tsx component), so it
+  // needs to register itself with the same modal-stack tracker used there —
+  // otherwise the mobile bottom pill nav has no way of knowing to hide
+  // itself while this card is open. See lib/modalStack.ts for the full story.
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      pushModal();
+      return () => {
+        document.body.style.overflow = 'unset';
+        popModal();
+      };
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen && employeeEmail && allProfiles) {
@@ -120,7 +143,18 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
     }
   }, [isOpen, employeeEmail, currentUserEmail, allProfiles]);
 
-  if (!isOpen || !profile) return null;
+  // SSR/hydration-safe createPortal pattern (matches Modal.tsx). This card
+  // is rendered wherever <UserProfileModal> is used in a page, so without
+  // portaling, its `fixed inset-0` overlay could get trapped inside any
+  // ancestor that becomes an accidental containing block (e.g. the
+  // dashboard page-content wrapper's page-enter animation used to leave a
+  // stuck `transform` behind) — pushing the card far down the page instead
+  // of covering the real viewport. Portaling to document.body sidesteps
+  // that class of bug entirely.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  if (!isOpen || !profile || !mounted || typeof document === 'undefined') return null;
 
   // Access Control logic checks
   const canEdit = 
@@ -148,7 +182,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-        <div className="relative bg-white rounded-2xl p-6 shadow-2xl max-w-sm w-full border border-slate-200 text-center space-y-4">
+        <div className="relative bg-white rounded-xl p-6 shadow-2xl max-w-sm w-full text-center space-y-4">
           <ShieldAlert className="h-10 w-10 text-rose-500 mx-auto" />
           <h3 className="font-bold text-slate-800">Access Restricted</h3>
           <p className="text-xs text-slate-500 font-semibold leading-relaxed">
@@ -164,27 +198,32 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
 
   const handleSaveChanges = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim() || !email.trim()) return;
+    if (!fullName.trim() || !email.trim() || isSavingProfile) return;
 
-    await hrActions.updateProfileDetails(profile.id, {
-      fullName,
-      email,
-      password,
-      jobTitle,
-      baseSalary: Number(baseSalary) || 0,
-      region,
-      gender,
-      role,
-      joinedDate,
-      salaryStartDate,
-      accountCreationDate,
-      assignedWarehouses,
-      alias: alias.trim() || undefined,
-    });
+    setIsSavingProfile(true);
+    try {
+      await hrActions.updateProfileDetails(profile.id, {
+        fullName,
+        email,
+        password,
+        jobTitle,
+        baseSalary: Number(baseSalary) || 0,
+        region,
+        gender,
+        role,
+        joinedDate,
+        salaryStartDate,
+        accountCreationDate,
+        assignedWarehouses,
+        alias: alias.trim() || undefined,
+      });
 
-    setIsEditing(false);
-    refetchProfiles();
-    onUpdate?.();
+      setIsEditing(false);
+      refetchProfiles();
+      onUpdate?.();
+    } finally {
+      setIsSavingProfile(false);
+    }
   };
 
   // A company-allocated number is company property — if this employee has
@@ -202,35 +241,41 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
   };
 
   const confirmOffboard = async () => {
-    // Company policy: full payout of the remaining combined PTO/Sick bank
-    // at contract end, computed from real accrual + leave records.
-    const finalLeavePayout = getFinalLeavePayout(profile, leaves);
+    if (isConfirmingOffboard) return;
+    setIsConfirmingOffboard(true);
+    try {
+      // Company policy: full payout of the remaining combined PTO/Sick bank
+      // at contract end, computed from real accrual + leave records.
+      const finalLeavePayout = getFinalLeavePayout(profile, leaves);
 
-    // Offboarding only flips these overlay flags — it deliberately does not
-    // touch hr_messages, hr_tasks, hr_tickets, documents, etc. Their chat
-    // history, sent files, and every other record stay exactly where they
-    // are (the profile itself isn't deleted, just flagged). Only the
-    // separate, irreversible "Delete Account Permanently" action actually
-    // removes data — see hrActions.deleteEmployee's purge list, which is
-    // intentionally its own explicit step, not something offboarding does
-    // implicitly.
-    await saveProfileExtras(profile.id, {
-      offboarded: true,
-      offboardDate: new Date().toISOString().split('T')[0],
-      offboardingStatus: {
-        itClearance,
-        financeClearance,
-        hrClearance,
-        companyNumberReturned,
-        notes,
-        finalLeavePayout
-      }
-    });
+      // Offboarding only flips these overlay flags — it deliberately does not
+      // touch hr_messages, hr_tasks, hr_tickets, documents, etc. Their chat
+      // history, sent files, and every other record stay exactly where they
+      // are (the profile itself isn't deleted, just flagged). Only the
+      // separate, irreversible "Delete Account Permanently" action actually
+      // removes data — see hrActions.deleteEmployee's purge list, which is
+      // intentionally its own explicit step, not something offboarding does
+      // implicitly.
+      await saveProfileExtras(profile.id, {
+        offboarded: true,
+        offboardDate: new Date().toISOString().split('T')[0],
+        offboardingStatus: {
+          itClearance,
+          financeClearance,
+          hrClearance,
+          companyNumberReturned,
+          notes,
+          finalLeavePayout
+        }
+      });
 
-    setShowOffboardConfirm(false);
-    setIsOffboarding(false);
-    refetchProfiles();
-    onUpdate?.();
+      setShowOffboardConfirm(false);
+      setIsOffboarding(false);
+      refetchProfiles();
+      onUpdate?.();
+    } finally {
+      setIsConfirmingOffboard(false);
+    }
   };
 
   const handleDownloadArchive = async () => {
@@ -277,13 +322,19 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
   };
 
   const handleReactivate = async () => {
-    await saveProfileExtras(profile.id, {
-      offboarded: false,
-      offboardDate: undefined,
-      offboardingStatus: undefined
-    });
-    refetchProfiles();
-    onUpdate?.();
+    if (isReactivating) return;
+    setIsReactivating(true);
+    try {
+      await saveProfileExtras(profile.id, {
+        offboarded: false,
+        offboardDate: undefined,
+        offboardingStatus: undefined
+      });
+      refetchProfiles();
+      onUpdate?.();
+    } finally {
+      setIsReactivating(false);
+    }
   };
 
   // Manually folds any pending anniversary increment (including back-filled
@@ -308,11 +359,11 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center md:justify-center p-0 md:p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex flex-col justify-end md:items-center md:justify-center p-0 md:p-4">
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
       
-      <div className="relative bg-white w-full shadow-2xl overflow-hidden rounded-t-2xl md:rounded-2xl max-h-[92vh] md:max-h-[85vh] md:max-w-lg flex flex-col border border-slate-200">
+      <div className="relative bg-white w-full shadow-2xl overflow-hidden rounded-t-2xl md:rounded-xl max-h-[92vh] md:max-h-[85vh] md:max-w-lg flex flex-col">
         <div className="md:hidden flex justify-center pt-3 pb-1 flex-shrink-0">
           <div className="h-1 w-10 rounded-full bg-slate-300" />
         </div>
@@ -329,13 +380,24 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
         <div className="px-5 py-5 overflow-y-auto flex-1 space-y-5">
           {/* Header summary */}
           <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-            <Avatar src={profile.profilePicture} name={displayName(profile, currentUserRole)} size={48} />
+            <button
+              type="button"
+              onClick={() => {
+                if (!(currentUserRole === 'hr' || currentUserRole === 'admin') || !profile.profilePicture) return;
+                setLightboxSrc(profile.profilePicture);
+                setLightboxName(`${profile.fullName}.jpg`);
+              }}
+              title={(currentUserRole === 'hr' || currentUserRole === 'admin') && profile.profilePicture ? 'View full size' : undefined}
+              className={(currentUserRole === 'hr' || currentUserRole === 'admin') && profile.profilePicture ? 'cursor-zoom-in' : 'cursor-default'}
+            >
+              <Avatar src={profile.profilePicture} name={displayName(profile, currentUserRole)} size={48} />
+            </button>
             <div>
               <h3 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
                 {displayName(profile, currentUserRole)}
                 {profile.offboarded && <Badge variant="danger">Offboarded</Badge>}
               </h3>
-              <p className="text-[10px] text-slate-455 font-bold uppercase tracking-wider mt-0.5">{profile.jobTitle || profile.role}</p>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">{profile.jobTitle || profile.role}</p>
             </div>
           </div>
 
@@ -371,7 +433,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                         type="button"
                         onClick={handleApplyIncrementNow}
                         disabled={isApplyingIncrement}
-                        className="mt-1 text-[9px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 disabled:opacity-50 px-2 py-1 rounded-md active:scale-97 transition-all"
+                        className="mt-1 text-[9px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 disabled:opacity-50 px-2 py-1 rounded-md active:scale-97 transition-colors transition-transform"
                       >
                         {isApplyingIncrement ? 'Applying…' : 'Apply Increment Now'}
                       </button>
@@ -443,7 +505,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
 
               {/* Bank Details */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-xs">
-                <p className="font-bold text-slate-800 flex items-center gap-1">🏦 Bank Information</p>
+                <p className="font-bold text-slate-800 flex items-center gap-1"><Landmark className="h-3.5 w-3.5" /> Bank Information</p>
                 {profile.bankName ? (
                   <div className="grid grid-cols-2 gap-2 text-[11px] font-medium text-slate-600">
                     <div>
@@ -467,30 +529,30 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
               {/* Offboarding Summary if offboarded */}
               {profile.offboarded && profile.offboardingStatus && (
                 <div className="p-3 bg-rose-50 border border-rose-100 rounded-xl space-y-2 text-xs">
-                  <p className="font-bold text-rose-800 flex items-center gap-1">⚠️ Offboarding Clearance</p>
+                  <p className="font-bold text-rose-800 flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" /> Offboarding Clearance</p>
                   <div className="space-y-1 text-[11px] font-semibold text-rose-700">
-                    <p>📅 Offboard Date: {profile.offboardDate}</p>
+                    <p className="flex items-center gap-1.5"><Calendar className="h-3 w-3" /> Offboard Date: {profile.offboardDate}</p>
                     <p className="flex items-center gap-1.5 mt-1">
-                      {profile.offboardingStatus.itClearance ? '🟢' : '🔴'} IT Hardware Clearance
+                      {profile.offboardingStatus.itClearance ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : <XCircle className="h-3.5 w-3.5 text-rose-500" />} IT Hardware Clearance
                     </p>
                     <p className="flex items-center gap-1.5">
-                      {profile.offboardingStatus.financeClearance ? '🟢' : '🔴'} Finance Settlement
+                      {profile.offboardingStatus.financeClearance ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : <XCircle className="h-3.5 w-3.5 text-rose-500" />} Finance Settlement
                     </p>
                     <p className="flex items-center gap-1.5">
-                      {profile.offboardingStatus.hrClearance ? '🟢' : '🔴'} HR Official Signoff
+                      {profile.offboardingStatus.hrClearance ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : <XCircle className="h-3.5 w-3.5 text-rose-500" />} HR Official Signoff
                     </p>
                     {profile.companyPhone && (
                       <p className="flex items-center gap-1.5">
-                        {profile.offboardingStatus.companyNumberReturned ? '🟢' : '🔴'} Company Number ({profile.companyPhone}) Returned
+                        {profile.offboardingStatus.companyNumberReturned ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : <XCircle className="h-3.5 w-3.5 text-rose-500" />} Company Number ({profile.companyPhone}) Returned
                       </p>
                     )}
                     {profile.offboardingStatus.finalLeavePayout !== undefined && (
                       <p className="flex items-center gap-1.5 mt-1 pt-1.5 border-t border-rose-200/50">
-                        💰 Final PTO/Sick Payout: <span className="font-bold">{formatMoney(profile.offboardingStatus.finalLeavePayout, profile.region)}</span>
+                        <DollarSign className="h-3.5 w-3.5" /> Final PTO/Sick Payout: <span className="font-bold">{formatMoney(profile.offboardingStatus.finalLeavePayout, profile.region)}</span>
                       </p>
                     )}
                     {profile.offboardingStatus.notes && (
-                      <p className="mt-2 text-slate-550 border-t border-rose-200/50 pt-1.5 font-medium leading-relaxed">
+                      <p className="mt-2 text-slate-600 border-t border-rose-200/50 pt-1.5 font-medium leading-relaxed">
                         Notes: {profile.offboardingStatus.notes}
                       </p>
                     )}
@@ -502,15 +564,15 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
               {canManageThisProfile && (
                 <div className="space-y-2 pt-3 border-t border-slate-100">
                   <div className="flex gap-2">
-                    <button onClick={() => setIsEditing(true)} className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97">
+                    <button onClick={() => setIsEditing(true)} className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-xl text-xs transition-colors transition-transform active:scale-97">
                       Edit Credentials
                     </button>
                     {profile.offboarded ? (
-                      <button onClick={handleReactivate} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97">
-                        Reactivate Employee
+                      <button onClick={handleReactivate} disabled={isReactivating} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs transition-colors transition-transform active:scale-97 disabled:opacity-60 disabled:cursor-not-allowed">
+                        {isReactivating ? 'Reactivating…' : 'Reactivate Employee'}
                       </button>
                     ) : (
-                      <button onClick={() => setIsOffboarding(true)} className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97">
+                      <button onClick={() => setIsOffboarding(true)} className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 rounded-xl text-xs transition-colors transition-transform active:scale-97">
                         Offboard Account
                       </button>
                     )}
@@ -521,7 +583,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                         type="button"
                         onClick={handleDownloadArchive}
                         disabled={isExportingArchive}
-                        className="w-full flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97 disabled:opacity-60"
+                        className="w-full flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-colors transition-transform active:scale-97 disabled:opacity-60"
                       >
                         <Download className="h-3.5 w-3.5" />
                         {isExportingArchive ? 'Preparing download…' : hasDownloadedArchive ? 'Re-download Employee Data' : 'Download Employee Data First'}
@@ -530,7 +592,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                         onClick={() => setShowDeleteConfirm(true)}
                         disabled={!hasDownloadedArchive}
                         title={!hasDownloadedArchive ? "Download this employee's data first — deletion is permanent and cannot be undone." : undefined}
-                        className="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 font-bold py-2.5 rounded-xl text-xs transition-all active:scale-97 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white"
+                        className="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 font-bold py-2.5 rounded-xl text-xs transition-colors transition-transform active:scale-97 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white"
                       >
                         <Trash2 className="h-3.5 w-3.5" /> Delete Account Permanently
                       </button>
@@ -658,7 +720,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                           if (e.target.checked) setAssignedWarehouses(prev => [...prev, wh.id]);
                           else setAssignedWarehouses(prev => prev.filter(id => id !== wh.id));
                         }}
-                        className="rounded border-slate-350 text-orange-655 focus:ring-orange-500"
+                        className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
                       />
                       {wh.name}
                     </label>
@@ -667,11 +729,11 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
               </div>
 
               <div className="flex gap-2 pt-3 border-t border-slate-100">
-                <button type="button" onClick={() => setIsEditing(false)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs">
+                <button type="button" disabled={isSavingProfile} onClick={() => setIsEditing(false)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs disabled:opacity-50 disabled:cursor-not-allowed">
                   Cancel
                 </button>
-                <button type="submit" className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-xl text-xs">
-                  Save Changes
+                <button type="submit" disabled={isSavingProfile} className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-xl text-xs disabled:opacity-60 disabled:cursor-not-allowed">
+                  {isSavingProfile ? 'Saving…' : 'Save Changes'}
                 </button>
               </div>
             </form>
@@ -687,7 +749,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                 </p>
               </div>
 
-              <div className="p-3.5 bg-emerald-50 border border-emerald-150 rounded-xl flex items-center justify-between">
+              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
                 <div>
                   <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Final PTO/Sick Bank Payout</p>
                   <p className="text-[9px] text-emerald-600 font-semibold mt-0.5">
@@ -703,7 +765,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                     type="checkbox"
                     checked={itClearance}
                     onChange={e => setItClearance(e.target.checked)}
-                    className="rounded border-slate-350 text-orange-655 focus:ring-orange-500"
+                    className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
                   />
                   1. IT Hardware Clearance & Assets Recovered
                 </label>
@@ -713,7 +775,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                     type="checkbox"
                     checked={financeClearance}
                     onChange={e => setFinanceClearance(e.target.checked)}
-                    className="rounded border-slate-350 text-orange-655 focus:ring-orange-500"
+                    className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
                   />
                   2. Finance Account Settlement & Pending dues paid
                 </label>
@@ -723,7 +785,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                     type="checkbox"
                     checked={hrClearance}
                     onChange={e => setHrClearance(e.target.checked)}
-                    className="rounded border-slate-350 text-orange-655 focus:ring-orange-500"
+                    className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
                   />
                   3. HR Resignation clearance signed off
                 </label>
@@ -734,7 +796,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                       type="checkbox"
                       checked={companyNumberReturned}
                       onChange={e => setCompanyNumberReturned(e.target.checked)}
-                      className="rounded border-slate-350 text-orange-655 focus:ring-orange-500"
+                      className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
                     />
                     4. Company-Allocated Number ({profile.companyPhone}) Returned <span className="text-rose-600">*Required</span>
                   </label>
@@ -744,7 +806,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
               </div>
 
               {companyNumberReturnRequired && !companyNumberReturned && (
-                <p className="text-[10px] text-rose-600 font-semibold bg-rose-50 border border-rose-150 rounded-lg px-3 py-2 leading-relaxed">
+                <p className="text-[10px] text-rose-600 font-semibold bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 leading-relaxed">
                   This employee has a company-allocated number on file. Confirm it&apos;s been returned before offboarding can be completed.
                 </p>
               )}
@@ -783,8 +845,9 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
         onConfirm={confirmOffboard}
         title="Offboard this employee?"
         message={`This will deactivate ${profile.fullName}'s account and immediately block all access to the workspace. A final PTO/Sick bank payout of ${formatMoney(getFinalLeavePayout(profile, leaves), profile.region)} will be recorded. Their record stays in the system as "Offboarded" and can be reactivated later.`}
-        confirmLabel="Yes, Offboard"
+        confirmLabel={isConfirmingOffboard ? 'Offboarding…' : 'Yes, Offboard'}
         variant="warning"
+        loading={isConfirmingOffboard}
       />
 
       <ConfirmDialog
@@ -796,7 +859,16 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
         confirmLabel={isDeleting ? 'Deleting…' : 'Delete Permanently'}
         variant="danger"
         requireTextMatch="DELETE"
+        loading={isDeleting}
       />
-    </div>
+
+      <ImageLightbox
+        src={lightboxSrc}
+        alt={lightboxName}
+        downloadName={lightboxName}
+        onClose={() => { setLightboxSrc(null); setLightboxName(undefined); }}
+      />
+    </div>,
+    document.body
   );
 }

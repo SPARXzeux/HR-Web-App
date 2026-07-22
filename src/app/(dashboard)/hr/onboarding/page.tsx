@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { hrActions, Profile, useProfiles, useTeams } from '@/lib/hrData';
+import { hrActions, Profile, useProfiles, useProfileDocuments, useTeams, displayName } from '@/lib/hrData';
 import { getSessionEmail } from '@/lib/session';
 import { UserPlus, CheckCircle2, AlertCircle, FileText, ShieldCheck, XCircle, ClipboardCheck } from 'lucide-react';
 
@@ -20,6 +20,9 @@ export default function HROnboardingPage() {
   // (dashboard)/layout.tsx and hrActions.approveOnboarding/rejectOnboarding.
   const pendingApprovals = employees.filter(e => e.onboardingCompleted && e.approvalStatus === 'pending');
   const [reviewingEmp, setReviewingEmp] = useState<Profile | null>(null);
+  // Their CV/passport/identity scans are fetched on demand, only while
+  // their review modal is open — not part of the eager employees list.
+  const { data: reviewingEmpDocs } = useProfileDocuments(reviewingEmp?.id);
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectForm, setShowRejectForm] = useState(false);
   const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
@@ -78,14 +81,14 @@ export default function HROnboardingPage() {
   const [accountCreationDate, setAccountCreationDate] = useState(today);
   const [onboardError, setOnboardError] = useState('');
   const [onboardSuccess, setOnboardSuccess] = useState('');
-
-
+  const [isOnboarding, setIsOnboarding] = useState(false);
 
   const handleOnboardSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setOnboardError('');
     setOnboardSuccess('');
 
+    if (isOnboarding) return;
     if (!fullName || !email || !salary || !jobTitle) {
       setOnboardError('Please fill in all required fields.');
       return;
@@ -96,46 +99,54 @@ export default function HROnboardingPage() {
       return;
     }
 
-    await hrActions.addEmployee({
-      fullName,
-      email,
-      role: role as 'employee' | 'hr' | 'admin' | 'team_lead',
-      joinedDate,
-      accountCreationDate,
-      baseSalary: Number(salary),
-      teams: [team],
-      password: tempPassword || 'employee123',
-      jobTitle,
-      gender,
-      region,
-    });
+    setIsOnboarding(true);
+    try {
+      await hrActions.addEmployee({
+        fullName,
+        email,
+        role: role as 'employee' | 'hr' | 'admin' | 'team_lead',
+        joinedDate,
+        accountCreationDate,
+        baseSalary: Number(salary),
+        teams: [team],
+        password: tempPassword || 'employee123',
+        jobTitle,
+        gender,
+        region,
+      });
 
-    // Mirror membership onto the authoritative hr_teams.members list.
-    const targetTeam = teamsData.find(t => t.name === team);
-    if (targetTeam && !targetTeam.members.includes(email)) {
-      await hrActions.updateTeamMembers(targetTeam.id, [...targetTeam.members, email]);
-      refetchTeams();
+      // Mirror membership onto the authoritative hr_teams.members list.
+      const targetTeam = teamsData.find(t => t.name === team);
+      if (targetTeam && !targetTeam.members.includes(email)) {
+        await hrActions.updateTeamMembers(targetTeam.id, [...targetTeam.members, email]);
+        refetchTeams();
+      }
+
+      await hrActions.addNotification('all', 'hr', `New employee ${fullName} onboarded onto team ${team}.`);
+      await hrActions.addNotification('all', 'admin', `New employee ${fullName} onboarded onto team ${team}.`);
+      setOnboardSuccess('Employee successfully registered!');
+      refetchProfiles();
+
+      setTimeout(() => {
+        setIsOnboardOpen(false);
+        setFullName('');
+        setEmail('');
+        setSalary('');
+        setTeam('Engineering');
+        setTempPassword('');
+        setJobTitle('');
+        setGender('male');
+        setRegion('Pakistan');
+        setJoinedDate(today);
+        setAccountCreationDate(today);
+        setOnboardSuccess('');
+      }, 1500);
+    } catch (err) {
+      console.error('Onboard employee failed:', err);
+      setOnboardError('Could not register that employee. Please try again.');
+    } finally {
+      setIsOnboarding(false);
     }
-
-    await hrActions.addNotification('all', 'hr', `New employee ${fullName} onboarded onto team ${team}.`);
-    await hrActions.addNotification('all', 'admin', `New employee ${fullName} onboarded onto team ${team}.`);
-    setOnboardSuccess('Employee successfully registered!');
-    refetchProfiles();
-
-    setTimeout(() => {
-      setIsOnboardOpen(false);
-      setFullName('');
-      setEmail('');
-      setSalary('');
-      setTeam('Engineering');
-      setTempPassword('');
-      setJobTitle('');
-      setGender('male');
-      setRegion('Pakistan');
-      setJoinedDate(today);
-      setAccountCreationDate(today);
-      setOnboardSuccess('');
-    }, 1500);
   };
 
   return (
@@ -147,7 +158,7 @@ export default function HROnboardingPage() {
         </div>
         <button
           onClick={() => setIsOnboardOpen(true)}
-          className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+          className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform flex items-center gap-1.5 shadow-sm"
         >
           <UserPlus className="h-4 w-4" /> Onboard Employee
         </button>
@@ -166,12 +177,12 @@ export default function HROnboardingPage() {
             {pendingApprovals.map(emp => (
               <div key={emp.id} className="px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-bold text-slate-900">{emp.fullName}</p>
+                  <p className="text-sm font-bold text-slate-900">{displayName(emp, 'hr')}</p>
                   <p className="text-xs text-slate-500 font-medium">{emp.email} · {emp.jobTitle || 'Staff'}</p>
                 </div>
                 <button
                   onClick={() => { setReviewingEmp(emp); setShowRejectForm(false); setRejectReason(''); setReviewError(''); }}
-                  className="bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 font-bold px-3.5 py-2 rounded-lg text-xs active:scale-97 transition-all self-start sm:self-auto"
+                  className="bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 font-bold px-3.5 py-2 rounded-lg text-xs active:scale-97 transition-colors transition-transform self-start sm:self-auto"
                 >
                   Review Documents
                 </button>
@@ -184,7 +195,7 @@ export default function HROnboardingPage() {
       <Card className="overflow-hidden border border-slate-200">
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm text-left border-collapse">
-            <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
+            <thead className="text-xs font-bold text-slate-600 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
               <tr>
                 <th className="px-6 py-4">Name</th>
                 <th className="px-6 py-4">Email</th>
@@ -197,7 +208,7 @@ export default function HROnboardingPage() {
             <tbody className="divide-y divide-slate-200">
               {employees.map((emp) => (
                 <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4 font-semibold text-slate-900">{emp.fullName}</td>
+                  <td className="px-6 py-4 font-semibold text-slate-900">{displayName(emp, 'hr')}</td>
                   <td className="px-6 py-4">{emp.email}</td>
                   <td className="px-6 py-4 capitalize font-medium text-slate-800">
                     {emp.jobTitle || 'Employee'} <span className="text-[10px] text-slate-400 font-bold uppercase">({emp.role})</span>
@@ -208,7 +219,7 @@ export default function HROnboardingPage() {
                       {emp.approvalStatus === 'pending' ? 'Pending Approval' : emp.approvalStatus === 'rejected' ? 'Rejected' : emp.onboardingCompleted ? 'Completed' : 'Invite Sent'}
                     </Badge>
                   </td>
-                  <td className="px-6 py-4 text-center text-slate-550">{emp.joinedDate}</td>
+                  <td className="px-6 py-4 text-center text-slate-600">{emp.joinedDate}</td>
                 </tr>
               ))}
             </tbody>
@@ -219,7 +230,7 @@ export default function HROnboardingPage() {
           {employees.map((emp) => (
             <div key={emp.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-bold text-slate-900 truncate pr-2">{emp.fullName}</p>
+                <p className="text-sm font-bold text-slate-900 truncate pr-2">{displayName(emp, 'hr')}</p>
                 <Badge variant={emp.onboardingCompleted ? 'success' : 'warning'} className="shrink-0">
                   {emp.onboardingCompleted ? 'Completed' : 'Invite Sent'}
                 </Badge>
@@ -278,7 +289,7 @@ export default function HROnboardingPage() {
                 required 
                 value={fullName} 
                 onChange={e => setFullName(e.target.value)} 
-                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold"
                 placeholder="e.g. John Doe" 
               />
             </div>
@@ -289,7 +300,7 @@ export default function HROnboardingPage() {
                 required 
                 value={jobTitle} 
                 onChange={e => setJobTitle(e.target.value)} 
-                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold"
                 placeholder="e.g. QA Specialist" 
               />
             </div>
@@ -303,7 +314,7 @@ export default function HROnboardingPage() {
                 required 
                 value={email} 
                 onChange={e => setEmail(e.target.value)} 
-                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold"
                 placeholder="e.g. john@company.com" 
               />
             </div>
@@ -312,7 +323,7 @@ export default function HROnboardingPage() {
               <select 
                 value={gender} 
                 onChange={e => setGender(e.target.value as 'male' | 'female')} 
-                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer appearance-none"
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer appearance-none"
                 style={{
                   backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
                   backgroundRepeat: 'no-repeat',
@@ -332,7 +343,7 @@ export default function HROnboardingPage() {
               <select 
                 value={role} 
                 onChange={e => setRole(e.target.value)} 
-                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer appearance-none"
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer appearance-none"
                 style={{
                   backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
                   backgroundRepeat: 'no-repeat',
@@ -349,7 +360,7 @@ export default function HROnboardingPage() {
               <select 
                 value={region} 
                 onChange={e => setRegion(e.target.value as 'USA' | 'Pakistan')} 
-                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer appearance-none"
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer appearance-none"
                 style={{
                   backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
                   backgroundRepeat: 'no-repeat',
@@ -373,7 +384,7 @@ export default function HROnboardingPage() {
                 required 
                 value={salary} 
                 onChange={e => setSalary(e.target.value)} 
-                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold"
                 placeholder={region === 'USA' ? 'e.g. 5000' : 'e.g. 50000'} 
               />
             </div>
@@ -382,7 +393,7 @@ export default function HROnboardingPage() {
               <select 
                 value={team} 
                 onChange={e => setTeam(e.target.value)} 
-                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer appearance-none"
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer appearance-none"
                 style={{
                   backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
                   backgroundRepeat: 'no-repeat',
@@ -403,7 +414,7 @@ export default function HROnboardingPage() {
                 required
                 value={joinedDate}
                 onChange={e => setJoinedDate(e.target.value)}
-                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer"
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer"
               />
             </div>
             <div className="space-y-1.5">
@@ -415,7 +426,7 @@ export default function HROnboardingPage() {
                 required
                 value={accountCreationDate}
                 onChange={e => setAccountCreationDate(e.target.value)}
-                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer"
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold cursor-pointer"
               />
               <p className="text-[9px] text-slate-400 font-semibold">PTO accrual is calculated from this date.</p>
             </div>
@@ -428,25 +439,27 @@ export default function HROnboardingPage() {
                 type="text" 
                 value={tempPassword} 
                 onChange={e => setTempPassword(e.target.value)} 
-                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-all focus:ring-2 focus:ring-orange-100 font-semibold" 
+                className="w-full bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white rounded-xl py-2.5 px-3.5 text-xs outline-none text-slate-900 transition-colors focus:ring-2 focus:ring-orange-100 font-semibold"
                 placeholder="e.g. welcome123" 
               />
             </div>
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-            <button 
-              type="button" 
-              onClick={() => setIsOnboardOpen(false)} 
-              className="bg-white hover:bg-slate-55 border border-slate-200 text-slate-650 hover:text-slate-800 font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all"
+            <button
+              type="button"
+              onClick={() => setIsOnboardOpen(false)}
+              disabled={isOnboarding}
+              className="bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 hover:text-slate-800 font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-colors transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Cancel
             </button>
-            <button 
-              type="submit" 
-              className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-all shadow-md shadow-orange-600/10"
+            <button
+              type="submit"
+              disabled={isOnboarding}
+              className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-xl text-xs active:scale-97 transition-colors transition-transform shadow-md shadow-orange-600/10 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Register & Invite
+              {isOnboarding ? 'Registering…' : 'Register & Invite'}
             </button>
           </div>
         </form>
@@ -458,7 +471,7 @@ export default function HROnboardingPage() {
           <div className="space-y-5 pt-1">
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-center justify-between">
               <div>
-                <p className="text-sm font-bold text-slate-900">{reviewingEmp.fullName}</p>
+                <p className="text-sm font-bold text-slate-900">{displayName(reviewingEmp, 'hr')}</p>
                 <p className="text-xs text-slate-500 font-semibold">{reviewingEmp.email} · {reviewingEmp.jobTitle || 'Staff'} · {reviewingEmp.region || 'Pakistan'}</p>
               </div>
               <Badge variant="warning">Pending Approval</Badge>
@@ -471,25 +484,25 @@ export default function HROnboardingPage() {
             <div className="space-y-2.5">
               <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Uploaded Documents</h4>
 
-              {reviewingEmp.cvFileData && reviewingEmp.cvFileName && (
-                <a href={reviewingEmp.cvFileData} download={reviewingEmp.cvFileName} className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition-all">
-                  <FileText className="h-4 w-4 text-orange-600 shrink-0" /> {reviewingEmp.cvFileName} <span className="text-slate-400 font-medium ml-auto">CV</span>
+              {reviewingEmpDocs?.cvFileData && reviewingEmpDocs?.cvFileName && (
+                <a href={reviewingEmpDocs.cvFileData} download={reviewingEmpDocs.cvFileName} className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition-colors">
+                  <FileText className="h-4 w-4 text-orange-600 shrink-0" /> {reviewingEmpDocs.cvFileName} <span className="text-slate-400 font-medium ml-auto">CV</span>
                 </a>
               )}
 
-              {(reviewingEmp.identityDocs || []).map((doc, idx) => (
-                <a key={idx} href={doc.data} download={doc.name} className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition-all">
+              {(reviewingEmpDocs?.identityDocs || []).map((doc, idx) => (
+                <a key={idx} href={doc.data} download={doc.name} className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition-colors">
                   <FileText className="h-4 w-4 text-orange-600 shrink-0" /> {doc.name} <span className="text-slate-400 font-medium ml-auto">Identity Doc</span>
                 </a>
               ))}
 
-              {reviewingEmp.passportFileData && reviewingEmp.passportFileName && (
-                <a href={reviewingEmp.passportFileData} download={reviewingEmp.passportFileName} className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition-all">
-                  <FileText className="h-4 w-4 text-orange-600 shrink-0" /> {reviewingEmp.passportFileName} <span className="text-slate-400 font-medium ml-auto">Passport</span>
+              {reviewingEmpDocs?.passportFileData && reviewingEmpDocs?.passportFileName && (
+                <a href={reviewingEmpDocs.passportFileData} download={reviewingEmpDocs.passportFileName} className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition-colors">
+                  <FileText className="h-4 w-4 text-orange-600 shrink-0" /> {reviewingEmpDocs.passportFileName} <span className="text-slate-400 font-medium ml-auto">Passport</span>
                 </a>
               )}
 
-              {!reviewingEmp.cvFileData && (reviewingEmp.identityDocs || []).length === 0 && !reviewingEmp.passportFileData && (
+              {!reviewingEmpDocs?.cvFileData && (reviewingEmpDocs?.identityDocs || []).length === 0 && !reviewingEmpDocs?.passportFileData && (
                 <p className="text-xs text-slate-400 italic font-semibold">No documents on file.</p>
               )}
 
@@ -523,7 +536,7 @@ export default function HROnboardingPage() {
                     type="button"
                     disabled={isReviewSubmitting}
                     onClick={() => handleReject(reviewingEmp)}
-                    className="flex-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white font-bold py-2.5 rounded-xl text-xs active:scale-97 transition-all"
+                    className="flex-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white font-bold py-2.5 rounded-xl text-xs active:scale-97 transition-colors transition-transform"
                   >
                     {isReviewSubmitting ? 'Submitting…' : 'Confirm Rejection'}
                   </button>
@@ -534,7 +547,7 @@ export default function HROnboardingPage() {
                 <button
                   type="button"
                   onClick={() => setShowRejectForm(true)}
-                  className="flex-1 bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 font-bold py-2.5 rounded-xl text-xs active:scale-97 transition-all flex items-center justify-center gap-1.5"
+                  className="flex-1 bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 font-bold py-2.5 rounded-xl text-xs active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1.5"
                 >
                   <XCircle className="h-3.5 w-3.5" /> Reject
                 </button>
@@ -542,7 +555,7 @@ export default function HROnboardingPage() {
                   type="button"
                   disabled={isReviewSubmitting}
                   onClick={() => handleApprove(reviewingEmp)}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold py-2.5 rounded-xl text-xs active:scale-97 transition-all flex items-center justify-center gap-1.5"
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold py-2.5 rounded-xl text-xs active:scale-97 transition-colors transition-transform flex items-center justify-center gap-1.5"
                 >
                   <ShieldCheck className="h-3.5 w-3.5" /> {isReviewSubmitting ? 'Approving…' : 'Approve & Unlock Dashboard'}
                 </button>

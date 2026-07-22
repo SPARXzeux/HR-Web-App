@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+/* DuoIcons — duotone icon set, wired up via the static-CSS import path (the
+   "recommended" install method per the official docs), NOT the JS plugin.
+   `base` provides the shared `.duo-icons-*` sizing/layer-color mechanics;
+   `icons` pulls in every icon glyph as a ready-made CSS class (see
+   https://duoicons.vercel.app/ for the full list and usage:
+   <span class="duo-icons-airplay text-3xl text-indigo-500"></span>).
+   The package's JS plugin (tailwind.config.js) is intentionally NOT loaded
+   here — see the comment in that file for why. */
+@import "@duo-icons/tailwind/base";
+@import "@duo-icons/tailwind/icons";
+
 @variant dark (.disable-dark-mode-entirely);
 
 :root {
@@ -31,23 +42,80 @@
   --color-emerald: var(--emerald);
   --color-amber: var(--amber);
   --color-rose: var(--rose);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Space Grotesk (display) + Plus Jakarta Sans (body) — see layout.tsx.
+     `font-display` is an opt-in Tailwind utility for headings/stat numbers;
+     everything else defaults to `font-sans` (the body face). No third font
+     loaded for mono — a system monospace stack covers the handful of
+     places (IDs, timestamps) that want tabular alignment. */
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Stops Android's WebView "font boosting" accessibility behavior from
+   inflating text past its coded size — this is what was making chat
+   placeholder text, the ticket header title/subtext, etc. render visibly
+   larger than their Tailwind text-[Npx] classes on the actual device while
+   fixed-size icons/buttons stayed correctly sized (font-boosting only
+   scales text glyphs, not layout dimensions, which is why the two drifted
+   out of proportion with each other on-device but looked fine in a normal
+   browser preview). */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, sans-serif;
+  font-family: var(--font-body), Arial, sans-serif;
   min-height: 100vh;
   margin: 0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-y: none; /* Native app feel, no pull-to-refresh bounce */
+}
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 20px);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+/* REMOVED (impeccable pass): this used to blanket-force every <button> and
+   <a> on mobile to a 44px minimum box, and every <input>/<select>/<textarea>
+   to 16px font — regardless of that element's own Tailwind sizing.
+   This is what was silently causing basically every "icon/button X is
+   bigger than Y" report across the app: <label>-based icons (like the
+   Paperclip attachment trigger) were never covered by the `button, a`
+   selector and kept their true h-8/h-9 size, while sibling <button>
+   elements (Send, the Announcement toggle, Close Ticket, the profile
+   camera badge, etc.) all got silently inflated to 44px no matter what
+   size class they had. Same story for the `font-size: 16px !important` on
+   textareas — it stomped the deliberately smaller chat/reply placeholder
+   text sizing.
+   The zoom-prevention this was originally for is already handled by the
+   viewport config in layout.tsx (userScalable: false, maximumScale: 1), so
+   removing this doesn't reintroduce iOS zoom-on-focus. Components that
+   genuinely want a generous 44px tap target already opt into it explicitly
+   per-button (e.g. `min-h-[44px] md:min-h-0` on several form CTAs) — that's
+   the correct, non-global way to do it. */
+
+/* Headings default to the display face (Space Grotesk) automatically —
+   means every page's <h1>/<h2>/<h3> picks up the new pairing without a
+   className change per instance. Anywhere that specifically wants the body
+   face on a heading-level element can override with `font-sans`. */
+h1, h2, h3 {
+  font-family: var(--font-display), Arial, sans-serif;
+  text-wrap: balance;
 }
 
 /* Base button animations */
 button, select, input, textarea {
-  transition: transform 150ms var(--ease-out-snappy), border-color 150ms var(--ease-out-snappy), background-color 150ms var(--ease-out-snappy), box-shadow 150ms var(--ease-out-snappy);
+  transition: transform 200ms var(--ease-out-snappy), border-color 200ms var(--ease-out-snappy), background-color 200ms var(--ease-out-snappy), box-shadow 200ms var(--ease-out-snappy);
 }
 
 button:active {
@@ -62,6 +130,182 @@ button:active {
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+/* Mirrors enter-modal exactly in reverse (see improve-animations plan 002) —
+   modal previously unmounted instantly on close with no exit motion. */
+@keyframes exit-modal {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+/* Nav/list entrance stagger — used once on first mount (sidebar nav links,
+   dashboard stat cards), never re-triggered on client-side route changes
+   since those components stay mounted. Rare/first-load frequency tier, so a
+   little delight here is earned rather than annoying. */
+@keyframes stagger-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.stagger-item {
+  animation: stagger-in 420ms var(--ease-out-snappy) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stagger-item {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Popover/dropdown/banner entrance (improve-animations plan 001) — replaces
+   dead `animate-in fade-in slide-in-from-top-* duration-150` classNames that
+   compiled to nothing since tailwindcss-animate is not installed in this
+   project. Kept subtle (6px offset) since several of these surfaces (bell,
+   profile, search) are opened tens of times/day. */
+.popover-enter {
+  animation: popover-in 220ms var(--ease-out-snappy) both;
+}
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Drawer/sheet entrance from an edge (improve-animations plan 001) — mobile
+   nav drawer's slide from the left. */
+.drawer-enter-left {
+  animation: drawer-in-left 280ms var(--ease-out-snappy) both;
+}
+@keyframes drawer-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* Bottom sheet entrance (mobile search overlay, modals) */
+.drawer-enter-bottom {
+  animation: drawer-in-bottom 320ms var(--ease-out-snappy) both;
+}
+@keyframes drawer-in-bottom {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes drawer-exit-bottom {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+/* Full-screen surface fade (improve-animations plan 001) — backdrops, the
+   mobile search overlay, the consent gate's backdrop layer, banners, and the
+   login page. */
+.fade-enter {
+  animation: fade-in-simple 280ms var(--ease-in-out-smooth) both;
+}
+@keyframes fade-in-simple {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* First-run consent gate dialog (improve-animations plan 001) — rare,
+   higher-weight surface; earns its own slightly larger scale-in than
+   .popover-enter's subtle 6px/0.98. */
+.dialog-enter {
+  animation: dialog-in 340ms var(--ease-out-snappy) both;
+}
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popover-enter, .drawer-enter-left, .fade-enter, .dialog-enter {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Sidebar unseen-activity dots (improve-animations plan 006) — pop in on
+   first appearance rather than snapping into existence; disappears instantly
+   when marked seen (no exit animation needed for that direction). */
+.presence-dot {
+  transition: scale 260ms var(--ease-out-snappy), opacity 260ms var(--ease-out-snappy);
+
+  @starting-style {
+    scale: 0;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .presence-dot {
+    transition: none;
+  }
+}
+
+/* Dashboard main-content route transition (impeccable pass) — content
+   previously swapped instantly with zero motion when navigating between
+   sidebar tabs, which read as unfinished. Keyed by pathname in
+   (dashboard)/layout.tsx so it re-triggers on every route change, not just
+   first mount. Kept to opacity + a small rise, not a slide, since this
+   fires on every single nav click (high-frequency surface). */
+.page-enter {
+  animation: page-in 320ms var(--ease-out-snappy) both;
+}
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter {
+    animation: none;
+    opacity: 1;
+    transform: none;
   }
 }
 

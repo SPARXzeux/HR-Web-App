@@ -5,10 +5,12 @@ import { Bell, Search, X, User, CheckCircle2, Settings, LogOut, UserCircle, KeyR
 import {
   Notification, Profile, Task, Ticket, Team, Warehouse, PayrollRecord, LeaveApplication, CareerPosition, Announcement,
   hrActions, useProfiles, useTasks, useTickets, useNotifications, useTeams, useWarehouses, usePayroll, useLeaves, useCareers, useAnnouncements,
+  displayName as resolveDisplayName,
 } from '@/lib/hrData';
 import { Avatar } from '@/components/ui/Avatar';
 import { useRouter, usePathname } from 'next/navigation';
 import { getSessionEmail, getSessionRole, clearSession } from '@/lib/session';
+import { logoutPush } from '@/lib/push';
 
 export function TopNav() {
   const router = useRouter();
@@ -251,6 +253,11 @@ export function TopNav() {
     // rather than PocketBase's built-in auth collection, so there is no
     // pb.authStore session to clear here — just drop the local session markers.
     await hrActions.performLogout(email || '', role);
+    // Unlink this device's push subscription from the outgoing user before
+    // dropping the session — matters most on shared/kiosk devices, so the
+    // next person who signs in doesn't inherit the previous employee's push
+    // targeting.
+    await logoutPush();
     clearSession();
     router.push('/auth');
   };
@@ -299,7 +306,7 @@ export function TopNav() {
               <button key={emp.email} onClick={() => navigateToResult(role === 'hr' ? `/hr/teams` : `/admin/payroll`)}
                 className="w-full text-left p-2.5 hover:bg-slate-50 rounded-xl text-xs flex justify-between items-center transition-colors min-h-[44px]">
                 <div>
-                  <p className="font-bold text-slate-800">{emp.fullName}</p>
+                  <p className="font-bold text-slate-800">{resolveDisplayName(emp, role as 'hr' | 'admin')}</p>
                   <p className="text-[10px] text-slate-400">{emp.email}</p>
                 </div>
                 <span className="text-[9px] uppercase tracking-wider font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">{emp.role}</span>
@@ -355,7 +362,7 @@ export function TopNav() {
             {(limit ? matchedTeams.slice(0, limit) : matchedTeams).map(t => (
               <button key={t.id} onClick={() => navigateToResult('/hr/teams')}
                 className="w-full text-left p-2.5 hover:bg-slate-50 rounded-xl text-xs font-semibold text-slate-700 flex justify-between items-center transition-colors min-h-[44px]">
-                <span>👥 {t.name}</span>
+                <span className="flex items-center gap-1.5"><Users className="h-3.5 w-3.5 text-slate-400" /> {t.name}</span>
                 <span className="text-[9px] uppercase font-bold text-orange-600">View</span>
               </button>
             ))}
@@ -458,7 +465,7 @@ export function TopNav() {
 
   // Shared search results dropdown content (desktop)
   const SearchResults = () => (
-    <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 max-h-[60vh] overflow-y-auto divide-y divide-slate-100 animate-in fade-in slide-in-from-top-2 duration-150">
+    <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 max-h-[60vh] overflow-y-auto divide-y divide-slate-100 popover-enter">
       {renderResultGroups(4)}
     </div>
   );
@@ -466,7 +473,7 @@ export function TopNav() {
   return (
     <>
       {/* Main TopNav bar */}
-      <header className="h-14 md:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-6 sticky top-0 z-20 gap-3">
+      <header className="h-14 md:h-16 bg-white/85 backdrop-blur-md border-b border-slate-200/70 flex items-center justify-between px-4 md:px-6 sticky top-0 z-20 gap-3">
 
         {/* Desktop Search Bar — hidden on mobile */}
         <div className="hidden md:flex flex-1 items-center max-w-md relative">
@@ -477,7 +484,7 @@ export function TopNav() {
             onChange={handleSearchChange}
             onFocus={() => search.trim() && setShowResults(true)}
             placeholder="Search employees, tasks, payroll, leaves..."
-            className="w-full bg-slate-50 border border-slate-200 rounded-full py-1.5 pl-10 pr-4 text-sm focus:border-orange-500 outline-none text-slate-900 focus:bg-white transition-all font-semibold"
+            className="w-full bg-slate-100/80 border border-transparent rounded-full py-1.5 pl-10 pr-4 text-sm focus:border-orange-500 focus:bg-white outline-none text-slate-900 transition-colors font-semibold"
           />
           {showResults && search.trim().length > 0 && <SearchResults />}
         </div>
@@ -524,7 +531,7 @@ export function TopNav() {
             </button>
 
             {isBellOpen && (
-              <div className="fixed top-16 left-4 right-4 sm:absolute sm:top-12 sm:right-0 sm:left-auto sm:w-[320px] bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-3 duration-150">
+              <div className="fixed top-16 left-4 right-4 sm:absolute sm:top-12 sm:right-0 sm:left-auto sm:w-[320px] bg-white border border-slate-200 rounded-xl shadow-lg z-50 overflow-hidden popover-enter">
                 <div className="p-3.5 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center gap-2">
                   <span className="font-bold text-xs text-slate-800">Notifications</span>
                   <div className="flex items-center gap-2">
@@ -559,13 +566,13 @@ export function TopNav() {
           <div ref={profileRef} className="relative">
             <button
               onClick={() => { setIsProfileOpen(prev => !prev); setIsBellOpen(false); }}
-              className="hover:opacity-80 transition-opacity shadow-sm rounded-full"
+              className="hover:opacity-80 transition-opacity rounded-full"
             >
               <Avatar src={profilePicture} name={displayName || 'User'} size={36} />
             </button>
 
             {isProfileOpen && (
-              <div className="absolute right-0 top-12 w-[min(220px,85vw)] bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-3 duration-150">
+              <div className="absolute right-0 top-12 w-[min(220px,85vw)] bg-white border border-slate-200 rounded-xl shadow-lg z-50 overflow-hidden popover-enter">
                 <div className="p-3.5 border-b border-slate-100 bg-slate-50/50">
                   <p className="font-bold text-slate-900 text-sm truncate">{displayName}</p>
                   <p className="text-[10px] text-slate-500 truncate">{email}</p>
@@ -587,41 +594,50 @@ export function TopNav() {
         </div>
       </header>
 
-      {/* Mobile Full-Screen Search Overlay */}
+      {/* Mobile Slide-Up Search Sheet */}
       {isMobileSearchOpen && (
-        <div className="md:hidden fixed inset-0 z-50 bg-white flex flex-col animate-in slide-in-from-top duration-200">
-          <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-slate-200">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <input
-                type="text"
-                value={search}
-                onChange={handleSearchChange}
-                autoFocus
-                placeholder="Search anything..."
-                className="w-full bg-slate-50 border border-slate-200 rounded-full py-2.5 pl-10 pr-4 text-sm focus:border-orange-500 outline-none text-slate-900 focus:bg-white transition-all font-semibold"
-              />
+        <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end">
+          <div 
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm fade-enter" 
+            onClick={() => { setIsMobileSearchOpen(false); setSearch(''); setShowResults(false); }} 
+          />
+          <div className="relative bg-white rounded-t-3xl shadow-2xl flex flex-col w-full h-[85vh] drawer-enter-bottom">
+            {/* Drag Handle */}
+            <div className="flex justify-center pt-3 pb-2 shrink-0">
+              <div className="h-1.5 w-12 bg-slate-200 rounded-full" />
             </div>
-            <button
-              onClick={() => { setIsMobileSearchOpen(false); setSearch(''); setShowResults(false); }}
-              className="p-2.5 rounded-full text-slate-500 hover:bg-slate-100 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
 
-          {/* Search results in overlay — same categories/RBAC scoping as
-              the desktop dropdown (renderResultGroups), just uncapped and
-              laid out full-width for a phone screen. */}
-          <div className="flex-1 overflow-y-auto">
-            {search.trim().length > 0 && showResults && (
-              <div className="divide-y divide-slate-100">
-                {renderResultGroups()}
+            <div className="flex items-center gap-3 px-4 pb-3 border-b border-slate-100 shrink-0">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={handleSearchChange}
+                  autoFocus
+                  placeholder="Search anything..."
+                  className="w-full bg-slate-100/70 border border-transparent rounded-xl py-3 pl-10 pr-4 text-[16px] focus:border-slate-300 outline-none text-slate-900 focus:bg-slate-50 transition-colors font-medium"
+                />
               </div>
-            )}
-            {!search.trim() && (
-              <div className="p-8 text-center text-slate-400 font-medium text-sm">Start typing to search across all records</div>
-            )}
+              <button
+                onClick={() => { setIsMobileSearchOpen(false); setSearch(''); setShowResults(false); }}
+                className="text-[15px] font-semibold text-slate-500 hover:text-slate-800 transition-colors px-1"
+              >
+                Cancel
+              </button>
+            </div>
+
+            {/* Search results */}
+            <div className="flex-1 overflow-y-auto pb-safe">
+              {search.trim().length > 0 && showResults && (
+                <div className="divide-y divide-slate-100">
+                  {renderResultGroups()}
+                </div>
+              )}
+              {!search.trim() && (
+                <div className="p-8 text-center text-slate-400 font-medium text-sm">Start typing to search across all records</div>
+              )}
+            </div>
           </div>
         </div>
       )}

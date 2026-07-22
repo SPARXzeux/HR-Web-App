@@ -6,7 +6,7 @@ import { getSessionEmail } from '@/lib/session';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { Clock, PlusCircle, CheckCircle2, AlertCircle, HelpCircle, BadgeCheck } from 'lucide-react';
+import { Clock, PlusCircle, CheckCircle2, AlertCircle, HelpCircle, BadgeCheck, Loader2 } from 'lucide-react';
 
 export default function EmployeeLeavesPage() {
   const { data: allProfiles } = useProfiles();
@@ -24,6 +24,7 @@ export default function EmployeeLeavesPage() {
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [isSubmittingLeave, setIsSubmittingLeave] = useState(false);
 
   // Cashout simulator state
   const [cashoutDays, setCashoutDays] = useState(0);
@@ -59,6 +60,7 @@ export default function EmployeeLeavesPage() {
     setError('');
     setSuccess('');
 
+    if (isSubmittingLeave) return;
     if (!startDate || !endDate || !reason) {
       setError('Please fill in all required fields.');
       return;
@@ -156,6 +158,7 @@ export default function EmployeeLeavesPage() {
       status: 'pending',
     };
 
+    setIsSubmittingLeave(true);
     try {
       await hrActions.addLeave(newLeave);
       // Both HR and Admin manage leave approvals (see admin/leaves + hr/leaves
@@ -176,6 +179,8 @@ export default function EmployeeLeavesPage() {
     } catch (err) {
       console.error('[Leaves] Submit error:', err);
       setError('Failed to submit leave. Please try again.');
+    } finally {
+      setIsSubmittingLeave(false);
     }
   };
 
@@ -221,7 +226,7 @@ export default function EmployeeLeavesPage() {
         </div>
         <button
           onClick={() => setIsLeaveOpen(true)}
-          className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all flex items-center gap-1.5 shadow-sm"
+          className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform flex items-center gap-1.5 shadow-sm"
         >
           <PlusCircle className="h-4.5 w-4.5" /> Apply for Leave
         </button>
@@ -277,12 +282,12 @@ export default function EmployeeLeavesPage() {
                   setCashoutDays(val);
                   setSimRollover(Math.max(0, Math.min(5, Math.floor(remainingPTO - val))));
                 }}
-                className="w-full bg-white border border-slate-200 rounded-lg py-2 px-3 text-slate-850"
+                className="w-full bg-white border border-slate-200 rounded-lg py-2 px-3 text-slate-800"
               />
             </div>
             <div className="space-y-1">
               <label className="text-slate-500 uppercase tracking-wider text-[10px]">Rolled Over Days</label>
-              <p className="bg-white border border-slate-200 rounded-lg py-2 px-3 text-slate-850 font-mono">
+              <p className="bg-white border border-slate-200 rounded-lg py-2 px-3 text-slate-800 font-mono">
                 {simRollover} Days (Max 5)
               </p>
             </div>
@@ -304,7 +309,7 @@ export default function EmployeeLeavesPage() {
         {/* Desktop table */}
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full min-w-[700px] text-sm text-left border-collapse">
-            <thead className="text-xs font-bold text-slate-550 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
+            <thead className="text-xs font-bold text-slate-600 bg-slate-50 uppercase tracking-wider border-b border-slate-200">
               <tr>
                 <th className="px-6 py-4">Type</th>
                 <th className="px-6 py-4">Dates</th>
@@ -316,7 +321,7 @@ export default function EmployeeLeavesPage() {
               {filteredLeaves.map(leave => (
                 <tr key={leave.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4 font-semibold text-slate-900">{leave.type}</td>
-                  <td className="px-6 py-4 text-slate-650 font-medium">{leave.duration}</td>
+                  <td className="px-6 py-4 text-slate-600 font-medium">{leave.duration}</td>
                   <td className="px-6 py-4 text-slate-500">{leave.reason}</td>
                   <td className="px-6 py-4 text-center">{getStatusBadge(leave.status)}</td>
                 </tr>
@@ -374,7 +379,7 @@ export default function EmployeeLeavesPage() {
           )}
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-555 uppercase tracking-wider">Leave Type</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Leave Type</label>
             <select
               value={leaveType}
               onChange={(e) => setLeaveType(e.target.value)}
@@ -390,7 +395,7 @@ export default function EmployeeLeavesPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-555 uppercase tracking-wider">Start Date *</label>
+              <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Start Date *</label>
               <input
                 type="date"
                 value={startDate}
@@ -399,7 +404,7 @@ export default function EmployeeLeavesPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-555 uppercase tracking-wider">End Date *</label>
+              <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">End Date *</label>
               <input
                 type="date"
                 value={endDate}
@@ -410,7 +415,7 @@ export default function EmployeeLeavesPage() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-555 uppercase tracking-wider">Reason *</label>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Reason *</label>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -421,8 +426,11 @@ export default function EmployeeLeavesPage() {
           </div>
 
           <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-200">
-            <button type="button" onClick={() => setIsLeaveOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all">Cancel</button>
-            <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-all shadow-sm">Submit Request</button>
+            <button type="button" disabled={isSubmittingLeave} onClick={() => setIsLeaveOpen(false)} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
+            <button type="submit" disabled={isSubmittingLeave} className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-2.5 md:py-2 rounded-lg text-sm active:scale-97 transition-colors transition-transform shadow-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5">
+              {isSubmittingLeave && <Loader2 className="h-4 w-4 animate-spin" />}
+              {isSubmittingLeave ? 'Submitting…' : 'Submit Request'}
+            </button>
           </div>
         </form>
       </Modal>

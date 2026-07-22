@@ -42,8 +42,11 @@ export function isNativeMobileApp(): boolean {
   return typeof window !== 'undefined' && !!(window as any).Capacitor?.isNativePlatform?.();
 }
 
-/** The PocketBase server URL used by both the web app and tracker agents. */
-export const POCKETBASE_URL = 'http://157.230.7.89';
+/** The PocketBase server URL used by both the web app and tracker agents.
+ * Now HTTPS via pb.delcargo.us (Caddy reverse proxy in front of PocketBase)
+ * instead of the old bare HTTP IP — see src/lib/pocketbase.ts for the full
+ * story on why that mattered. */
+export const POCKETBASE_URL = 'https://pb.delcargo.us';
 
 export function encodeSetupCode(url: string, token: string): string {
   const json = JSON.stringify({ u: url, t: token });
