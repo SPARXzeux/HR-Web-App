@@ -101,7 +101,7 @@ export function ToastNotification() {
 
           <div className="flex-1 min-w-0">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">New Push Alert</p>
-            <p className="text-xs font-semibold text-slate-800 mt-1 leading-relaxed">{toast.message}</p>
+            <p className="text-xs font-semibold text-slate-800 mt-1 leading-relaxed whitespace-pre-wrap break-words">{toast.message}</p>
             <span className="text-[9px] text-slate-400 block mt-1.5 font-medium">{toast.timestamp}</span>
           </div>
 

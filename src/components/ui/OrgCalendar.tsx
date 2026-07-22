@@ -284,12 +284,12 @@ export function OrgCalendar({ leaves, tasks, employees }: OrgCalendarProps) {
                         {event.isConflict && <span className="text-amber-700 font-bold ml-2 inline-flex items-center gap-0.5"><AlertTriangle className="h-2.5 w-2.5" /> Conflict</span>}
                       </p>
                       {event.rawLeave && (
-                        <p className="text-[10px] text-slate-400 font-medium mt-1 leading-relaxed border-t border-slate-100 pt-1">
+                        <p className="text-[10px] text-slate-400 font-medium mt-1 leading-relaxed border-t border-slate-100 pt-1 whitespace-pre-wrap break-words">
                           Reason: {event.rawLeave.reason}
                         </p>
                       )}
                       {event.rawTask && (
-                        <p className="text-[10px] text-slate-400 font-medium mt-1 leading-relaxed border-t border-slate-100 pt-1">
+                        <p className="text-[10px] text-slate-400 font-medium mt-1 leading-relaxed border-t border-slate-100 pt-1 whitespace-pre-wrap break-words">
                           Description: {event.rawTask.description || 'No description provided'}
                         </p>
                       )}

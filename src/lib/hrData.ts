@@ -277,6 +277,10 @@ export interface Notification {
 }
 type NotificationReadMap = Record<string, string[]>;
 type NotificationClearedMap = Record<string, string[]>;
+// Same shape/pattern as NotificationReadMap (announcement id -> emails who've
+// seen it) — kept as its own KV key since hr_announcements is a separate
+// collection from hr_notifications, not a broadcast-notification row.
+type AnnouncementReadMap = Record<string, string[]>;
 
 export interface CareerPosition {
   id: string; title: string; department: string; location: string; description: string; requirements: string[];
@@ -1309,6 +1313,27 @@ export const hrActions = {
       target_role: typeof target === 'string' ? target : 'all', author: createdBy, author_role: '', pinned: false,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' ' + new Date().toLocaleDateString(),
     }),
+  getAnnouncementReadMap: (): Promise<AnnouncementReadMap> => pbGetKV('hr_announcement_reads_v1').then(v => v || {}),
+  isAnnouncementRead: (ann: Announcement, email: string, readMap: AnnouncementReadMap): boolean =>
+    (readMap[ann.id] || []).map(e => e.toLowerCase()).includes(email.toLowerCase()),
+  // Called once the announcements a person can currently see have actually
+  // been rendered on screen — writes read-state server-side for next visit,
+  // but deliberately doesn't hand back the updated map, so the page that
+  // just called this keeps showing the "unread" highlight for the remainder
+  // of this visit instead of it vanishing the instant it renders (same
+  // reasoning as the sidebar's unseen-ticket/chat dots: seen-on-arrival,
+  // not seen-on-render).
+  markAnnouncementsSeen: async (announcements: Announcement[], email: string): Promise<void> => {
+    if (!email || announcements.length === 0) return;
+    const emailLower = email.toLowerCase();
+    const readMap = ((await pbGetKV('hr_announcement_reads_v1')) as AnnouncementReadMap) || {};
+    let changed = false;
+    announcements.forEach(ann => {
+      const readers = readMap[ann.id] || [];
+      if (!readers.map(e => e.toLowerCase()).includes(emailLower)) { readMap[ann.id] = [...readers, email]; changed = true; }
+    });
+    if (changed) await pbSetKV('hr_announcement_reads_v1', readMap);
+  },
 
   // ── Tasks ─────────────────────────────────────────────────────────────
   addTask: async (task: Omit<Task, 'id'>): Promise<void> => {

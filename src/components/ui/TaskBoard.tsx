@@ -110,7 +110,7 @@ function TaskDetailModal({ task, onClose, onUpdate, canDelete, readOnly }: {
             {task.title}
           </h3>
           {task.description && (
-            <p className="text-xs md:text-sm text-slate-600 mt-2 leading-relaxed">{task.description}</p>
+            <p className="text-xs md:text-sm text-slate-600 mt-2 leading-relaxed whitespace-pre-wrap break-words">{task.description}</p>
           )}
         </div>
 

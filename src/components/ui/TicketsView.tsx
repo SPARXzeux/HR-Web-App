@@ -470,7 +470,7 @@ export function TicketsView({ role }: TicketsViewProps) {
                         <p className={`font-bold text-[10px] mb-0.5 ${isAuthorSelf ? 'text-orange-200' : 'text-slate-500'}`}>
                           {nameFor(selectedTicket.employeeName)} (Author)
                         </p>
-                        <p className="font-medium leading-relaxed">{selectedTicket.description}</p>
+                        <p className="font-medium leading-relaxed whitespace-pre-wrap break-words">{selectedTicket.description}</p>
                         <span className={`block text-[9px] mt-1 text-right ${isAuthorSelf ? 'text-orange-200' : 'text-slate-400'}`}>
                           {selectedTicket.createdAt}
                         </span>
@@ -513,7 +513,7 @@ export function TicketsView({ role }: TicketsViewProps) {
                         }`}>
                           {nameFor(rep.senderName)} ({rep.senderRole.toUpperCase()}) {isAdminViewer && isHrSender && '★'}
                         </p>
-                        {rep.message && <p className="font-medium leading-relaxed">{rep.message}</p>}
+                        {rep.message && <p className="font-medium leading-relaxed whitespace-pre-wrap break-words">{rep.message}</p>}
                         {rep.attachmentUrl && (
                           isImageAttachment(rep.attachmentName) ? (
                             // Opens in the in-app lightbox instead of

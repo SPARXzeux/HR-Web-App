@@ -322,7 +322,7 @@ export default function AdminDashboard() {
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
                 <div className="flex-1 min-w-0">
                   <h4 className="font-bold text-slate-900 text-sm">{ann.title}</h4>
-                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">{ann.content}</p>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed whitespace-pre-wrap break-words">{ann.content}</p>
                 </div>
                 <Badge variant={ann.target === 'all' ? 'default' : 'warning'} className="self-start shrink-0">
                   Target: {Array.isArray(ann.target)

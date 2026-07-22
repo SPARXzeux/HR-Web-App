@@ -550,7 +550,7 @@ export function TopNav() {
                 <div className="max-h-[300px] overflow-y-auto divide-y divide-slate-100">
                   {notifications.map(n => (
                     <div key={n.id} className={`p-3.5 text-xs flex flex-col gap-1 ${email && !hrActions.isNotificationRead(n, email, readMap) ? 'bg-orange-50/40' : ''}`}>
-                      <div className="text-slate-700 leading-relaxed font-medium">{n.message}</div>
+                      <div className="text-slate-700 leading-relaxed font-medium whitespace-pre-wrap break-words">{n.message}</div>
                       <div className="text-[9px] text-slate-400 font-medium text-right">{n.timestamp}</div>
                     </div>
                   ))}

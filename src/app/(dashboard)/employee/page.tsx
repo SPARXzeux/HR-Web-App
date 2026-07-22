@@ -62,6 +62,14 @@ export default function EmployeeDashboard() {
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [allEmployees, setAllEmployees] = useState<Profile[]>([]);
+  // Snapshotted once per visit (not re-fetched after markAnnouncementsSeen
+  // writes) so an announcement that was unread when this page loaded stays
+  // visibly highlighted for the rest of this visit, instead of the
+  // highlight vanishing the instant markAnnouncementsSeen's write lands —
+  // same "seen on arrival, not seen on render" reasoning as the sidebar's
+  // unseen ticket/chat dots.
+  const [announcementReadMap, setAnnouncementReadMap] = useState<Record<string, string[]>>({});
+  const announcementSeenRef = useRef(false);
   
   // Geofencing states
   const [shiftActive, setShiftActive] = useState(false);
@@ -338,6 +346,24 @@ export default function EmployeeDashboard() {
     }
     return false;
   });
+
+  // Unread-announcement highlighting: snapshot the read map once per visit
+  // (announcementSeenRef guards against re-snapshotting on background
+  // refetches) so an announcement that was unread when the page loaded stays
+  // visibly highlighted for the whole visit — see the state comment above.
+  // markAnnouncementsSeen is safe to call every time this list changes since
+  // it no-ops for anyone already recorded as having seen a given
+  // announcement.
+  useEffect(() => {
+    const email = userProfile?.email;
+    if (!email || myAnnouncements.length === 0) return;
+    if (!announcementSeenRef.current) {
+      announcementSeenRef.current = true;
+      hrActions.getAnnouncementReadMap().then(setAnnouncementReadMap);
+    }
+    hrActions.markAnnouncementsSeen(myAnnouncements, email);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myAnnouncements.length, userProfile?.email]);
 
   return (
     <div className="space-y-4 md:space-y-6 font-sans px-0">
@@ -668,15 +694,31 @@ export default function EmployeeDashboard() {
               <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Company Announcements</h3>
             </div>
             <CardContent className="p-4 space-y-3 max-h-64 overflow-y-auto">
-              {myAnnouncements.map(ann => (
-                <div key={ann.id} className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 text-xs">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="font-bold text-slate-900 truncate pr-2" title={ann.title}>{ann.title}</span>
-                    <span className="text-[9px] text-slate-400 font-medium shrink-0">{ann.timestamp.split(' ')[0]}</span>
+              {myAnnouncements.map(ann => {
+                const isUnread = !!userProfile?.email && !hrActions.isAnnouncementRead(ann, userProfile.email, announcementReadMap);
+                return (
+                  <div
+                    key={ann.id}
+                    className={`p-3 rounded-lg border text-xs transition-colors duration-200 ${
+                      isUnread ? 'border-orange-200 bg-orange-50/60' : 'border-slate-200 bg-slate-50/50'
+                    }`}
+                  >
+                    <div className="flex justify-between items-center mb-1 gap-2">
+                      <span className="font-bold text-slate-900 truncate flex items-center gap-1.5 min-w-0">
+                        {isUnread && <span className="h-1.5 w-1.5 rounded-full bg-orange-500 shrink-0 presence-dot" />}
+                        <span className="truncate" title={ann.title}>{ann.title}</span>
+                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {isUnread && (
+                          <span className="text-[8px] font-black uppercase tracking-wider text-orange-700 bg-orange-100 px-1.5 py-0.5 rounded-full">New</span>
+                        )}
+                        <span className="text-[9px] text-slate-400 font-medium">{ann.timestamp.split(' ')[0]}</span>
+                      </div>
+                    </div>
+                    <p className="text-slate-600 leading-relaxed mt-1 font-medium whitespace-pre-wrap break-words">{ann.content}</p>
                   </div>
-                  <p className="text-slate-600 leading-relaxed mt-1 font-medium">{ann.content}</p>
-                </div>
-              ))}
+                );
+              })}
               {myAnnouncements.length === 0 && (
                 <p className="text-xs text-slate-400 font-semibold italic text-center py-2">No announcements for your region.</p>
               )}
@@ -893,7 +935,7 @@ export default function EmployeeDashboard() {
             <div>
               <h3 className="font-bold text-lg text-slate-900">{selectedTask.title}</h3>
               {selectedTask.description && (
-                <p className="text-sm text-slate-600 mt-2 leading-relaxed">{selectedTask.description}</p>
+                <p className="text-sm text-slate-600 mt-2 leading-relaxed whitespace-pre-wrap break-words">{selectedTask.description}</p>
               )}
             </div>
 

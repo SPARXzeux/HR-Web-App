@@ -552,7 +552,7 @@ export function UserProfileModal({ isOpen, onClose, employeeEmail, currentUserRo
                       </p>
                     )}
                     {profile.offboardingStatus.notes && (
-                      <p className="mt-2 text-slate-600 border-t border-rose-200/50 pt-1.5 font-medium leading-relaxed">
+                      <p className="mt-2 text-slate-600 border-t border-rose-200/50 pt-1.5 font-medium leading-relaxed whitespace-pre-wrap break-words">
                         Notes: {profile.offboardingStatus.notes}
                       </p>
                     )}
